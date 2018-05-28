@@ -13,15 +13,15 @@ class BlockTask(luigi.Task):
 
     read_roi = Parameter()
     write_roi = Parameter()
-    level = luigi.IntParameter()
-    total_roi = Parameter()
-
-    # offsets to blocks in the previous level that this block has to wait for
-    level_conflict_offsets = Parameter()
 
     # meta-information about the concrete task to run for each block
     block_task = Parameter(significant=False)
     block_task_parameters = Parameter(significant=False)
+
+    # used internally to determine dependenciees
+    level = luigi.IntParameter(significant=False)
+    total_roi = Parameter(significant=False)
+    level_conflict_offsets = Parameter(significant=False)
 
     def requires(self):
 
