@@ -8,11 +8,42 @@ logger = logging.getLogger(__name__)
 class Parameter(luigi.Parameter):
     pass
 
-class ProcessBlocks(luigi.Task):
+class BlockTask(luigi.Task):
+    '''Base-class for block tasks.'''
+
+    read_roi = Parameter()
+    write_roi = Parameter()
+    level = luigi.IntParameter()
+    total_roi = Parameter()
+
+    def set_block_task(self, block_task, parameters):
+        self.block_task = block_task
+        self.block_task_parameters = parameters
+
+    def set_conflict_offsets(self, conflict_offsets):
+        self.conflict_offsets = conflict_offsets
+
+    def requires(self):
+
+        logger.info("Task %s has conflicts %s", self, self.conflict_offsets)
+
+        return [
+            self.block_task(
+                read_roi=self.read_roi + conflict_offset,
+                write_roi=self.write_roi + conflict_offset,
+                level=(self.level-1),
+                total_roi=self.total_roi,
+                **self.block_task_parameters)
+            for conflict_offset in self.conflict_offsets
+        ]
+
+class ProcessBlocks(luigi.WrapperTask):
 
     total_roi = Parameter()
     block_read_roi = Parameter()
     block_write_roi = Parameter()
+    block_task = Parameter()
+    block_task_parameters = Parameter()
 
     def compute_level_stride(self):
         '''Get the stride that separates independent blocks in one level.'''
@@ -151,15 +182,22 @@ class ProcessBlocks(luigi.Task):
             prev_level_offset = level_offset
 
             # create block tasks
-            level_tasks = [
-                BlockTask(
+            level_tasks = []
+            for block_offset in block_offsets:
+
+                task = self.block_task(
                     read_roi=self.block_read_roi + block_offset,
                     write_roi=self.block_write_roi + block_offset,
-                    conflict_offsets=conflict_offsets,
                     level=level,
-                    total_roi=self.total_roi)
-                for block_offset in block_offsets
-            ]
+                    total_roi=self.total_roi,
+                    **self.block_task_parameters)
+
+                task.set_conflict_offsets(conflict_offsets)
+                task.set_block_task(
+                    self.block_task,
+                    self.block_task_parameters)
+
+                level_tasks.append(task)
 
             logger.debug(
                 "block tasks for level %d: %s", level, level_tasks)
@@ -167,29 +205,3 @@ class ProcessBlocks(luigi.Task):
             block_tasks += level_tasks
 
         return block_tasks
-
-class BlockTask(luigi.WrapperTask):
-    '''Base-class for block tasks.'''
-
-    read_roi = Parameter()
-    write_roi = Parameter()
-    conflict_offsets = Parameter(significant=False)
-    level = luigi.IntParameter()
-    total_roi = Parameter()
-
-    def requires(self):
-
-        logger.debug("Task %s has conflicts %s", self, self.conflict_offsets)
-
-        return [
-            BlockTask(
-                read_roi=self.read_roi + conflict_offset,
-                write_roi=self.write_roi + conflict_offset,
-                conflict_offsets=[], # dummy
-                level=(self.level-1),
-                total_roi=self.total_roi)
-            for conflict_offset in self.conflict_offsets
-        ]
-
-    def run(self):
-        print("Running BlockTask for %s"%self.read_roi)
