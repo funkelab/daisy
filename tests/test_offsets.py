@@ -60,6 +60,12 @@ class TestTask(peach.BlockTask):
     def output(self):
         return TestDoneTarget(self.write_roi)
 
+    def requires(self):
+        return [TestDependency()]
+
+class TestDependency(luigi.WrapperTask):
+    pass
+
 if __name__ == "__main__":
 
     # total_roi: |------...--|
@@ -93,6 +99,6 @@ if __name__ == "__main__":
         read_roi,
         write_roi,
         TestTask,
-        {'factor': 7})
+        {'factor': 9})
 
     luigi.build([process_blocks], log_level='INFO', workers=4)

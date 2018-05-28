@@ -23,7 +23,7 @@ class BlockTask(luigi.Task):
     total_roi = Parameter(significant=False)
     level_conflict_offsets = Parameter(significant=False)
 
-    def requires(self):
+    def _requires(self):
 
         conflict_offsets = self.level_conflict_offsets[self.level]
 
@@ -50,6 +50,9 @@ class BlockTask(luigi.Task):
                     block_task_parameters=self.block_task_parameters,
                     **self.block_task_parameters)
             )
+
+        if self.level == 0:
+            deps += self.requires()
 
         return deps
 
