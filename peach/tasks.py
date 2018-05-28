@@ -8,6 +8,14 @@ logger = logging.getLogger(__name__)
 class Parameter(luigi.Parameter):
     pass
 
+class ConflictOffsets(object):
+
+    def __init__(self, offsets):
+        self.offsets = offsets
+
+    def __repr__(self):
+        return ""
+
 class BlockTask(luigi.Task):
     '''Base-class for block tasks.'''
 
@@ -25,7 +33,7 @@ class BlockTask(luigi.Task):
 
     def _requires(self):
 
-        conflict_offsets = self.level_conflict_offsets[self.level]
+        conflict_offsets = self.level_conflict_offsets.offsets[self.level]
 
         logger.debug("Task %s has conflicts %s", self, conflict_offsets)
 
@@ -215,7 +223,7 @@ class ProcessBlocks(luigi.WrapperTask):
                 write_roi=self.block_write_roi + block_offset,
                 level=level,
                 total_roi=self.total_roi,
-                level_conflict_offsets=level_conflict_offsets,
+                level_conflict_offsets=ConflictOffsets(level_conflict_offsets),
                 block_task=self.block_task,
                 block_task_parameters=self.block_task_parameters,
                 **self.block_task_parameters)
