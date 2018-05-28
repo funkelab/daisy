@@ -144,10 +144,10 @@ class ProcessBlocks(luigi.WrapperTask):
 
         logger.debug("Dim offsets: %s", dim_offsets)
 
-        self.level_offsets = [
+        self.level_offsets = list(reversed([
             Coordinate(o)
             for o in product(*dim_offsets)
-        ]
+        ]))
 
     def get_conflict_offsets(self, level_offset, prev_level_offset):
         '''Get the offsets to all previous level blocks that are in conflict
