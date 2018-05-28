@@ -31,6 +31,18 @@ class BlockTask(luigi.Task):
     total_roi = Parameter(significant=False)
     level_conflict_offsets = Parameter(significant=False)
 
+    def get_block_id(self):
+        '''Get a unique ID of this block, depending on the starting
+        coordinates of the write ROI.'''
+
+        block_id = 0
+        f = 1
+        for d in range(self.write_roi.dims()):
+            block_id += self.write_roi.get_begin()[-1 - d]*f
+            f *= self.total_roi.get_shape()[-1 - d]
+
+        return block_id
+
     def _requires(self):
 
         conflict_offsets = self.level_conflict_offsets.offsets[self.level]
