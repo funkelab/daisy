@@ -1,7 +1,8 @@
 import logging
 import luigi
-import peach
 import numpy as np
+import peach
+import random
 import time
 
 logging.basicConfig(level=logging.INFO)
@@ -43,19 +44,20 @@ class TestTask(peach.BlockTask):
             f.seek(self.read_roi.get_begin()[0], 0)
             read = f.read(self.read_roi.size())
 
+            s = sum([ int(d) for d in read ])
+            w = s%10
+
             print("Writing %d bytes to %d"%(self.write_roi.size(),
                 self.write_roi.get_begin()[0]))
             f.seek(self.write_roi.get_begin()[0], 0)
-            f.write(('%d'%self.level)*self.write_roi.size())
+            f.write(('%d'%w)*self.write_roi.size())
 
-        time.sleep(0.5)
+        time.sleep(random.random()*5)
 
         # mark as done
         with open('test_db_done.dat', 'r+') as f:
             f.seek(self.write_roi.get_begin()[0], 0)
             f.write('1'*self.write_roi.size())
-
-        time.sleep(0.5)
 
     def output(self):
         return TestDoneTarget(self.write_roi)
@@ -101,4 +103,4 @@ if __name__ == "__main__":
         TestTask,
         {'factor': 9})
 
-    luigi.build([process_blocks], log_level='INFO', workers=4)
+    luigi.build([process_blocks], log_level='INFO', workers=50)
