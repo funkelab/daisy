@@ -240,6 +240,7 @@ class ProcessBlocks(luigi.WrapperTask):
                 block_task_parameters=self.block_task_parameters,
                 **self.block_task_parameters)
             for block_offset in block_offsets
+            if self.total_roi.contains(self.block_read_roi + block_offset)
         ]
 
         logger.debug("block tasks for top level: %s", top_level_tasks)
