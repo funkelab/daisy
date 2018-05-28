@@ -2,6 +2,7 @@ import logging
 import luigi
 import peach
 import numpy as np
+import time
 
 # logging.shutdown()
 # reload(logging)
@@ -40,6 +41,8 @@ class TestTask(peach.BlockTask):
             self.write_roi.get_begin()[0]:self.write_roi.get_end()[0]
         ] = s*self.factor
 
+        time.sleep(1)
+
         # mark as done
         global_done[
             self.write_roi.get_begin()[0]:self.write_roi.get_end()[0]
@@ -72,4 +75,4 @@ if __name__ == "__main__":
         TestTask,
         {'factor': 4})
 
-    luigi.build([process_blocks])
+    luigi.build([process_blocks], log_level='INFO', workers=2)
