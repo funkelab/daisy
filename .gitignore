@@ -1,0 +1,6 @@
+*.sw[pmno]
+*.hdf
+*.h5
+*.ipynb
+*.pyc
+*.egg-info
