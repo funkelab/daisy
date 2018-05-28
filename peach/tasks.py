@@ -30,15 +30,26 @@ class BlockTask(luigi.Task):
 
         logger.debug("Task %s has conflicts %s", self, self.conflict_offsets)
 
-        return [
-            self.block_task(
-                read_roi=self.read_roi + conflict_offset,
-                write_roi=self.write_roi + conflict_offset,
-                level=(self.level-1),
-                total_roi=self.total_roi,
-                **self.block_task_parameters)
-            for conflict_offset in self.conflict_offsets
-        ]
+        deps = []
+        for conflict_offset in self.conflict_offsets:
+
+            read_roi = self.read_roi + conflict_offset
+            write_roi = self.write_roi + conflict_offset
+
+            # skip out-of-bounds dependencies
+            if not self.total_roi.contains(read_roi):
+                continue
+
+            deps.append(
+                self.block_task(
+                    read_roi=read_roi,
+                    write_roi=write_roi,
+                    level=(self.level-1),
+                    total_roi=self.total_roi,
+                    **self.block_task_parameters)
+            )
+
+        return deps
 
 class ProcessBlocks(luigi.WrapperTask):
 
