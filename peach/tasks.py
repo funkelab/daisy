@@ -16,22 +16,21 @@ class BlockTask(luigi.Task):
     level = luigi.IntParameter()
     total_roi = Parameter()
 
-    def set_block_task(self, block_task, parameters):
-        self.block_task = block_task
-        self.block_task_parameters = parameters
+    # offsets to blocks in the previous level that this block has to wait for
+    level_conflict_offsets = Parameter()
 
-    def set_conflict_offsets(self, conflict_offsets):
-        self.conflict_offsets = conflict_offsets
+    # meta-information about the concrete task to run for each block
+    block_task = Parameter(significant=False)
+    block_task_parameters = Parameter(significant=False)
 
     def requires(self):
 
-        if not hasattr(self, 'conflict_offsets'):
-            self.conflict_offsets = []
+        conflict_offsets = self.level_conflict_offsets[self.level]
 
-        logger.debug("Task %s has conflicts %s", self, self.conflict_offsets)
+        logger.debug("Task %s has conflicts %s", self, conflict_offsets)
 
         deps = []
-        for conflict_offset in self.conflict_offsets:
+        for conflict_offset in conflict_offsets:
 
             read_roi = self.read_roi + conflict_offset
             write_roi = self.write_roi + conflict_offset
@@ -46,6 +45,9 @@ class BlockTask(luigi.Task):
                     write_roi=write_roi,
                     level=(self.level-1),
                     total_roi=self.total_roi,
+                    level_conflict_offsets=self.level_conflict_offsets,
+                    block_task=self.block_task,
+                    block_task_parameters=self.block_task_parameters,
                     **self.block_task_parameters)
             )
 
@@ -155,36 +157,13 @@ class ProcessBlocks(luigi.WrapperTask):
 
         block_tasks = []
 
+        # create a list of conflict offsets for each level, that span the total
+        # ROI
+
+        level_conflict_offsets = []
         prev_level_offset = None
+
         for level, level_offset in enumerate(self.level_offsets):
-
-            # all block offsets of the current level, per dimension
-            block_dim_offsets = [
-                range(lo, e + 1, s)
-                for e, lo, s in zip(
-                    total_shape - read_shape,
-                    level_offset,
-                    self.level_stride)
-            ]
-
-            # all block offsets of the current level (relative to total ROI
-            # start)
-            block_offsets = [
-                Coordinate(o)
-                for o in product(*block_dim_offsets)
-            ]
-
-            logger.debug(
-                "relative block offsets for level %d: %s", level, block_offsets)
-
-            # convert to global coordinates
-            block_offsets = [
-                o + self.total_roi.get_begin()
-                for o in block_offsets
-            ]
-
-            logger.debug(
-                "absolute block offsets for level %d: %s", level, block_offsets)
 
             # get conflicts to previous level
             if prev_level_offset is not None:
@@ -195,27 +174,51 @@ class ProcessBlocks(luigi.WrapperTask):
                 conflict_offsets = []
             prev_level_offset = level_offset
 
-            # create block tasks
-            level_tasks = []
-            for block_offset in block_offsets:
+            level_conflict_offsets.append(conflict_offsets)
 
-                task = self.block_task(
-                    read_roi=self.block_read_roi + block_offset,
-                    write_roi=self.block_write_roi + block_offset,
-                    level=level,
-                    total_roi=self.total_roi,
-                    **self.block_task_parameters)
+        # start dependecy tree by requesting top-level blocks
 
-                task.set_conflict_offsets(conflict_offsets)
-                task.set_block_task(
-                    self.block_task,
-                    self.block_task_parameters)
+        level_offset = self.level_offsets[-1]
+        level = len(self.level_offsets) - 1
 
-                level_tasks.append(task)
+        # all block offsets of the top level, per dimension
+        block_dim_offsets = [
+            range(lo, e + 1, s)
+            for e, lo, s in zip(
+                total_shape - read_shape,
+                level_offset,
+                self.level_stride)
+        ]
 
-            logger.debug(
-                "block tasks for level %d: %s", level, level_tasks)
+        # all block offsets of the current level (relative to total ROI start)
+        block_offsets = [
+            Coordinate(o)
+            for o in product(*block_dim_offsets)
+        ]
 
-            block_tasks += level_tasks
+        # convert to global coordinates
+        block_offsets = [
+            o + self.total_roi.get_begin()
+            for o in block_offsets
+        ]
 
-        return block_tasks
+        logger.debug(
+            "absolute block offsets for level %d: %s", level, block_offsets)
+
+        # create top-level block tasks
+        top_level_tasks = [
+            self.block_task(
+                read_roi=self.block_read_roi + block_offset,
+                write_roi=self.block_write_roi + block_offset,
+                level=level,
+                total_roi=self.total_roi,
+                level_conflict_offsets=level_conflict_offsets,
+                block_task=self.block_task,
+                block_task_parameters=self.block_task_parameters,
+                **self.block_task_parameters)
+            for block_offset in block_offsets
+        ]
+
+        logger.debug("block tasks for top level: %s", top_level_tasks)
+
+        return top_level_tasks
