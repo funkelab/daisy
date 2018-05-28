@@ -4,15 +4,8 @@ import peach
 import numpy as np
 import time
 
-# logging.shutdown()
-# reload(logging)
-
 logging.basicConfig(level=logging.INFO)
 # logging.getLogger('peach.tasks').setLevel(logging.DEBUG)
-
-# test: write the sum of read_roi entries to each entry in write_roi
-global_db = np.ones((190,))
-global_done = np.zeros((190,))
 
 class TestDoneTarget(luigi.Target):
 
@@ -20,9 +13,20 @@ class TestDoneTarget(luigi.Target):
         self.write_roi = write_roi
 
     def exists(self):
-        return global_done[
-            self.write_roi.get_begin()[0]:self.write_roi.get_end()[0]
-        ].sum() == self.write_roi.size()
+
+        start = self.write_roi.get_begin()[0]
+        size = self.write_roi.size()
+
+        print("Testing if block with write ROI %s succeeded"%self.write_roi)
+        print("Reading %d bytes from %d"%(size, start))
+
+        with open('test_db_done.dat', 'r') as f:
+            f.seek(start, 0)
+            done = f.read(size)
+
+        print("Read %s from test_db_done.dat (should be all ones)"%done)
+
+        return done == '1'*size
 
 class TestTask(peach.BlockTask):
 
@@ -31,48 +35,64 @@ class TestTask(peach.BlockTask):
     def run(self):
         print("Running TestTask for %s"%self.read_roi)
 
-        # sum over read ROI
-        s = global_db[
-            self.read_roi.get_begin()[0]:self.read_roi.get_end()[0]
-        ].sum()
+        # read some, write some, should be conflict free
+        with open('test_db.dat', 'r+') as f:
 
-        # store in write ROI
-        global_db[
-            self.write_roi.get_begin()[0]:self.write_roi.get_end()[0]
-        ] = s*self.factor
+            print("Reading %d bytes from %d"%(self.read_roi.size(),
+                self.read_roi.get_begin()[0]))
+            f.seek(self.read_roi.get_begin()[0], 0)
+            read = f.read(self.read_roi.size())
 
-        time.sleep(1)
+            print("Writing %d bytes to %d"%(self.write_roi.size(),
+                self.write_roi.get_begin()[0]))
+            f.seek(self.write_roi.get_begin()[0], 0)
+            f.write(('%d'%self.level)*self.write_roi.size())
+
+        time.sleep(0.5)
 
         # mark as done
-        global_done[
-            self.write_roi.get_begin()[0]:self.write_roi.get_end()[0]
-        ] = 1
+        with open('test_db_done.dat', 'r+') as f:
+            f.seek(self.write_roi.get_begin()[0], 0)
+            f.write('1'*self.write_roi.size())
+
+        time.sleep(0.5)
 
     def output(self):
         return TestDoneTarget(self.write_roi)
 
 if __name__ == "__main__":
 
-    # total_roi: |--------|
-    #           100      109
+    # total_roi: |------...--|
+    #           100         190
     #
-    # block: rrwwr|
-    #        0    5
+    # block: rrrwwrrrrr|
+    #        0  3 5    10
     #
-    #            |--------|
-    # L0:        rrwwr|
-    #                rrwwr|
-    # L1:          rrwwr|
+    #            |----------------------...---|
+    # L0:        rrrwwrrrrr|     rrrwwrrrrr|
+    #                    rrrwwrrrrr|
+    # L1:          rrrwwrrrrr|     rrrwwrrrrr|
+    #                      rrrwwrrrrr|
+    # L2:            rrrwwrrrrr|     rrrwwrrrrr|
+    #                        rrrwwrrrrr|
+    # L3:              rrrwwrrrrr|     rrrwwrrrrr|
+    #                          rrrwwrrrrr|
+
+    # the shared "data base"
+    with open('test_db.dat', 'w') as f:
+        f.write('1'*190)
+    with open('test_db_done.dat', 'w') as f:
+        f.write('0'*190)
 
     total_roi = peach.Roi((100,), (90,))
-    read_roi = peach.Roi((0,), (5,))
-    write_roi = peach.Roi((2,), (2,))
+    read_roi = peach.Roi((0,), (10,))
+    write_roi = peach.Roi((3,), (2,))
 
     process_blocks = peach.ProcessBlocks(
         total_roi,
         read_roi,
         write_roi,
         TestTask,
-        {'factor': 4})
+        {'factor': 7})
 
-    luigi.build([process_blocks], log_level='INFO', workers=2)
+    luigi.build([process_blocks], log_level='INFO', workers=4)
