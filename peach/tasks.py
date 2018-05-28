@@ -25,7 +25,10 @@ class BlockTask(luigi.Task):
 
     def requires(self):
 
-        logger.info("Task %s has conflicts %s", self, self.conflict_offsets)
+        if not hasattr(self, 'conflict_offsets'):
+            self.conflict_offsets = []
+
+        logger.debug("Task %s has conflicts %s", self, self.conflict_offsets)
 
         return [
             self.block_task(
