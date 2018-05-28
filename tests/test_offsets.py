@@ -10,8 +10,8 @@ logging.basicConfig(level=logging.INFO)
 # logging.getLogger('peach.tasks').setLevel(logging.DEBUG)
 
 # test: write the sum of read_roi entries to each entry in write_roi
-global_db = np.ones((109,))
-global_done = np.zeros((109,))
+global_db = np.ones((190,))
+global_done = np.zeros((190,))
 
 class TestDoneTarget(luigi.Target):
 
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     #                rrwwr|
     # L1:          rrwwr|
 
-    total_roi = peach.Roi((100,), (9,))
+    total_roi = peach.Roi((100,), (90,))
     read_roi = peach.Roi((0,), (5,))
     write_roi = peach.Roi((2,), (2,))
 
