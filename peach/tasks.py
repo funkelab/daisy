@@ -82,7 +82,7 @@ class ProcessBlocks(luigi.WrapperTask):
     block_read_roi = Parameter()
     block_write_roi = Parameter()
     block_task = Parameter()
-    block_task_parameters = Parameter()
+    block_task_parameters = Parameter(default=None)
 
     def compute_level_stride(self):
         '''Get the stride that separates independent blocks in one level.'''
@@ -229,6 +229,8 @@ class ProcessBlocks(luigi.WrapperTask):
             "absolute block offsets for level %d: %s", level, block_offsets)
 
         # create top-level block tasks
+        if self.block_task_parameters is None:
+            self.block_task_parameters = {}
         top_level_tasks = [
             self.block_task(
                 read_roi=self.block_read_roi + block_offset,
