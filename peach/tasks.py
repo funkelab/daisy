@@ -107,6 +107,7 @@ class ProcessBlocks(luigi.WrapperTask):
             max(ul, lr)
             for ul, lr in zip(context_ul, context_lr)
         ))
+        logger.debug("max context per dimension is %s", max_context)
 
         # this stride guarantees that blocks are independent, but might be too
         # small for efficient processing due to overlapping write ROIs between
@@ -206,10 +207,10 @@ class ProcessBlocks(luigi.WrapperTask):
 
         # all block offsets of the top level, per dimension
         block_dim_offsets = [
-            range(lo, e + 1, s)
-            for e, lo, s in zip(
-                total_shape - read_shape,
+            range(lo, e, s)
+            for lo, e, s in zip(
                 level_offset,
+                total_shape,
                 self.level_stride)
         ]
 
