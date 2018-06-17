@@ -81,13 +81,13 @@ def run_with_dask(
     # dask requires strings for task names, string representation of
     # `class:Roi` is assumed to be unique.
     tasks = {
-        str(write_roi): (
+        roi_to_dask_name(write_roi): (
             check_and_run,
             read_roi,
             write_roi,
             process_function,
             check_function,
-            [ str(ups) for ups in upstream_write_rois ]
+            [ roi_to_dask_name(ups) for ups in upstream_write_rois ]
         )
         for write_roi, read_roi, upstream_write_rois in blocks
     }
@@ -97,6 +97,13 @@ def run_with_dask(
 
     # run all tasks
     client.get(tasks, tasks.keys(), num_workers=num_workers)
+
+def roi_to_dask_name(roi):
+
+    return '_'.join([
+        '%d:%d'%(b, e)
+        for b, e in zip(roi.get_begin(), roi.get_end())
+    ])
 
 def check_and_run(read_roi, write_roi, process_function, check_function, *args):
 
