@@ -2,14 +2,16 @@ from targets import BlockDoneTarget
 from tasks import ProcessBlocks, BlockTask
 import luigi
 
-def process_blockwise(
+def run_with_luigi(
     total_roi,
     read_roi,
     write_roi,
     process_function,
     check_function,
-    num_workers):
-    '''Convenience wrapper for parallel, block-wise processing.
+    num_workers,
+    read_write_conflict=True,
+    host='localhost'):
+    '''Run block-wise tasks with luigi.
 
     Args:
 
@@ -56,6 +58,18 @@ def process_blockwise(
         num_workers (int):
 
             The number of parallel processes to run.
+
+        read_write_conflict (``bool``, optional):
+
+            Whether the read and write ROIs are conflicting, i.e., accessing
+            the same resource. If set to ``False``, all blocks can run at the
+            same time in parallel. In this case, providing a ``read_roi`` is
+            simply a means of convenience to ensure no out-of-bound accesses
+            and to avoid re-computation of it in each block.
+
+        host (optional):
+
+            The luigi host to submit jobs to. Defaults to ``localhost``.
     '''
 
     class ProcessBlock(BlockTask):
@@ -70,6 +84,11 @@ def process_blockwise(
         total_roi,
         read_roi,
         write_roi,
+        read_write_conflict,
         ProcessBlock)
 
-    luigi.build([process_blocks], log_level='INFO', workers=num_workers)
+    luigi.build(
+        [process_blocks],
+        log_level='INFO',
+        workers=num_workers,
+        scheduler_host=host)
