@@ -5,3 +5,4 @@
 *.pyc
 *.egg-info
 *.dat
+*.lock

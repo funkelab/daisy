@@ -8,65 +8,48 @@ import time
 logging.basicConfig(level=logging.INFO)
 # logging.getLogger('peach.tasks').setLevel(logging.DEBUG)
 
-class TestDoneTarget(luigi.Target):
+def process(read_roi, write_roi):
 
-    def __init__(self, write_roi):
-        self.write_roi = write_roi
+    print("Running TestTask for %s"%read_roi)
 
-    def exists(self):
+    # read some, write some, should be conflict free
+    with open('test_db.dat', 'r+') as f:
 
-        start = self.write_roi.get_begin()[0]
-        size = self.write_roi.size()
+        print("Reading %d bytes from %d"%(read_roi.size(),
+            read_roi.get_begin()[0]))
+        f.seek(read_roi.get_begin()[0], 0)
+        read = f.read(read_roi.size())
 
-        print("Testing if block with write ROI %s succeeded"%self.write_roi)
-        print("Reading %d bytes from %d"%(size, start))
+        s = sum([ int(d) for d in read ])
+        w = s%10
 
-        with open('test_db_done.dat', 'r') as f:
-            f.seek(start, 0)
-            done = f.read(size)
+        print("Writing %d bytes to %d"%(write_roi.size(),
+            write_roi.get_begin()[0]))
+        f.seek(write_roi.get_begin()[0], 0)
+        f.write(('%d'%w)*write_roi.size())
 
-        print("Read %s from test_db_done.dat (should be all ones)"%done)
+    time.sleep(random.random()*5)
 
-        return done == '1'*size
+    # mark as done
+    with open('test_db_done.dat', 'r+') as f:
+        f.seek(write_roi.get_begin()[0], 0)
+        f.write('1'*write_roi.size())
 
-class TestTask(peach.BlockTask):
+def check(write_roi):
 
-    factor = luigi.IntParameter()
+    start = write_roi.get_begin()[0]
+    size = write_roi.size()
 
-    def run(self):
-        print("Running TestTask for %s"%self.read_roi)
+    print("Testing if block with write ROI %s succeeded"%write_roi)
+    print("Reading %d bytes from %d"%(size, start))
 
-        # read some, write some, should be conflict free
-        with open('test_db.dat', 'r+') as f:
+    with open('test_db_done.dat', 'r') as f:
+        f.seek(start, 0)
+        done = f.read(size)
 
-            print("Reading %d bytes from %d"%(self.read_roi.size(),
-                self.read_roi.get_begin()[0]))
-            f.seek(self.read_roi.get_begin()[0], 0)
-            read = f.read(self.read_roi.size())
+    print("Read %s from test_db_done.dat (should be all ones)"%done)
 
-            s = sum([ int(d) for d in read ])
-            w = s%10
-
-            print("Writing %d bytes to %d"%(self.write_roi.size(),
-                self.write_roi.get_begin()[0]))
-            f.seek(self.write_roi.get_begin()[0], 0)
-            f.write(('%d'%w)*self.write_roi.size())
-
-        time.sleep(random.random()*5)
-
-        # mark as done
-        with open('test_db_done.dat', 'r+') as f:
-            f.seek(self.write_roi.get_begin()[0], 0)
-            f.write('1'*self.write_roi.size())
-
-    def output(self):
-        return TestDoneTarget(self.write_roi)
-
-    def requires(self):
-        return [TestDependency()]
-
-class TestDependency(luigi.WrapperTask):
-    pass
+    return done == '1'*size
 
 if __name__ == "__main__":
 
@@ -96,11 +79,24 @@ if __name__ == "__main__":
     read_roi = peach.Roi((0,), (10,))
     write_roi = peach.Roi((3,), (2,))
 
-    process_blocks = peach.ProcessBlocks(
-        total_roi,
-        read_roi,
-        write_roi,
-        TestTask,
-        {'factor': 9})
+    peach.run_with_dask(
+        peach.Roi((0,), (100,)),
+        peach.Roi((0,), (20,)),
+        peach.Roi((5,), (15,)),
+        process,
+        check,
+        1) # this test only works with one worker, since we have global state
 
-    luigi.build([process_blocks], log_level='INFO', workers=50)
+    # reset the "data base"
+    with open('test_db.dat', 'w') as f:
+        f.write('1'*190)
+    with open('test_db_done.dat', 'w') as f:
+        f.write('0'*190)
+
+    peach.run_with_luigi(
+        peach.Roi((0,), (100,)),
+        peach.Roi((0,), (20,)),
+        peach.Roi((5,), (15,)),
+        process,
+        check,
+        1) # this test only works with one worker, since we have global state
