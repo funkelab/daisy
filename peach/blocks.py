@@ -76,9 +76,9 @@ def create_dependency_graph(
 
     for level in range(len(level_offsets)):
 
-        level_offset = level_offsets[-1]
+        level_offset = level_offsets[level]
 
-        # all block offsets of this level, per dimension
+        # all block offsets of the current level (relative to total ROI start)
         block_dim_offsets = [
             range(lo, e, s)
             for lo, e, s in zip(
@@ -86,8 +86,6 @@ def create_dependency_graph(
                 total_shape,
                 level_stride)
         ]
-
-        # all block offsets of the current level (relative to total ROI start)
         block_offsets = [
             Coordinate(o)
             for o in product(*block_dim_offsets)
