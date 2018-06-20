@@ -6,8 +6,8 @@ def run_with_dask(
     read_roi,
     write_roi,
     process_function,
-    check_function,
     num_workers,
+    check_function=None,
     read_write_conflict=True,
     client=None):
     '''Run block-wise tasks with dask.
@@ -41,7 +41,7 @@ def run_with_dask(
             i.e., at any given point in time the ``read_roi`` does not overlap
             with the ``write_roi`` of another process.
 
-        check_function (function):
+        check_function (function, optional):
 
             A function that will be called as::
 
@@ -107,7 +107,7 @@ def roi_to_dask_name(roi):
 
 def check_and_run(read_roi, write_roi, process_function, check_function, *args):
 
-    if check_function(write_roi):
+    if check_function is not None and check_function(write_roi):
         logging.info(
             "Skipping task with read ROI %s, write ROI %s; already processed.",
             read_roi, write_roi)
@@ -115,7 +115,7 @@ def check_and_run(read_roi, write_roi, process_function, check_function, *args):
 
     process_function(read_roi, write_roi)
 
-    if not check_function(write_roi):
+    if check_function is not None and not check_function(write_roi):
         raise RuntimeError(
             "Completion check failed for task with read ROI %s, write ROI "
             "%s."%(read_roi, write_roi))
