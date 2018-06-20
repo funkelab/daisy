@@ -1,6 +1,6 @@
-import copy
 from .coordinate import Coordinate
 from .freezable import Freezable
+import copy
 import numbers
 import numpy as np
 

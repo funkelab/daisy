@@ -1,4 +1,4 @@
-from coordinate import Coordinate
+from .coordinate import Coordinate
 from itertools import product
 import logging
 

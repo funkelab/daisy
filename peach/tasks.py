@@ -1,8 +1,8 @@
-from coordinate import Coordinate
+from .blocks import compute_level_stride, compute_level_offsets, get_conflict_offsets
+from .coordinate import Coordinate
 from itertools import product
-from blocks import compute_level_stride, compute_level_offsets, get_conflict_offsets
-import luigi
 import logging
+import luigi
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
+from .blocks import create_dependency_graph
 from distributed import Client
-from blocks import create_dependency_graph
 
 def run_with_dask(
     total_roi,

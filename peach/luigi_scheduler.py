@@ -1,5 +1,5 @@
-from targets import BlockDoneTarget
-from tasks import ProcessBlocks, BlockTask
+from .targets import BlockDoneTarget
+from .tasks import ProcessBlocks, BlockTask
 import luigi
 
 def run_with_luigi(
