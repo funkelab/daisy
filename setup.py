@@ -18,8 +18,6 @@ for value in extras_require.values():
 
 extras_require['full'] = list(dep_set)
 
-subprocess.call('pip install git+https://github.com/funkey/augment#egg=augment'.split())
-
 setup(
         name='peach',
         version='0.1',
