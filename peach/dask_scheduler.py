@@ -1,14 +1,14 @@
 from .blocks import create_dependency_graph
-from distributed import Client
+from dask.distributed import Client, LocalCluster
 
 def run_with_dask(
     total_roi,
     read_roi,
     write_roi,
     process_function,
-    num_workers,
     check_function=None,
     read_write_conflict=True,
+    num_workers=None,
     client=None):
     '''Run block-wise tasks with dask.
 
@@ -54,10 +54,6 @@ def run_with_dask(
             processing blocks that are already done and to check if a block was
             correctly processed.
 
-        num_workers (int):
-
-            The number of parallel processes to run.
-
         read_write_conflict (``bool``, optional):
 
             Whether the read and write ROIs are conflicting, i.e., accessing
@@ -66,10 +62,16 @@ def run_with_dask(
             simply a means of convenience to ensure no out-of-bound accesses
             and to avoid re-computation of it in each block.
 
+        num_workers (int, optional):
+
+            The number of parallel processes to run. Only effective if
+            ``client`` is ``None``.
+
         client (optional):
 
             The dask client to submit jobs to. If ``None``, a client will be
-            created from ``dask.distributed.Client``.
+            created from ``dask.distributed.Client`` with ``num_workers``
+            workers.
     '''
 
     blocks = create_dependency_graph(
@@ -93,10 +95,14 @@ def run_with_dask(
     }
 
     if client is None:
-        client = Client()
+
+        if num_workers is not None:
+            print("Creating local cluster with %d workers..."%num_workers)
+        cluster = LocalCluster(n_workers=num_workers, threads_per_worker=1)
+        client = Client(cluster)
 
     # run all tasks
-    client.get(tasks, list(tasks.keys()), num_workers=num_workers)
+    client.get(tasks, list(tasks.keys()))
 
 def roi_to_dask_name(roi):
 
