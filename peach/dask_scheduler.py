@@ -96,7 +96,7 @@ def run_with_dask(
         client = Client()
 
     # run all tasks
-    client.get(tasks, tasks.keys(), num_workers=num_workers)
+    client.get(tasks, list(tasks.keys()), num_workers=num_workers)
 
 def roi_to_dask_name(roi):
 
