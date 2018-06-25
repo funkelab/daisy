@@ -151,7 +151,7 @@ def compute_level_stride(block_read_roi, block_write_roi):
     # multiple of write shape
     write_shape = block_write_roi.get_shape()
     level_stride = Coordinate((
-        ((l - 1)/w + 1)*w
+        ((l - 1)//w + 1)*w
         for l, w in zip(min_level_stride, write_shape)
     ))
 
@@ -176,12 +176,12 @@ def compute_level_offsets(block_write_roi, level_stride):
         for e, step in zip(level_stride, write_stride)
     ]
 
-    logger.debug("Dim offsets: %s", dim_offsets)
-
     level_offsets = list(reversed([
         Coordinate(o)
         for o in product(*dim_offsets)
     ]))
+
+    logger.debug("level offsets: %s", level_offsets)
 
     return level_offsets
 
