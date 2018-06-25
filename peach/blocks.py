@@ -93,7 +93,7 @@ def create_dependency_graph(
 
         # convert to global coordinates
         block_offsets = [
-            o + total_roi.get_begin()
+            o + (total_roi.get_begin() - block_read_roi.get_begin())
             for o in block_offsets
         ]
 
