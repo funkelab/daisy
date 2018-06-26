@@ -9,6 +9,7 @@ def run_with_dask(
     check_function=None,
     read_write_conflict=True,
     num_workers=None,
+    processes=True,
     client=None):
     '''Run block-wise tasks with dask.
 
@@ -64,8 +65,13 @@ def run_with_dask(
 
         num_workers (int, optional):
 
-            The number of parallel processes to run. Only effective if
-            ``client`` is ``None``.
+            The number of parallel processes or threads to run. Only effective
+            if ``client`` is ``None``.
+
+        processes (bool, optional):
+
+            If ``True`` (default), spawns a process per worker, otherwise a
+            thread.
 
         client (optional):
 
@@ -98,7 +104,17 @@ def run_with_dask(
 
         if num_workers is not None:
             print("Creating local cluster with %d workers..."%num_workers)
-        cluster = LocalCluster(n_workers=num_workers, threads_per_worker=1)
+
+        if processes:
+            cluster = LocalCluster(
+                n_workers=num_workers,
+                threads_per_worker=1)
+        else:
+            cluster = LocalCluster(
+                n_workers=1,
+                threads_per_worker=num_workers,
+                processes=False)
+
         client = Client(cluster)
 
     # run all tasks
