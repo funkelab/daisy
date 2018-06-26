@@ -1,5 +1,9 @@
 from .blocks import create_dependency_graph
 from dask.distributed import Client, LocalCluster
+import traceback
+import logging
+
+logger = logging.getLogger(__name__)
 
 def run_with_dask(
     total_roi,
@@ -118,7 +122,18 @@ def run_with_dask(
         client = Client(cluster)
 
     # run all tasks
-    client.get(tasks, list(tasks.keys()))
+    results = client.get(tasks, list(tasks.keys()))
+
+    succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
+    skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
+    failed = [ t for t, r in zip(tasks, results) if r == -1 ]
+    errored = [ t for t, r in zip(tasks, results) if r == -2 ]
+
+    logger.info(
+        "Ran %d tasks, of which %d succeeded, %d were skipped, %d failed (%d "
+        "failed check, %d errored)",
+        len(tasks), len(succeeded), len(skipped),
+        len(failed) + len(errored), len(failed), len(errored))
 
 def roi_to_dask_name(roi):
 
@@ -130,14 +145,24 @@ def roi_to_dask_name(roi):
 def check_and_run(read_roi, write_roi, process_function, check_function, *args):
 
     if check_function is not None and check_function(write_roi):
-        logging.info(
+        logger.info(
             "Skipping task with read ROI %s, write ROI %s; already processed.",
             read_roi, write_roi)
-        return
+        return 0
 
-    process_function(read_roi, write_roi)
+    try:
+        process_function(read_roi, write_roi)
+    except:
+        logger.error(
+            "Task with read ROI %s, write ROI %s failed:\n%s",
+            read_roi, write_roi, traceback.format_exc())
+        return -2
 
     if check_function is not None and not check_function(write_roi):
-        raise RuntimeError(
+        logger.error(
             "Completion check failed for task with read ROI %s, write ROI "
-            "%s."%(read_roi, write_roi))
+            "%s.", read_roi, write_roi)
+        return -1
+
+    return 1
+
