@@ -121,6 +121,8 @@ def run_with_dask(
 
         client = Client(cluster)
 
+    logger.info("Scheduling %d tasks...", len(tasks))
+
     # run all tasks
     results = client.get(tasks, list(tasks.keys()))
 
