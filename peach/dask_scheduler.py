@@ -82,6 +82,11 @@ def run_with_dask(
             The dask client to submit jobs to. If ``None``, a client will be
             created from ``dask.distributed.Client`` with ``num_workers``
             workers.
+
+    Returns:
+
+        True, if all tasks succeeded (or were skipped because they were already
+        completed in an earlier run).
     '''
 
     blocks = create_dependency_graph(
@@ -136,6 +141,8 @@ def run_with_dask(
         "failed check, %d errored)",
         len(tasks), len(succeeded), len(skipped),
         len(failed) + len(errored), len(failed), len(errored))
+
+    return len(failed) + len(errored) == 0
 
 def roi_to_dask_name(roi):
 
