@@ -12,11 +12,11 @@ def create_dependency_graph(
     fit='valid'):
     '''Create a dependency graph as a list with elements::
 
-        write_roi: (read_roi, upstream_write_rois)
+        (read_roi, write_roi, upstream_write_rois)
 
     per block, where ``write_roi`` is the blocks ROI with exclusive write access,
     ``read_roi`` is the associated ROI for save reading, and
-    ``upstream_write_rois`` is a list of write ROIs for other block that need
+    ``upstream_write_rois`` is a list of write ROIs for other blocks that need
     to finish before this block can start (``[]`` if there are no upstream
     dependencies``).
 
@@ -252,7 +252,7 @@ def enumerate_blocks(
         'shrink': lambda r, w: total_roi.contains(w.get_begin())
     }[fit]
 
-    block_modification = {
+    fit_block = {
         'valid': lambda r, w: (r, w), # noop
         'overhang': lambda r, w: (r, w), # noop
         'shrink': lambda r, w: shrink(total_roi, r, w)
@@ -266,17 +266,24 @@ def enumerate_blocks(
         r = block_read_roi + block_offset
         w = block_write_roi + block_offset
 
+        logger.info("considering read roi: %s", r)
+        logger.info("considering write roi: %s", w)
+
         if not inclusion_criteria(r, w):
             continue
 
         conflicts = [
-            block_modification(
+            fit_block(
                 r + conflict_offset,
                 w + conflict_offset)[1] # just the write ROI for conflicts
             for conflict_offset in conflict_offsets
         ]
 
-        blocks.append(block_modification(r, w) + (conflicts,))
+        r, w = fit_block(r, w)
+
+        blocks.append((r, w, conflicts))
+
+    logger.info("found blocks: %s", blocks)
 
     return blocks
 

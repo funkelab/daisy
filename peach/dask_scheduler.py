@@ -144,7 +144,7 @@ def run_with_dask(
             check_function,
             [ roi_to_dask_name(ups) for ups in upstream_write_rois ]
         )
-        for write_roi, read_roi, upstream_write_rois in blocks
+        for read_roi, write_roi, upstream_write_rois in blocks
     }
 
     if client is None:
