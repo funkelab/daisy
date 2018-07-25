@@ -12,6 +12,7 @@ def run_with_dask(
     process_function,
     check_function=None,
     read_write_conflict=True,
+    fit='valid',
     num_workers=None,
     processes=True,
     client=None):
@@ -67,6 +68,42 @@ def run_with_dask(
             simply a means of convenience to ensure no out-of-bound accesses
             and to avoid re-computation of it in each block.
 
+        fit (``string``, optional):
+
+            How to handle cases where shifting blocks by the size of
+            ``block_write_roi`` does not tile the ``total_roi``. Possible
+            options are:
+
+            "valid": Skip blocks that would lie outside of ``total_roi``. This
+            is the default::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                                                  no further block
+
+            "overhang": Add all blocks that overlap with ``total_roi``, even if
+            they leave it. Client code has to take care of save access beyond
+            ``total_roi`` in this case.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|wwwwww|rrrr|  block 3 (overhanging)
+
+            "shrink": Like "overhang", but shrink the boundary blocks' read and
+            write ROIs such that they are guaranteed to lie within
+            ``total_roi``. The shrinking will preserve the context, i.e., the
+            difference between the read ROI and write ROI stays the same.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|www|rrrr|     block 3 (shrunk)
+
         num_workers (int, optional):
 
             The number of parallel processes or threads to run. Only effective
@@ -93,7 +130,8 @@ def run_with_dask(
         total_roi,
         read_roi,
         write_roi,
-        read_write_conflict)
+        read_write_conflict,
+        fit)
 
     # dask requires strings for task names, string representation of
     # `class:Roi` is assumed to be unique.

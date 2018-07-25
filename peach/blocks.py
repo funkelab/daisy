@@ -8,7 +8,8 @@ def create_dependency_graph(
     total_roi,
     block_read_roi,
     block_write_roi,
-    read_write_conflict=True):
+    read_write_conflict=True,
+    fit='valid'):
     '''Create a dependency graph as a list with elements::
 
         write_roi: (read_roi, upstream_write_rois)
@@ -28,12 +29,12 @@ def create_dependency_graph(
         block_read_roi (`class:peach.Roi`):
 
             The ROI every block needs to read data from. Will be shifted over
-            the ``total_roi`` to cover the whole volume.
+            the ``total_roi``.
 
         block_write_roi (`class:peach.Roi`):
 
             The ROI every block writes data from. Will be shifted over the
-            ``total_roi`` to cover the whole volume.
+            ``total_roi`` in synchrony with ``block_read_roi``.
 
         read_write_conflict (``bool``, optional):
 
@@ -42,6 +43,42 @@ def create_dependency_graph(
             same time in parallel. In this case, providing a ``read_roi`` is
             simply a means of convenience to ensure no out-of-bound accesses
             and to avoid re-computation of it in each block.
+
+        fit (``string``, optional):
+
+            How to handle cases where shifting blocks by the size of
+            ``block_write_roi`` does not tile the ``total_roi``. Possible
+            options are:
+
+            "valid": Skip blocks that would lie outside of ``total_roi``. This
+            is the default::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                                                  no further block
+
+            "overhang": Add all blocks that overlap with ``total_roi``, even if
+            they leave it. Client code has to take care of save access beyond
+            ``total_roi`` in this case.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|wwwwww|rrrr|  block 3 (overhanging)
+
+            "shrink": Like "overhang", but shrink the boundary blocks' read and
+            write ROIs such that they are guaranteed to lie within
+            ``total_roi``. The shrinking will preserve the context, i.e., the
+            difference between the read ROI and write ROI stays the same.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|www|rrrr|     block 3 (shrunk)
     '''
 
     level_stride = compute_level_stride(block_read_roi, block_write_roi)
@@ -100,18 +137,13 @@ def create_dependency_graph(
         logger.debug(
             "absolute block offsets for level %d: %s", level, block_offsets)
 
-        blocks += [
-            (
-                block_write_roi + block_offset,
-                block_read_roi + block_offset,
-                [
-                    block_write_roi + block_offset + level_conflict_offset
-                    for level_conflict_offset in level_conflict_offsets[level]
-                ]
-            )
-            for block_offset in block_offsets
-            if total_roi.contains(block_read_roi + block_offset)
-        ]
+        blocks += enumerate_blocks(
+            total_roi,
+            block_read_roi,
+            block_write_roi,
+            level_conflict_offsets[level],
+            block_offsets,
+            fit)
 
     return blocks
 
@@ -204,3 +236,57 @@ def get_conflict_offsets(level_offset, prev_level_offset, level_stride):
     logger.debug("conflict offsets to previous level: %s", conflict_offsets)
 
     return conflict_offsets
+
+def enumerate_blocks(
+    total_roi,
+    block_read_roi,
+    block_write_roi,
+    conflict_offsets,
+    block_offsets,
+    fit):
+
+    inclusion_criteria = {
+
+        'valid': lambda r, w: total_roi.contains(r),
+        'overhang': lambda r, w: total_roi.contains(w.get_begin()),
+        'shrink': lambda r, w: total_roi.contains(w.get_begin())
+    }[fit]
+
+    block_modification = {
+        'valid': lambda r, w: (r, w), # noop
+        'overhang': lambda r, w: (r, w), # noop
+        'shrink': lambda r, w: shrink(total_roi, r, w)
+    }[fit]
+
+    blocks = []
+
+    for block_offset in block_offsets:
+
+        # shift the block to its destination
+        r = block_read_roi + block_offset
+        w = block_write_roi + block_offset
+
+        if not inclusion_criteria(r, w):
+            continue
+
+        conflicts = [
+            block_modification(
+                r + conflict_offset,
+                w + conflict_offset)[1] # just the write ROI for conflicts
+            for conflict_offset in conflict_offsets
+        ]
+
+        blocks.append(block_modification(r, w) + (conflicts,))
+
+    return blocks
+
+def shrink(total_roi, block_read_roi, block_write_roi):
+    '''Ensure that read and write ROI are within total ROI by shrinking both.
+    Size of context will be preserved.'''
+
+    r = total_roi.intersect(block_read_roi)
+    w = block_write_roi.grow(
+        block_read_roi.get_begin() - r.get_begin(),
+        r.get_end() - block_read_roi.get_end())
+
+    return (r, w)
