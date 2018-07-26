@@ -266,8 +266,8 @@ def enumerate_blocks(
         r = block_read_roi + block_offset
         w = block_write_roi + block_offset
 
-        logger.info("considering read roi: %s", r)
-        logger.info("considering write roi: %s", w)
+        logger.debug("considering read roi: %s", r)
+        logger.debug("considering write roi: %s", w)
 
         if not inclusion_criteria(r, w):
             continue
@@ -283,7 +283,7 @@ def enumerate_blocks(
 
         blocks.append((r, w, conflicts))
 
-    logger.info("found blocks: %s", blocks)
+    logger.debug("found blocks: %s", blocks)
 
     return blocks
 
