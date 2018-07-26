@@ -32,6 +32,8 @@ setup(
         install_requires=[
             "numpy",
             "luigi",
+            "dask",
+            "distributed"
         ],
         extras_require=extras_require,
 )
