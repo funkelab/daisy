@@ -14,8 +14,8 @@ def create_dependency_graph(
 
         (read_roi, write_roi, upstream_write_rois)
 
-    per block, where ``write_roi`` is the blocks ROI with exclusive write access,
-    ``read_roi`` is the associated ROI for save reading, and
+    per block, where ``write_roi`` is the blocks ROI with exclusive write
+    access, ``read_roi`` is the associated ROI for save reading, and
     ``upstream_write_rois`` is a list of write ROIs for other blocks that need
     to finish before this block can start (``[]`` if there are no upstream
     dependencies``).
