@@ -1,4 +1,4 @@
-from .blocks import compute_level_stride, compute_level_offsets, get_conflict_offsets
+from .blocks import compute_level_stride, compute_level_offsets, get_conflict_offsets, create_dependency_graph
 from .coordinate import Coordinate
 from itertools import product
 import logging
@@ -9,28 +9,19 @@ logger = logging.getLogger(__name__)
 class Parameter(luigi.Parameter):
     pass
 
-class ConflictOffsets(object):
-
-    def __init__(self, offsets):
-        self.offsets = offsets
-
-    def __repr__(self):
-        return ""
-
 class BlockTask(luigi.Task):
     '''Base-class for block tasks.'''
 
     read_roi = Parameter()
     write_roi = Parameter()
+    total_roi = Parameter(significant=False)
 
     # meta-information about the concrete task to run for each block
     block_task = Parameter(significant=False)
     block_task_parameters = Parameter(significant=False)
 
-    # used internally to determine dependenciees
-    level = luigi.IntParameter(significant=False)
-    total_roi = Parameter(significant=False)
-    level_conflict_offsets = Parameter(significant=False)
+    # used internally to determine dependencies
+    dependencies = Parameter()
 
     def get_block_id(self):
         '''Get a unique ID of this block, depending on the starting
@@ -46,36 +37,16 @@ class BlockTask(luigi.Task):
 
     def _requires(self):
 
-        conflict_offsets = self.level_conflict_offsets.offsets[self.level]
-
-        logger.debug("Task %s has conflicts %s", self, conflict_offsets)
-
-        deps = []
-        for conflict_offset in conflict_offsets:
-
-            read_roi = self.read_roi + conflict_offset
-            write_roi = self.write_roi + conflict_offset
-
-            # skip out-of-bounds dependencies
-            if not self.total_roi.contains(read_roi):
-                continue
-
-            deps.append(
-                self.block_task(
-                    read_roi=read_roi,
-                    write_roi=write_roi,
-                    level=(self.level-1),
-                    total_roi=self.total_roi,
-                    level_conflict_offsets=self.level_conflict_offsets,
-                    block_task=self.block_task,
-                    block_task_parameters=self.block_task_parameters,
-                    **self.block_task_parameters)
-            )
-
-        if self.level == 0:
-            deps += self.requires()
-
-        return deps
+        return [
+            self.block_task(
+                read_roi=read_roi,
+                write_roi=write_roi,
+                total_roi=self.total_roi,
+                block_task=self.block_task,
+                block_task_parameters=self.block_task_parameters,
+                **self.block_task_parameters)
+            for read_roi, write_roi in zip(*self.dependencies)
+        ]
 
 class ProcessBlocks(luigi.WrapperTask):
 
@@ -89,84 +60,40 @@ class ProcessBlocks(luigi.WrapperTask):
     def requires(self):
         '''Create all BlockTasks and inject their dependencies.'''
 
-        level_stride = compute_level_stride(
+        # get all blocks as a dependency graph
+        blocks = create_dependency_graph(
+            self.total_roi,
             self.block_read_roi,
-            self.block_write_roi)
-        level_offsets = compute_level_offsets(
             self.block_write_roi,
-            level_stride)
+            self.read_write_conflict)
 
-        total_shape = self.total_roi.get_shape()
-        read_shape = self.block_read_roi.get_shape()
+        # convert to dictionary
+        blocks = {
+            write_roi: (
+                read_roi,
+                dep_write_rois)
+            for (write_roi, read_roi, dep_write_rois) in blocks
+        }
 
-        block_tasks = []
-
-        # create a list of conflict offsets for each level, that span the total
-        # ROI
-
-        level_conflict_offsets = []
-        prev_level_offset = None
-
-        for level, level_offset in enumerate(level_offsets):
-
-            # get conflicts to previous level
-            if prev_level_offset is not None and self.read_write_conflict:
-                conflict_offsets = get_conflict_offsets(
-                    level_offset,
-                    prev_level_offset,
-                    level_stride)
-            else:
-                conflict_offsets = []
-            prev_level_offset = level_offset
-
-            level_conflict_offsets.append(conflict_offsets)
-
-        # start dependecy tree by requesting top-level blocks
-
-        level_offset = level_offsets[-1]
-        level = len(level_offsets) - 1
-
-        # all block offsets of the top level, per dimension
-        block_dim_offsets = [
-            range(lo, e, s)
-            for lo, e, s in zip(
-                level_offset,
-                total_shape,
-                level_stride)
-        ]
-
-        # all block offsets of the current level (relative to total ROI start)
-        block_offsets = [
-            Coordinate(o)
-            for o in product(*block_dim_offsets)
-        ]
-
-        # convert to global coordinates
-        block_offsets = [
-            o + self.total_roi.get_begin()
-            for o in block_offsets
-        ]
-
-        logger.debug(
-            "absolute block offsets for level %d: %s", level, block_offsets)
-
-        # create top-level block tasks
         if self.block_task_parameters is None:
             self.block_task_parameters = {}
-        top_level_tasks = [
+
+        # create all block tasks
+        tasks = [
             self.block_task(
-                read_roi=self.block_read_roi + block_offset,
-                write_roi=self.block_write_roi + block_offset,
-                level=level,
+                read_roi=read_roi,
+                write_roi=write_roi,
                 total_roi=self.total_roi,
-                level_conflict_offsets=ConflictOffsets(level_conflict_offsets),
+                # the write and read ROIs of dependent tasks
+                dependencies=(
+                    dep_write_rois,
+                    list([ blocks[d][0] for d in dep_write_rois ])),
                 block_task=self.block_task,
                 block_task_parameters=self.block_task_parameters,
                 **self.block_task_parameters)
-            for block_offset in block_offsets
-            if self.total_roi.contains(self.block_read_roi + block_offset)
+            for write_roi, (read_roi, dep_write_rois) in blocks.items()
         ]
 
-        logger.debug("block tasks for top level: %s", top_level_tasks)
+        logger.debug("created dependency graph with %d task", len(tasks))
 
-        return top_level_tasks
+        return tasks
