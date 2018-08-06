@@ -5,7 +5,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-def run_with_dask(
+def run_blockwise(
     total_roi,
     read_roi,
     write_roi,
