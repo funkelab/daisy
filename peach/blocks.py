@@ -12,13 +12,12 @@ def create_dependency_graph(
     fit='valid'):
     '''Create a dependency graph as a list with elements::
 
-        (read_roi, write_roi, upstream_write_rois)
+        (block, [upstream_blocks])
 
-    per block, where ``write_roi`` is the blocks ROI with exclusive write
-    access, ``read_roi`` is the associated ROI for save reading, and
-    ``upstream_write_rois`` is a list of write ROIs for other blocks that need
-    to finish before this block can start (``[]`` if there are no upstream
-    dependencies``).
+    per block, where ``block`` is the block with exclusive write access to its
+    ``write_roi`` (and save read access to its ``read_roi``), and
+    ``upstream_blocks`` is a list of blocks that need to finish before this
+    block can start (``[]`` if there are no upstream dependencies``).
 
     Args:
 
@@ -246,54 +245,64 @@ def enumerate_blocks(
     fit):
 
     inclusion_criteria = {
-
-        'valid': lambda r, w: total_roi.contains(r),
-        'overhang': lambda r, w: total_roi.contains(w.get_begin()),
-        'shrink': lambda r, w: total_roi.contains(w.get_begin())
+        'valid': lambda b: total_roi.contains(b.read_roi),
+        'overhang': lambda b: total_roi.contains(b.write_roi.get_begin()),
+        'shrink': lambda b: total_roi.contains(b.write_roi.get_begin())
     }[fit]
 
     fit_block = {
-        'valid': lambda r, w: (r, w), # noop
-        'overhang': lambda r, w: (r, w), # noop
-        'shrink': lambda r, w: shrink(total_roi, r, w)
+        'valid': lambda b: b, # noop
+        'overhang': lambda b: b, # noop
+        'shrink': lambda b: shrink(total_roi, b)
     }[fit]
 
     blocks = []
 
     for block_offset in block_offsets:
 
-        # shift the block to its destination
-        r = block_read_roi + block_offset
-        w = block_write_roi + block_offset
+        # create a block shifted by the current offset
+        block = Block(
+            total_roi,
+            block_read_roi + block_offset,
+            block_write_roi + block_offset)
 
-        logger.debug("considering read roi: %s", r)
-        logger.debug("considering write roi: %s", w)
+        logger.debug("considering block: %s", block)
 
-        if not inclusion_criteria(r, w):
+        if not inclusion_criteria(block):
             continue
 
-        conflicts = [
-            fit_block(
-                r + conflict_offset,
-                w + conflict_offset)[1] # just the write ROI for conflicts
-            for conflict_offset in conflict_offsets
-        ]
+        # get all blocks in conflict with the current block
+        conflicts = []
+        for conflict_offset in conflict_offsets:
 
-        r, w = fit_block(r, w)
+            conflict = Block(
+                total_roi,
+                block.read_roi + conflict_offset,
+                block.write_roi + conflict_offset
+            )
 
-        blocks.append((r, w, conflicts))
+            if not inclusion_criteria(conflict):
+                continue
+
+            logger.debug("in conflict with block: %s", conflict)
+            conflicts.append(fit_block(conflict))
+
+        blocks.append((fit_block(block), conflicts))
 
     logger.debug("found blocks: %s", blocks)
 
     return blocks
 
-def shrink(total_roi, block_read_roi, block_write_roi):
+def shrink(total_roi, block):
     '''Ensure that read and write ROI are within total ROI by shrinking both.
     Size of context will be preserved.'''
 
-    r = total_roi.intersect(block_read_roi)
-    w = block_write_roi.grow(
-        block_read_roi.get_begin() - r.get_begin(),
-        r.get_end() - block_read_roi.get_end())
+    r = total_roi.intersect(block.read_roi)
+    w = block.write_roi.grow(
+        block.read_roi.get_begin() - r.get_begin(),
+        r.get_end() - block.read_roi.get_end())
 
-    return (r, w)
+    block.read_roi = r
+    block.write_roi = w
+
+    return block

@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 from .blocks import create_dependency_graph
 from dask.distributed import Client, LocalCluster
 import traceback
@@ -136,15 +137,14 @@ def run_blockwise(
     # dask requires strings for task names, string representation of
     # `class:Roi` is assumed to be unique.
     tasks = {
-        roi_to_dask_name(write_roi): (
+        block_to_dask_name(block): (
             check_and_run,
-            read_roi,
-            write_roi,
+            block,
             process_function,
             check_function,
-            [ roi_to_dask_name(ups) for ups in upstream_write_rois ]
+            [ block_to_dask_name(ups) for ups in upstream_blocks ]
         )
-        for read_roi, write_roi, upstream_write_rois in blocks
+        for block, upstream_blocks in blocks
     }
 
     if client is None:
@@ -182,33 +182,28 @@ def run_blockwise(
 
     return len(failed) + len(errored) == 0
 
-def roi_to_dask_name(roi):
+def block_to_dask_name(block):
 
-    return '_'.join([
-        '%d:%d'%(b, e)
-        for b, e in zip(roi.get_begin(), roi.get_end())
-    ])
+    return '%d'%block.block_id
 
-def check_and_run(read_roi, write_roi, process_function, check_function, *args):
+def check_and_run(block, process_function, check_function, *args):
 
-    if check_function is not None and check_function(write_roi):
-        logger.info(
-            "Skipping task with read ROI %s, write ROI %s; already processed.",
-            read_roi, write_roi)
+    if check_function is not None and check_function(block):
+        logger.info("Skipping task for block %s; already processed.", block)
         return 0
 
     try:
-        process_function(read_roi, write_roi)
+        process_function(block)
     except:
         logger.error(
-            "Task with read ROI %s, write ROI %s failed:\n%s",
-            read_roi, write_roi, traceback.format_exc())
+            "Task for block %s failed:\n%s",
+            block, traceback.format_exc())
         return -2
 
-    if check_function is not None and not check_function(write_roi):
+    if check_function is not None and not check_function(block):
         logger.error(
-            "Completion check failed for task with read ROI %s, write ROI "
-            "%s.", read_roi, write_roi)
+            "Completion check failed for task for block %s.",
+            block)
         return -1
 
     return 1

@@ -1,3 +1,4 @@
+from __future__ import absolute_import
 from .coordinate import Coordinate
 from .freezable import Freezable
 import copy
