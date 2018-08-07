@@ -1,3 +1,5 @@
+from __future__ import absolute_import
+from .block import Block
 from .coordinate import Coordinate
 from itertools import product
 import logging
