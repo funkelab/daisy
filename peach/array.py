@@ -135,6 +135,7 @@ class Array(Freezable):
     def __index(self, coordinate):
         '''Get the voxel slices for the given coordinate.'''
 
-        voxel_coordinate = (coordinate - self.roi.get_begin())/self.voxel_size
-        spatial_slices = tuple(slice(c, c + 1) for c in voxel_coordinate)
-        return (slice(None),)*self.n_channel_dims + spatial_slices
+        index = (coordinate - self.roi.get_begin())/self.voxel_size
+        if self.n_channel_dims > 0:
+            index = (Ellipsis,) + index
+        return index
