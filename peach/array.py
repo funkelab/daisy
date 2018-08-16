@@ -89,7 +89,7 @@ class Array(Freezable):
         '''
 
         assert isinstance(roi, Roi), (
-            "Roi expected")
+            "Roi expected, but got %s"%(type(roi)))
 
         assert (roi/self.voxel_size).get_shape() == array.shape[-roi.dims():]
 
@@ -125,6 +125,20 @@ class Array(Freezable):
             array[shared_roi] = self[shared_roi]
 
         return array
+
+    def intersect(self, roi):
+        '''Get a sub-array obtained by intersecting this array with the given
+        ROI.
+
+        Args:
+
+            roi (`class:Roi`):
+
+                The ROI to intersect with.
+        '''
+
+        intersection = self.roi.intersect(roi)
+        return self[intersection]
 
     def __slices(self, roi):
         '''Get the voxel slices for the given roi.'''
