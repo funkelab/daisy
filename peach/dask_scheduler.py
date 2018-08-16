@@ -147,7 +147,9 @@ def run_blockwise(
         for block, upstream_blocks in blocks
     }
 
-    if client is None:
+    own_client = client is None
+
+    if own_client:
 
         if num_workers is not None:
             print("Creating local cluster with %d workers..."%num_workers)
@@ -168,6 +170,9 @@ def run_blockwise(
 
     # run all tasks
     results = client.get(tasks, list(tasks.keys()))
+
+    if own_client:
+        client.close()
 
     succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
     skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
