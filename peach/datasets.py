@@ -86,7 +86,7 @@ def prepare_ds(filename, ds_name, total_roi, voxel_size, dtype, write_roi=None):
         else:
             root = z5py.File(filename)
             comp_arg = {
-                'compressor': 'gzip',
+                'compression': 'gzip',
                 'level': 5
             }
 
