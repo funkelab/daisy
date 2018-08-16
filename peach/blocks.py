@@ -249,7 +249,7 @@ def enumerate_blocks(
     inclusion_criteria = {
         'valid': lambda b: total_roi.contains(b.read_roi),
         'overhang': lambda b: total_roi.contains(b.write_roi.get_begin()),
-        'shrink': lambda b: total_roi.contains(b.write_roi.get_begin())
+        'shrink': lambda b: shrink_possible(total_roi, b)
     }[fit]
 
     fit_block = {
@@ -294,6 +294,15 @@ def enumerate_blocks(
     logger.debug("found blocks: %s", blocks)
 
     return blocks
+
+def shrink_possible(total_roi, block):
+
+    if not total_roi.contains(block.write_roi.get_begin()):
+        return False
+
+    # test if write roi would be non-empty
+    b = shrink(total_roi, block)
+    return all([ s > 0 for s in b.write_roi.get_shape()])
 
 def shrink(total_roi, block):
     '''Ensure that read and write ROI are within total ROI by shrinking both.
