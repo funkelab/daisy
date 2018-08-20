@@ -19,6 +19,12 @@ class Block(Freezable):
             A unique ID for this block (within all blocks tiling the total ROI
             to process).
 
+        requested_write_roi (`class:Roi`):
+
+            The write ROI that was actually requested for this block.
+            ``write_roi`` might differ if the block was shrunk at the boundary
+            of the total ROI.
+
     Args:
 
         total_roi(`class:Roi`):
@@ -39,6 +45,7 @@ class Block(Freezable):
 
         self.read_roi = read_roi
         self.write_roi = write_roi
+        self.requested_write_roi = write_roi.copy()
 
         self.__compute_block_id(total_roi, write_roi)
         self.freeze()
