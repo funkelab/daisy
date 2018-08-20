@@ -9,40 +9,65 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
+def _read_voxel_size_offset(ds, order='C'):
+
+    if 'resolution' in ds.attrs:
+        voxel_size = tuple(ds.attrs['resolution'])
+        dims = len(voxel_size)
+    else:
+        dims = len(ds.shape)
+        voxel_size = (1,)*dims
+
+    if 'offset' in ds.attrs:
+        offset = tuple(ds.attrs['offset'])
+    else:
+        offset = (0,)*dims
+
+    if order == 'F':
+        offset = offset[::-1]
+        voxel_size = voxel_size[::-1]
+
+    return Coordinate(voxel_size), Coordinate(offset)
+
 def open_ds(filename, ds_name, mode='r'):
 
     if filename.endswith('.zarr'):
 
+        logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         ds = zarr.open(filename, mode=mode)[ds_name]
 
-        offset = Coordinate(ds.attrs['offset'])
-        voxel_size = Coordinate(ds.attrs['resolution'])
+        voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        logger.debug("opened zarr dataset %s in %s", ds_name, filename)
         return Array(ds, roi, voxel_size)
 
     elif filename.endswith('.n5'):
 
+        logger.debug("opening N5 dataset %s in %s", ds_name, filename)
         ds = z5py.File(filename, use_zarr_format=False)[ds_name]
 
-        offset = Coordinate(ds.attrs['offset'][::-1])
-        voxel_size = Coordinate(ds.attrs['resolution'][::-1])
+        logger.debug("reading attributes...")
+        voxel_size, offset = _read_voxel_size_offset(ds, 'F')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        logger.debug("opened N5 dataset %s in %s", ds_name, filename)
         return Array(ds, roi, voxel_size)
 
     elif filename.endswith('.h5') or filename.endswith('.hdf'):
 
+        logger.debug("opening H5 dataset %s in %s", ds_name, filename)
         ds = h5py.File(filename, mode=mode)[ds_name]
 
-        offset = Coordinate(ds.attrs['offset'])
-        voxel_size = Coordinate(ds.attrs['resolution'])
+        voxel_size, offset = _read_voxel_size_offset(ds, 'C')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        logger.debug("opened H5 dataset %s in %s", ds_name, filename)
         return Array(ds, roi, voxel_size)
 
     else:
 
+        logger.error("don't know data format of %s in %s", ds_name, filename)
         raise RuntimeError("Unknown file format for %s"%filename)
 
 def prepare_ds(filename, ds_name, total_roi, voxel_size, dtype, write_roi=None):
