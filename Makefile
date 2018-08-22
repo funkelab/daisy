@@ -1,6 +1,6 @@
 default:
 	pip install .
-	-rm -rf dist build gunpowder.egg-info
+	-rm -rf dist build daisy.egg-info
 
 .PHONY: install-full
 install-full:
