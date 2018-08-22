@@ -1,4 +1,4 @@
-import peach
+import daisy
 
 done = []
 
@@ -15,10 +15,10 @@ def check_function(write_roi):
 
 if __name__ == "__main__":
 
-    peach.process_blockwise(
-        peach.Roi((0,), (100,)),
-        peach.Roi((0,), (20,)),
-        peach.Roi((5,), (15,)),
+    daisy.process_blockwise(
+        daisy.Roi((0,), (100,)),
+        daisy.Roi((0,), (20,)),
+        daisy.Roi((5,), (15,)),
         process_function,
         check_function,
         1) # this test only works with one worker, since we have global state

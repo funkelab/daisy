@@ -23,16 +23,16 @@ def create_dependency_graph(
 
     Args:
 
-        total_roi (`class:peach.Roi`):
+        total_roi (`class:daisy.Roi`):
 
             The region of interest (ROI) of the complete volume to process.
 
-        block_read_roi (`class:peach.Roi`):
+        block_read_roi (`class:daisy.Roi`):
 
             The ROI every block needs to read data from. Will be shifted over
             the ``total_roi``.
 
-        block_write_roi (`class:peach.Roi`):
+        block_write_roi (`class:daisy.Roi`):
 
             The ROI every block writes data from. Will be shifted over the
             ``total_roi`` in synchrony with ``block_read_roi``.

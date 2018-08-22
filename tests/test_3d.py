@@ -1,16 +1,16 @@
 import logging
 import luigi
 import numpy as np
-import peach
+import daisy
 import random
 import time
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger('peach.tasks').setLevel(logging.DEBUG)
+logging.getLogger('daisy.tasks').setLevel(logging.DEBUG)
 
-total_roi = peach.Roi((0, 0, 0), (50, 50, 50))
-read_roi = peach.Roi((0, 0, 0), (10, 5, 7))
-write_roi = peach.Roi((2, 1, 2), (6, 1, 2))
+total_roi = daisy.Roi((0, 0, 0), (50, 50, 50))
+read_roi = daisy.Roi((0, 0, 0), (10, 5, 7))
+write_roi = daisy.Roi((2, 1, 2), (6, 1, 2))
 
 def check(write_roi):
 
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     with open('test_db_done.dat', 'w') as f:
         f.write('0'*total_roi.size())
 
-    peach.run_with_dask(
+    daisy.run_with_dask(
         total_roi,
         read_roi,
         write_roi,

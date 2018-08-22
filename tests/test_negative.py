@@ -1,12 +1,12 @@
 import logging
 import luigi
 import numpy as np
-import peach
+import daisy
 import random
 import time
 
 logging.basicConfig(level=logging.INFO)
-logging.getLogger('peach.blocks').setLevel(logging.DEBUG)
+logging.getLogger('daisy.blocks').setLevel(logging.DEBUG)
 
 def process(read_roi, write_roi):
 
@@ -36,12 +36,12 @@ if __name__ == "__main__":
     with open('test_db_done.dat', 'w') as f:
         f.write('0'*644)
 
-    total_roi = peach.Roi((-52,), (696,))
-    read_roi = peach.Roi((-52,), (144,))
-    write_roi = peach.Roi((0,), (92,))
+    total_roi = daisy.Roi((-52,), (696,))
+    read_roi = daisy.Roi((-52,), (144,))
+    write_roi = daisy.Roi((0,), (92,))
 
     print("Running with dask:")
-    peach.run_with_dask(
+    daisy.run_with_dask(
         total_roi,
         read_roi,
         write_roi,

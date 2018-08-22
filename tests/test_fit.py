@@ -1,5 +1,5 @@
 from __future__ import print_function
-import peach
+import daisy
 
 def print_block(r, w):
 
@@ -12,16 +12,16 @@ def print_block(r, w):
 
 if __name__ == "__main__":
 
-    total_roi = peach.Roi((0,), (10,))
-    read_roi = peach.Roi((0,), (5,))
-    write_roi = peach.Roi((1,), (3,))
+    total_roi = daisy.Roi((0,), (10,))
+    read_roi = daisy.Roi((0,), (5,))
+    write_roi = daisy.Roi((1,), (3,))
 
     for fit in ['valid', 'overhang', 'shrink']:
 
         print()
         print("%s fitting:"%fit)
 
-        deb_graph = peach.create_dependency_graph(
+        deb_graph = daisy.create_dependency_graph(
             total_roi,
             read_roi,
             write_roi,

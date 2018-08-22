@@ -19,15 +19,15 @@ for value in extras_require.values():
 extras_require['full'] = list(dep_set)
 
 setup(
-        name='peach',
+        name='daisy',
         version='0.1',
         description='Block-wise task dependencies for luigi.',
-        url='https://github.com/funkey/peach',
+        url='https://github.com/funkey/daisy',
         author='Jan Funke',
         author_email='jfunke@iri.upc.edu',
         license='MIT',
         packages=[
-            'peach',
+            'daisy',
         ],
         install_requires=[
             "numpy",

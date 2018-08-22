@@ -1,12 +1,12 @@
 import logging
 import luigi
 import numpy as np
-import peach
+import daisy
 import random
 import time
 
 logging.basicConfig(level=logging.INFO)
-# logging.getLogger('peach.tasks').setLevel(logging.DEBUG)
+# logging.getLogger('daisy.tasks').setLevel(logging.DEBUG)
 
 def process(read_roi, write_roi):
 
@@ -66,15 +66,15 @@ if __name__ == "__main__":
     with open('test_db_done.dat', 'w') as f:
         f.write('0'*190)
 
-    total_roi = peach.Roi((100,), (90,))
-    read_roi = peach.Roi((0,), (10,))
-    write_roi = peach.Roi((3,), (2,))
+    total_roi = daisy.Roi((100,), (90,))
+    read_roi = daisy.Roi((0,), (10,))
+    write_roi = daisy.Roi((3,), (2,))
 
     print("Running with dask:")
-    peach.run_with_dask(
-        peach.Roi((0,), (100,)),
-        peach.Roi((0,), (20,)),
-        peach.Roi((5,), (15,)),
+    daisy.run_with_dask(
+        daisy.Roi((0,), (100,)),
+        daisy.Roi((0,), (20,)),
+        daisy.Roi((5,), (15,)),
         process,
         check,
         1) # this test only works with one worker, since we have global state
@@ -86,10 +86,10 @@ if __name__ == "__main__":
         f.write('0'*190)
 
     print("Running with luigi:")
-    peach.run_with_luigi(
-        peach.Roi((0,), (100,)),
-        peach.Roi((0,), (20,)),
-        peach.Roi((5,), (15,)),
+    daisy.run_with_luigi(
+        daisy.Roi((0,), (100,)),
+        daisy.Roi((0,), (20,)),
+        daisy.Roi((5,), (15,)),
         process,
         check,
         1) # this test only works with one worker, since we have global state

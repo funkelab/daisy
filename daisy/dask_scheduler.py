@@ -21,16 +21,16 @@ def run_blockwise(
 
     Args:
 
-        total_roi (`class:peach.Roi`):
+        total_roi (`class:daisy.Roi`):
 
             The region of interest (ROI) of the complete volume to process.
 
-        read_roi (`class:peach.Roi`):
+        read_roi (`class:daisy.Roi`):
 
             The ROI every block needs to read data from. Will be shifted over
             the ``total_roi`` to cover the whole volume.
 
-        write_roi (`class:peach.Roi`):
+        write_roi (`class:daisy.Roi`):
 
             The ROI every block writes data from. Will be shifted over the
             ``total_roi`` to cover the whole volume.
