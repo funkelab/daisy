@@ -84,7 +84,14 @@ def open_ds(filename, ds_name, mode='r'):
         logger.error("don't know data format of %s in %s", ds_name, filename)
         raise RuntimeError("Unknown file format for %s"%filename)
 
-def prepare_ds(filename, ds_name, total_roi, voxel_size, dtype, write_roi=None):
+def prepare_ds(
+        filename,
+        ds_name,
+        total_roi,
+        voxel_size,
+        dtype,
+        write_roi=None,
+        num_channels=1):
 
     ds_name = ds_name.lstrip('/')
 
@@ -103,6 +110,11 @@ def prepare_ds(filename, ds_name, total_roi, voxel_size, dtype, write_roi=None):
         chunk_size = write_roi.get_shape()/voxel_size
     else:
         chunk_size = None
+
+    if num_channels > 1:
+
+        shape = (num_channels,) + shape
+        chunk_size = (num_channels,) + chunk_size
 
     if not os.path.isdir(filename):
 
