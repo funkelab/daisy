@@ -119,6 +119,7 @@ def prepare_ds(
     if not os.path.isdir(filename):
 
         logger.info("Creating new %s"%filename)
+        os.makedirs(filename)
 
         if file_format == 'zarr':
             zarr.open(filename, mode='w')
