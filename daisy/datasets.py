@@ -166,19 +166,19 @@ def prepare_ds(
         compatible = True
 
         if ds.shape != shape:
-            logger.debug("Shapes differ: %s vs %s"%(ds.shape, shape))
+            logger.info("Shapes differ: %s vs %s"%(ds.shape, shape))
             compatible = False
 
         if ds.roi != total_roi:
-            logger.debug("ROIs differ: %s vs %s"%(ds.roi, total_roi))
+            logger.info("ROIs differ: %s vs %s"%(ds.roi, total_roi))
             compatible = False
 
         if ds.voxel_size != voxel_size:
-            logger.debug("Voxel sizes differ: %s vs %s"%(ds.voxel_size, voxel_size))
+            logger.info("Voxel sizes differ: %s vs %s"%(ds.voxel_size, voxel_size))
             compatible = False
 
         if write_roi is not None and ds.data.chunks != chunk_size:
-            logger.debug("Chunk sizes differ: %s vs %s"%(ds.data.chunks, chunk_size))
+            logger.info("Chunk sizes differ: %s vs %s"%(ds.data.chunks, chunk_size))
             compatible = False
 
         if not compatible:
@@ -192,7 +192,8 @@ def prepare_ds(
                 total_roi,
                 voxel_size,
                 dtype,
-                write_roi)
+                write_roi,
+                num_channels)
 
         else:
 
