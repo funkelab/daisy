@@ -20,18 +20,43 @@ class Array(Freezable):
         voxel_size (`class:Coordinate`):
 
             The size of a voxel.
+
+        data_offset (`class:Coordinate`, optional):
+
+            The start of ``data``, in world units. Defaults to
+            ``roi.get_begin()``. Setting this to a different value allows
+            defining views into ``data``.
     '''
 
-    def __init__(self, data, roi, voxel_size):
+    def __init__(self, data, roi, voxel_size, data_offset=None):
 
         self.data = data
         self.roi = roi
         self.voxel_size = voxel_size
         self.n_channel_dims = len(data.shape) - roi.dims()
+        if data_offset is None:
+            data_offset = roi.get_begin()
+        self.data_roi = Roi(
+            data_offset,
+            self.voxel_size*self.data.shape[self.n_channel_dims:])
 
-        assert (roi/voxel_size).get_shape() == data.shape[-roi.dims():], (
-            "data shape %s does not fit to given roi %s and voxel_size %s"%(
-                data.shape, roi, voxel_size))
+        assert self.data_roi.contains(roi), (
+            "data ROI %s does not contain given ROI %s"%(
+            self.data_roi, roi))
+
+        for d in range(roi.dims()):
+
+            assert self.roi.get_begin()[d]%voxel_size[d] == 0, (
+                "roi offset %d in dim %d is not a multiple of voxel size %d"%(
+                self.roi.get_begin()[d], d, voxel_size[d]))
+
+            assert self.roi.get_shape()[d]%voxel_size[d] == 0, (
+                "roi shape %d in dim %d is not a multiple of voxel size %d"%(
+                self.roi.get_shape()[d], d, voxel_size[d]))
+
+            assert data_offset[d]%voxel_size[d] == 0, (
+                "data offset %d in dim %d is not a multiple of voxel size %d"%(
+                data_offset[d], d, voxel_size[d]))
 
         self.freeze()
 
@@ -143,13 +168,13 @@ class Array(Freezable):
     def __slices(self, roi):
         '''Get the voxel slices for the given roi.'''
 
-        voxel_roi = (roi - self.roi.get_begin())/self.voxel_size
+        voxel_roi = (roi - self.data_roi.get_begin())/self.voxel_size
         return (slice(None),)*self.n_channel_dims + voxel_roi.to_slices()
 
     def __index(self, coordinate):
         '''Get the voxel slices for the given coordinate.'''
 
-        index = (coordinate - self.roi.get_begin())/self.voxel_size
+        index = (coordinate - self.data_roi.get_begin())/self.voxel_size
         if self.n_channel_dims > 0:
             index = (Ellipsis,) + index
         return index
