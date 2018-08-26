@@ -28,6 +28,7 @@ setup(
         license='MIT',
         packages=[
             'daisy',
+            'daisy.ext'
         ],
         install_requires=[
             "numpy",
