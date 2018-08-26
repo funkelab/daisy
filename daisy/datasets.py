@@ -3,6 +3,7 @@ from .array import Array
 from .coordinate import Coordinate
 from .ext import zarr, z5py, h5py
 from .roi import Roi
+import json
 import logging
 import os
 import shutil
@@ -64,6 +65,19 @@ def open_ds(filename, ds_name, mode='r'):
 
         logger.debug("opened H5 dataset %s in %s", ds_name, filename)
         return Array(ds, roi, voxel_size)
+
+    elif filename.endswith('.json'):
+
+        logger.debug("found JSON container spec")
+        with open(filename, 'r') as f:
+            spec = json.load(f)
+
+        array = open_ds(spec['container'], ds_name, mode)
+        return Array(
+            array.data,
+            Roi(spec['offset'], spec['size']),
+            array.voxel_size,
+            array.roi.get_begin())
 
     else:
 
