@@ -32,7 +32,7 @@ class Array(Freezable):
 
         self.data = data
         self.roi = roi
-        self.voxel_size = voxel_size
+        self.voxel_size = Coordinate(voxel_size)
         self.n_channel_dims = len(data.shape) - roi.dims()
         if data_offset is None:
             data_offset = roi.get_begin()
