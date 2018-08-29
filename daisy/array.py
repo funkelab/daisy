@@ -44,19 +44,17 @@ class Array(Freezable):
             "data ROI %s does not contain given ROI %s"%(
             self.data_roi, roi))
 
-        for d in range(roi.dims()):
+        assert self.roi.get_begin().is_multiple_of(voxel_size), (
+            "roi offset %s is not a multiple of voxel size %s"%(
+            self.roi.get_begin(), voxel_size))
 
-            assert self.roi.get_begin()[d]%voxel_size[d] == 0, (
-                "roi offset %d in dim %d is not a multiple of voxel size %d"%(
-                self.roi.get_begin()[d], d, voxel_size[d]))
+        assert self.roi.get_shape().is_multiple_of(voxel_size), (
+            "roi shape %s is not a multiple of voxel size %s"%(
+            self.roi.get_shape(), voxel_size))
 
-            assert self.roi.get_shape()[d]%voxel_size[d] == 0, (
-                "roi shape %d in dim %d is not a multiple of voxel size %d"%(
-                self.roi.get_shape()[d], d, voxel_size[d]))
-
-            assert data_offset[d]%voxel_size[d] == 0, (
-                "data offset %d in dim %d is not a multiple of voxel size %d"%(
-                data_offset[d], d, voxel_size[d]))
+        assert data_offset.is_multiple_of(voxel_size), (
+            "data offset %s is not a multiple of voxel size %s"%(
+            data_offset, voxel_size))
 
         self.freeze()
 
