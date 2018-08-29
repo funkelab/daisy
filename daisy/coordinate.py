@@ -24,6 +24,11 @@ class Coordinate(tuple):
     def dims(self):
         return len(self)
 
+    def is_multiple_of(self, coordinate):
+        '''Test if this coordinate is a multiple of the given coordinate.'''
+
+        return all([ a%b == 0 for a, b in zip(self, coordinate) ])
+
     def __neg__(self):
 
         return Coordinate(
