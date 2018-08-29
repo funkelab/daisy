@@ -131,7 +131,7 @@ def prepare_ds(
         logger.info("Creating new %s in %s"%(ds_name, filename))
 
         if file_format == 'zarr':
-            root = zarr.open(filename, mode='r+')
+            root = zarr.open(filename, mode='a')
             comp_arg = {
                 'compressor': zarr.get_codec({'id': 'gzip', 'level': 5})
             }
@@ -161,7 +161,7 @@ def prepare_ds(
     else:
 
         logger.debug("Trying to reuse existing dataset %s in %s..."%(ds_name, filename))
-        ds = open_ds(filename, ds_name, mode='r+')
+        ds = open_ds(filename, ds_name, mode='a')
 
         compatible = True
 
