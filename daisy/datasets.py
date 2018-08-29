@@ -93,6 +93,11 @@ def prepare_ds(
         write_roi=None,
         num_channels=1):
 
+    assert total_roi.get_shape().is_multiple_of(voxel_size), (
+        "The provided ROI shape is not a multiple of voxel_size")
+    assert total_roi.get_begin().is_multiple_of(voxel_size), (
+        "The provided ROI offset is not a multiple of voxel_size")
+
     ds_name = ds_name.lstrip('/')
 
     if filename.endswith('.h5') or filename.endswith('.hdf'):
