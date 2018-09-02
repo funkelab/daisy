@@ -60,6 +60,19 @@ class Array(Freezable):
 
         self.freeze()
 
+    @property
+    def shape(self):
+        '''Get the shape in voxels of this array, possibly including channel
+        dimensions. This is equivalent to::
+
+            array.to_ndarray().shape()
+
+        but does not actually create the ``ndarray``.
+        '''
+
+        view_shape = (self.roi/self.voxel_size).get_shape()
+        return self.data.shape[:self.n_channel_dims] + view_shape
+
     def __getitem__(self, key):
         '''Get a sub-array or a single value.
 

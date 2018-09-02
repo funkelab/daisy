@@ -65,3 +65,8 @@ if __name__ == "__main__":
         raise RuntimeError("Out-of-bounds access not detected")
 
     array[array.roi] = 0
+
+    print(array.shape)
+    print(array.to_ndarray().shape)
+    print(array[daisy.Roi((20, 20), (10, 10))].shape)
+    print(array[daisy.Roi((20, 20), (10, 10))].to_ndarray().shape)
