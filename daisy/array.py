@@ -5,13 +5,16 @@ from .roi import Roi
 import numpy as np
 
 class Array(Freezable):
-    '''An annotated ndarray-like.
+    '''A ROI and voxel size annotated ndarray-like. Acts as a view into actual
+    data.
 
     Args:
 
         data (``ndarray``-like):
 
-            The data to hold. Can be a numpy, HDF5, zarr, etc. array like.
+            The data to hold. Can be a numpy, HDF5, zarr, etc. array like. Needs
+            to have ``shape`` and slicing support for reading/writing. It is
+            assumed that slicing returns an ``ndarray``.
 
         roi (`class:Roi`):
 
@@ -24,8 +27,7 @@ class Array(Freezable):
         data_offset (`class:Coordinate`, optional):
 
             The start of ``data``, in world units. Defaults to
-            ``roi.get_begin()``. Setting this to a different value allows
-            defining views into ``data``.
+            ``roi.get_begin()``, if not given.
     '''
 
     def __init__(self, data, roi, voxel_size, data_offset=None):
@@ -58,11 +60,6 @@ class Array(Freezable):
 
         self.freeze()
 
-    @property
-    def shape(self):
-        '''Get the shape of this array, possibly including channel dimensions.'''
-        return self.data.shape
-
     def __getitem__(self, key):
         '''Get a sub-array or a single value.
 
@@ -72,6 +69,14 @@ class Array(Freezable):
 
                 The ROI specifying the sub-array or a coordinate for a single
                 value.
+
+        Returns:
+
+            If ``key`` is a `class:Roi`, returns a `class:Array` that represents
+            this ROI. This is a light-weight operation that does not access the
+            actual data held by this array. If ``key`` is a `class:Coordinate`,
+            the array value (possible multi-channel) closest to the coordinate
+            is returned.
         '''
 
         if isinstance(key, Roi):
@@ -81,9 +86,7 @@ class Array(Freezable):
             assert self.roi.contains(roi), (
                 "Requested roi is not contained in this array.")
 
-            data = self.data[self.__slices(roi)]
-
-            return Array(data, roi, self.voxel_size)
+            return Array(self.data, roi, self.voxel_size, self.data_roi.get_begin())
 
         elif isinstance(key, Coordinate):
 
@@ -94,9 +97,8 @@ class Array(Freezable):
 
             return self.data[self.__index(coordinate)]
 
-    def __setitem__(self, roi, array):
-        '''Set the data of this array to the values of another array within
-        roi.
+    def __setitem__(self, roi, value):
+        '''Set the data of this array within the given ROI.
 
         Args:
 
@@ -104,34 +106,68 @@ class Array(Freezable):
 
                 The ROI to write to.
 
-            array (`class:Array`):
+            value (`class:Array`, or broadcastable to ``ndarray``):
 
-                The array to read from. The ROIs do not have to match, however,
-                the shape of ``array`` has to be broadcastable to the voxel
-                shape of ``roi``.
+                The value to write. If an `class:Array`, the ROIs do not have to
+                match, however, the shape of ``value`` has to be broadcastable
+                to the voxel shape of ``roi``.
         '''
 
         assert isinstance(roi, Roi), (
             "Roi expected, but got %s"%(type(roi)))
 
-        assert (roi/self.voxel_size).get_shape() == array.shape[-roi.dims():]
+        assert roi.get_begin().is_multiple_of(self.voxel_size), (
+            "roi offset %s is not a multiple of voxel size %s"%(
+            roi.get_begin(), self.voxel_size))
 
-        self.data[self.__slices(roi)] = array.data
+        assert roi.get_shape().is_multiple_of(self.voxel_size), (
+            "roi shape %s is not a multiple of voxel size %s"%(
+            roi.get_shape(), self.voxel_size))
 
-    def fill(self, roi, fill_value=0):
-        '''Get an `class:Array`, filled with the values of this array where
-        available. Other values will be set to ``fill_value``.
+        target = self.data
+        target_slices = self.__slices(roi)
+
+        if not hasattr(value, '__getitem__'):
+
+            target[target_slices] = value
+            return
+
+        if isinstance(value, Array):
+
+            array = value
+            source = array.data
+            source_slices = array.__slices(array.roi)
+
+        else:
+
+            source = value
+            source_slices = slice(None)
+
+        target[target_slices] = source[source_slices]
+
+    def to_ndarray(self, roi=None, fill_value=None):
+        '''Copy the data represented by this array into an ``ndarray``.
 
         Args:
 
-            roi (`class:Roi`):
+            roi (`class:Roi`, optional):
 
-                The ROI of the array to fill.
+                If given, copy only the data represented by this ROI. This is
+                equivalent to::
 
-            fill_value (``dtype`` of this array):
+                    array[roi].to_ndarray()
 
-                The value to use to fill out-of-bounds requests.
+            fill_value (scalar, optional):
+
+                If given, allow ``roi`` to be outside of this array's ROI.
+                Outside values will be filled with ``fill_value``.
         '''
+
+        if roi is None:
+            return self.data[self.__slices(self.roi)]
+
+        if fill_value is None:
+            return self[roi].to_ndarray()
 
         shape = (roi/self.voxel_size).get_shape()
         data = np.zeros(
@@ -147,11 +183,13 @@ class Array(Freezable):
         if not shared_roi.empty():
             array[shared_roi] = self[shared_roi]
 
-        return array
+        return data
 
     def intersect(self, roi):
         '''Get a sub-array obtained by intersecting this array with the given
-        ROI.
+        ROI. This is equivalent to::
+
+            array[array.roi.intersect(roi)]
 
         Args:
 
