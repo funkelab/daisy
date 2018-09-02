@@ -40,10 +40,6 @@ class Array(Freezable):
             data_offset,
             self.voxel_size*self.data.shape[self.n_channel_dims:])
 
-        assert self.data_roi.contains(roi), (
-            "data ROI %s does not contain given ROI %s"%(
-            self.data_roi, roi))
-
         assert self.roi.get_begin().is_multiple_of(voxel_size), (
             "roi offset %s is not a multiple of voxel size %s"%(
             self.roi.get_begin(), voxel_size))
@@ -55,6 +51,10 @@ class Array(Freezable):
         assert data_offset.is_multiple_of(voxel_size), (
             "data offset %s is not a multiple of voxel size %s"%(
             data_offset, voxel_size))
+
+        assert self.data_roi.contains(roi), (
+            "data ROI %s does not contain given ROI %s"%(
+            self.data_roi, roi))
 
         self.freeze()
 
