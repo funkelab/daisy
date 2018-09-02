@@ -12,16 +12,32 @@ logger = logging.getLogger(__name__)
 
 def _read_voxel_size_offset(ds, order='C'):
 
+    voxel_size = None
+    offset = None
+    dims = None
+
     if 'resolution' in ds.attrs:
+
         voxel_size = tuple(ds.attrs['resolution'])
         dims = len(voxel_size)
-    else:
-        dims = len(ds.shape)
-        voxel_size = (1,)*dims
 
     if 'offset' in ds.attrs:
+
         offset = tuple(ds.attrs['offset'])
-    else:
+
+        if dims is not None:
+            assert dims == len(offset), (
+                "resolution and offset attributes differ in length")
+        else:
+            dims = len(offset)
+
+    if dims is None:
+        dims = len(ds.shape)
+
+    if voxel_size is None:
+        voxel_size = (1,)*dims
+
+    if offset is None:
         offset = (0,)*dims
 
     if order == 'F':
