@@ -158,6 +158,18 @@ class Array(Freezable):
 
         target[target_slices] = source[source_slices]
 
+    def materialize(self):
+        '''Copy the data represented by this array to memory. This is
+        equivalent to::
+
+            array = Array(array.to_ndarray(), array.roi, array.voxel_size)
+
+        but modifies this array directly.
+        '''
+
+        self.data = self.to_ndarray()
+        self.data_roi = self.roi.copy()
+
     def to_ndarray(self, roi=None, fill_value=None):
         '''Copy the data represented by this array into an ``ndarray``.
 
