@@ -61,6 +61,10 @@ def run_blockwise(
             processing blocks that are already done and to check if a block was
             correctly processed.
 
+            If a tuple of two functions is given, the first one will be called
+            to check if the block needs to be run, and if so, the second after
+            it was run to check if the run succeeded.
+
         read_write_conflict (``bool``, optional):
 
             Whether the read and write ROIs are conflicting, i.e., accessing
@@ -134,6 +138,19 @@ def run_blockwise(
         read_write_conflict,
         fit)
 
+    if check_function is not None:
+
+        try:
+            pre_check, post_check = check_function
+        except:
+            pre_check = check_function
+            post_check = check_function
+
+    else:
+
+        pre_check = lambda _: False
+        post_check = lambda _: True
+
     # dask requires strings for task names, string representation of
     # `class:Roi` is assumed to be unique.
     tasks = {
@@ -141,7 +158,8 @@ def run_blockwise(
             check_and_run,
             block,
             process_function,
-            check_function,
+            pre_check,
+            post_check,
             [ block_to_dask_name(ups) for ups in upstream_blocks ]
         )
         for block, upstream_blocks in blocks
@@ -193,9 +211,9 @@ def block_to_dask_name(block):
 
     return '%d'%block.block_id
 
-def check_and_run(block, process_function, check_function, *args):
+def check_and_run(block, process_function, pre_check, post_check, *args):
 
-    if check_function is not None and check_function(block):
+    if pre_check(block):
         logger.info("Skipping task for block %s; already processed.", block)
         return 0
 
@@ -207,7 +225,7 @@ def check_and_run(block, process_function, check_function, *args):
             block, traceback.format_exc())
         return -2
 
-    if check_function is not None and not check_function(block):
+    if not post_check(block):
         logger.error(
             "Completion check failed for task for block %s.",
             block)
