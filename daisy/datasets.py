@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from .array import Array
 from .coordinate import Coordinate
-from .ext import zarr, z5py, h5py
+from .ext import zarr, h5py
 from .roi import Roi
 import json
 import logging
@@ -62,9 +62,8 @@ def open_ds(filename, ds_name, mode='r'):
     elif filename.endswith('.n5'):
 
         logger.debug("opening N5 dataset %s in %s", ds_name, filename)
-        ds = z5py.File(filename, use_zarr_format=False)[ds_name]
+        ds = zarr.open(filename, mode=mode)[ds_name]
 
-        logger.debug("reading attributes...")
         voxel_size, offset = _read_voxel_size_offset(ds, 'F')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
@@ -142,33 +141,19 @@ def prepare_ds(
         logger.info("Creating new %s"%filename)
         os.makedirs(filename)
 
-        if file_format == 'zarr':
-            zarr.open(filename, mode='w')
-        else:
-            z5py.File(filename)
+        zarr.open(filename, mode='w')
 
     if not os.path.isdir(os.path.join(filename, ds_name)):
 
         logger.info("Creating new %s in %s"%(ds_name, filename))
 
-        if file_format == 'zarr':
-            root = zarr.open(filename, mode='a')
-            comp_arg = {
-                'compressor': zarr.get_codec({'id': 'gzip', 'level': 5})
-            }
-        else:
-            root = z5py.File(filename)
-            comp_arg = {
-                'compression': 'gzip',
-                'level': 5
-            }
-
+        root = zarr.open(filename, mode='a')
         ds = root.create_dataset(
             ds_name,
             shape=shape,
             chunks=chunk_size,
             dtype=dtype,
-            **comp_arg)
+            compressor=zarr.get_codec({'id': 'gzip', 'level': 5}))
 
         if file_format == 'zarr':
             ds.attrs['resolution'] = voxel_size
