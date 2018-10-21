@@ -106,12 +106,16 @@ def prepare_ds(
         voxel_size,
         dtype,
         write_roi=None,
-        num_channels=1):
+        num_channels=1,
+        compressor='default'):
 
     assert total_roi.get_shape().is_multiple_of(voxel_size), (
         "The provided ROI shape is not a multiple of voxel_size")
     assert total_roi.get_begin().is_multiple_of(voxel_size), (
         "The provided ROI offset is not a multiple of voxel_size")
+
+    if compressor == 'default':
+        compressor = {'id': 'gzip', 'level': 5}
 
     ds_name = ds_name.lstrip('/')
 
@@ -153,7 +157,7 @@ def prepare_ds(
             shape=shape,
             chunks=chunk_size,
             dtype=dtype,
-            compressor=zarr.get_codec({'id': 'gzip', 'level': 5}))
+            compressor=zarr.get_codec(compressor))
 
         if file_format == 'zarr':
             ds.attrs['resolution'] = voxel_size
