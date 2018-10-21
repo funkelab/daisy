@@ -176,13 +176,15 @@ def run_blockwise(
             cluster = LocalCluster(
                 n_workers=num_workers,
                 threads_per_worker=1,
-                memory_limit=0)
+                memory_limit=0,
+                diagnostics_port=None)
         else:
             cluster = LocalCluster(
                 n_workers=1,
                 threads_per_worker=num_workers,
                 processes=False,
-                memory_limit=0)
+                memory_limit=0,
+                diagnostics_port=None)
 
         client = Client(cluster)
 
