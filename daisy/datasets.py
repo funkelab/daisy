@@ -203,7 +203,8 @@ def prepare_ds(
                 voxel_size,
                 dtype,
                 write_roi,
-                num_channels)
+                num_channels,
+                compressor)
 
         else:
 
