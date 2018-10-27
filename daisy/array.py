@@ -73,6 +73,11 @@ class Array(Freezable):
         view_shape = (self.roi/self.voxel_size).get_shape()
         return self.data.shape[:self.n_channel_dims] + view_shape
 
+    @property
+    def dtype(self):
+        '''Get the dtype of this array.'''
+        return self.data.dtype
+
     def __getitem__(self, key):
         '''Get a sub-array or a single value.
 
