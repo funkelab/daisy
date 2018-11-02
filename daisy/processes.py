@@ -17,3 +17,5 @@ def call(command, log_out, log_err):
             ' '.join(command),
             exc.returncode,
             stderr.name))
+    except KeyboardInterrupt:
+        raise Exception("Cancelled by SIGINT")
