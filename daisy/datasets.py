@@ -1,8 +1,9 @@
-from __future__ import absolute_import
+from __future__ import absolute_import, division
 from .array import Array
 from .coordinate import Coordinate
 from .ext import zarr, h5py
 from .roi import Roi
+import fractions
 import json
 import logging
 import os
@@ -113,6 +114,9 @@ def prepare_ds(
         "The provided ROI shape is not a multiple of voxel_size")
     assert total_roi.get_begin().is_multiple_of(voxel_size), (
         "The provided ROI offset is not a multiple of voxel_size")
+    if write_roi is not None:
+        assert write_roi.get_shape().is_multiple_of(voxel_size), (
+            "The provided write ROI shape is not a multiple of voxel_size")
 
     if compressor == 'default':
         compressor = {'id': 'gzip', 'level': 5}
@@ -131,7 +135,7 @@ def prepare_ds(
     shape = total_roi.get_shape()/voxel_size
 
     if write_roi is not None:
-        chunk_size = write_roi.get_shape()/voxel_size
+        chunk_size = get_chunk_size(write_roi.get_shape()/voxel_size)
     else:
         chunk_size = None
 
@@ -210,3 +214,28 @@ def prepare_ds(
 
             logger.info("Reusing existing dataset")
             return ds
+
+def get_chunk_size(block_size):
+    '''Get a reasonable chunk size that divides the given block size.'''
+
+    chunk_size = Coordinate(
+        get_chunk_size_dim(b, 256)
+        for b in block_size)
+
+    logger.debug("Setting chunk size to %s", chunk_size)
+
+    return chunk_size
+
+def get_chunk_size_dim(b, target_chunk_size):
+
+    best_k = None
+    best_target_diff = 0
+
+    for k in range(1, b+1):
+        if ((b//k)*k)%b == 0:
+            diff = abs(b//k - target_chunk_size)
+            if best_k is None or diff < best_target_diff:
+                best_target_diff = diff
+                best_k = k
+
+    return b//best_k
