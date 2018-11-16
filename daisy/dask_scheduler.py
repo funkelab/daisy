@@ -190,11 +190,25 @@ def run_blockwise(
 
     logger.info("Scheduling %d tasks...", len(tasks))
 
+    # don't show dask performance warnings (too verbose, probably not
+    # applicable to our use-case)
+    logging.getLogger('distributed.utils_perf').setLevel(logging.ERROR)
+
     # run all tasks
     results = client.get(tasks, list(tasks.keys()))
 
     if own_client:
-        client.close()
+
+        try:
+
+            # don't show dask distributes warning during shutdown
+            logging.getLogger('distributed').setLevel(logging.ERROR)
+
+            client.close()
+
+        # ignore exceptions during shutdown
+        except Exception:
+            pass
 
     succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
     skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
