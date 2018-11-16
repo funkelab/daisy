@@ -1,13 +1,12 @@
 from __future__ import absolute_import
 from .blocks import create_dependency_graph
-from .dynamic_blocks import DynamicBlocks
 from dask.distributed import Client, LocalCluster
 import traceback
 import logging
 
 logger = logging.getLogger(__name__)
 
-def run_blockwise(
+def run_blockwise_old(
     total_roi,
     read_roi,
     write_roi,
@@ -132,31 +131,12 @@ def run_blockwise(
         completed in an earlier run).
     '''
 
-    # blocks = create_dependency_graph(
-    #     total_roi,
-    #     read_roi,
-    #     write_roi,
-    #     read_write_conflict,
-    #     fit)
-
-    # # print(blocks)
-    # for b in blocks:
-    #     print(b)
-    #     # return
-    # # return
-
-    # print("Creating dynamic blocks")
-
-    blocks = DynamicBlocks(
+    blocks = create_dependency_graph(
         total_roi,
         read_roi,
         write_roi,
         read_write_conflict,
         fit)
-
-    # print(dynamic_blocks)
-
-    # return
 
     if check_function is not None:
 
@@ -171,24 +151,19 @@ def run_blockwise(
         pre_check = lambda _: False
         post_check = lambda _: True
 
-    # # dask requires strings for task names, string representation of
-    # # `class:Roi` is assumed to be unique.
-    # tasks = {
-    #     block_to_dask_name(block): (
-    #         check_and_run,
-    #         block,
-    #         process_function,
-    #         pre_check,
-    #         post_check,
-    #         [ block_to_dask_name(ups) for ups in upstream_blocks ]
-    #     )
-    #     for block, upstream_blocks in blocks
-    # }
-
-    # print(tasks)
-    # for t in tasks:
-    #     print(t)
-    # return
+    # dask requires strings for task names, string representation of
+    # `class:Roi` is assumed to be unique.
+    tasks = {
+        block_to_dask_name(block): (
+            check_and_run,
+            block,
+            process_function,
+            pre_check,
+            post_check,
+            [ block_to_dask_name(ups) for ups in upstream_blocks ]
+        )
+        for block, upstream_blocks in blocks
+    }
 
     own_client = client is None
 
@@ -213,57 +188,18 @@ def run_blockwise(
 
         client = Client(cluster)
 
-    # logger.info("Scheduling %d tasks...", len(tasks))
-    logger.info("Scheduling tasks...")
+    logger.info("Scheduling %d tasks...", len(tasks))
 
-    # # run all tasks
-    # results = client.get(tasks, list(tasks.keys()))
-    futures = {}
-    results = []
-    while not blocks.empty():
-        block = blocks.next()
-        # assert(block != None)
-
-        if block != None:
-            print(block)
-            block_id = block.block_id
-            tasks = {
-                block_to_dask_name(block): (
-                    check_and_run,
-                    block,
-                    process_function,
-                    pre_check,
-                    post_check,
-                    [ block_to_dask_name(ups) for ups in upstream_blocks ]
-                )
-                for block, upstream_blocks in [(block,[])]
-            }
-            # futures.append((block_id, client.get(tasks, list(tasks.keys()), sync=False)))
-            futures[block_id] = client.get(tasks, list(tasks.keys()), sync=False)
-
-        # check on executing jobs
-        finished = []
-        for block_id in futures:
-            # print(futures)
-            future = futures[block_id][0]
-            if future.done():
-                blocks.remove_and_update(block_id)
-                finished.append(block_id)
-                results.append((blocks.get_task(block_id), future.result()))
-        for f in finished:
-            del futures[f]
+    # run all tasks
+    results = client.get(tasks, list(tasks.keys()))
 
     if own_client:
         client.close()
 
-    # succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
-    # skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
-    # failed = [ t for t, r in zip(tasks, results) if r == -1 ]
-    # errored = [ t for t, r in zip(tasks, results) if r == -2 ]
-    succeeded = [ t for t, r in results if r == 1 ]
-    skipped = [ t for t, r in results if r == 0 ]
-    failed = [ t for t, r in results if r == -1 ]
-    errored = [ t for t, r in results if r == -2 ]
+    succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
+    skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
+    failed = [ t for t, r in zip(tasks, results) if r == -1 ]
+    errored = [ t for t, r in zip(tasks, results) if r == -2 ]
 
     logger.info(
         "Ran %d tasks, of which %d succeeded, %d were skipped, %d failed (%d "
@@ -298,4 +234,5 @@ def check_and_run(block, process_function, pre_check, post_check, *args):
         return -1
 
     return 1
+
 
