@@ -221,6 +221,10 @@ def run_blockwise(
         len(tasks), len(succeeded), len(skipped),
         len(failed) + len(errored), len(failed), len(errored))
 
+    if len(failed) > 0:
+        logger.info(
+            "Failed blocks: %s", " ".join([str(t[1]) for _, t in failed]))
+
     return len(failed) + len(errored) == 0
 
 def block_to_dask_name(block):
