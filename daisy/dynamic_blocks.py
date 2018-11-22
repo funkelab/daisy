@@ -17,11 +17,14 @@ class DynamicBlocks():
 
     dependents = MyDictSet()
     dependencies = MyDictSet()
+    # dependents = {}
+    # dependencies = {}
     ready_queue = deque()
     ready_queue_cv = threading.Condition()
     processing_blocks = set()
     blocks = {}
     # update_lock = threading.Lock()
+    actor_type = {}
 
     def __init__(
         self,
@@ -109,5 +112,8 @@ class DynamicBlocks():
 
     def get_task(self, block_id):
         return self.blocks[block_id]
+
+    def get_actor_type(self, actor):
+        return self.actor_type[actor]
 
 
