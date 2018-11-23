@@ -1,6 +1,8 @@
 from __future__ import absolute_import
 from .blocks import create_dependency_graph
 from .dynamic_blocks import DynamicBlocks
+from .processes import call_async
+from .processes import call_function_async
 
 from tornado.ioloop import IOLoop
 from tornado.tcpserver import TCPServer
@@ -18,6 +20,11 @@ from collections import deque
 import importlib
 from threading import Thread
 from enum import Enum
+import asyncio
+from collections import defaultdict
+import socket
+from inspect import signature
+import multiprocessing
 
 logger = logging.getLogger(__name__)
 
@@ -29,17 +36,37 @@ class SchedulerMessageType(Enum):
     TERMINATE_WORKER = 5,
     NEW_BLOCK = 6,
 
+class ReturnCode(Enum):
+    SUCCESS = 0,
+    ERROR= 1,
+    FAILED_POST_CHECK = 2,
+    SKIPPED = 3,
+    NETWORK_ERROR = 4,
 
-
-# def unserialize(data):
 
 class SchedulerMessage():
 
     def __init__(self, type, data=None):
         self.type = type
         self.data = data
-        # if type == SchedulerMessageType.TERMINATE_WORKER:
 
+
+async def get_and_unpack_message(stream):
+
+    size = await stream.read_bytes(4)
+    size = struct.unpack('I', size)[0]
+    assert(size < 65535) # TODO: parameterize max message size
+    logger.debug("Receiving {} bytes".format(size))
+    pickled_data = await stream.read_bytes(size)
+    msg = pickle.loads(pickled_data)
+    return msg
+
+
+def pack_message(data):
+    # data = ''.join(msg_size_bytes, data)
+    pickled_data = pickle.dumps(data)
+    msg_size_bytes = struct.pack('I', len(pickled_data))
+    return msg_size_bytes + pickled_data
 
 
 class SchedulerTCPServer(TCPServer):
@@ -47,36 +74,25 @@ class SchedulerTCPServer(TCPServer):
     handler = None
     address_to_stream_mapping = {}
 
-    # def __init__(self, ioloop, handler):
-    #     self.handler = handler
-    #     self.ioloop = ioloop
-
     async def handle_stream(self, stream, address):
 
         actor = address
-        print("Received new actor {}".format(actor))
         logger.debug("Received new actor {}".format(actor))
         self.handler.initialize_actor(actor)
         self.address_to_stream_mapping[address] = stream
 
+        # one IO loop handler per worker
         while True:
-            # IO loop per worker
             try:
-                size = await stream.read_bytes(4)
-                size = struct.unpack('I', size)[0]
-                assert(size < 65535) # TODO: parameterize max message size
-                logger.debug("Receiving {} bytes".format(size))
-                pickled_data = await stream.read_bytes(size)
-
-                msg = pickle.loads(pickled_data)
-                logger.debug("Received {}".format(msg))
+                msg = await get_and_unpack_message(stream)
+                # logger.debug("Received {}".format(msg))
 
                 if msg.type == SchedulerMessageType.WORKER_GET_BLOCK:
                     self.handler.add_idle_actor(actor)
 
                 elif msg.type == SchedulerMessageType.WORKER_RET_BLOCK:
                     jobid, ret = msg.data
-                    self.handler.job_done(jobid)
+                    self.handler.block_done(actor, jobid, ret)
 
                 elif msg.type == SchedulerMessageType.WORKER_EXITING:
                     break
@@ -92,8 +108,14 @@ class SchedulerTCPServer(TCPServer):
         self.handler.remove_worker_callback(actor)
         del self.address_to_stream_mapping[actor]
 
+
     async def async_send(self, stream, data):
-        await stream.write(data)
+
+        try:
+            await stream.write(data)
+        except StreamClosedError:
+            logger.error("Unexpected loss of connection while sending data.")
+
 
     def send(self, address, data):
 
@@ -102,26 +124,39 @@ class SchedulerTCPServer(TCPServer):
             return
 
         stream = self.address_to_stream_mapping[address]
-        # data = ''.join(msg_size_bytes, data)
-        pickled_data = pickle.dumps(data)
-        msg_size_bytes = struct.pack('I', len(pickled_data))
-        IOLoop.current().spawn_callback(
-            self.async_send,
-            stream,
-            msg_size_bytes + pickled_data)
+        IOLoop.current().spawn_callback(self.async_send, stream, pack_message(data))
+
 
     def add_handler(self, handler):
         self.handler = handler
+
+
+    def get_own_ip(self, port):
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.connect(("8.8.8.8", port))
+            return sock.getsockname()[0]
+        except:
+            logger.error("Could not detect own IP address, returning bogus IP")
+            return "8.8.8.8"
+        finally:
+            if sock:
+                sock.close()
+
+
+    def get_identity(self):
+        sock = self._sockets[list(self._sockets.keys())[0]]
+        port = sock.getsockname()[1]
+        ip = self.get_own_ip(port)
+        return (ip, port)
 
 
 class Scheduler():
 
     actors = set()
     actor_list_lock = threading.Lock()
-    # worker_actor_mapping = {}
-    # dask_client = None
     # num_workers = 4
-    finished_scheduling = False
 
     idle_actor_queue = queue.Queue() #synchronized queue
 
@@ -131,10 +166,11 @@ class Scheduler():
     idle_workers_lock = threading.Lock()
     dead_actors = set()
 
-    def __init__(
+    blocks_actor_processing = defaultdict(set)
+
+    def _start_server (
         self,
-        ioloop=None,
-        num_workers=1):
+        ioloop=None):
 
         """
             Args:
@@ -146,10 +182,21 @@ class Scheduler():
         """
 
         self.ioloop = ioloop
+        if self.ioloop == None:
+            self.ioloop = IOLoop.current()
+            t = Thread(target=self.ioloop.start, daemon=True)
+            t.start()
+
         # ioloop.make_current()
         self.tcpserver = SchedulerTCPServer()
-        self.tcpserver.listen(9988)
         self.tcpserver.add_handler(self)
+        self.tcpserver.listen(9988) # choose random port
+        # self.tcpserver.listen(0) # choose random port
+
+        self.net_identity = self.tcpserver.get_identity()
+        logger.info("Server running at {}".format(self.net_identity))
+        # print(net_identity)
+
         # IOLoop.current().start()
         # self.ioloop.start()
 
@@ -165,31 +212,30 @@ class Scheduler():
 
 
     def remove_worker_callback(self, worker):
-        logger.warn("Disconnection callback received for worker {}".format(worker))
-        try:
-            actor = worker
+        logger.info("Disconnection callback received for worker {}".format(worker))
+        actor = worker
+
+        with self.actor_list_lock:
+
             self.dead_actors.add(actor)
-            with self.actor_list_lock:
-                self.actors.remove(actor)
+            self.actors.remove(actor)
 
-            # TODO: cancel unfinished job, retry, etc...
-        except:
-            print("remove_worker_callback ERROR???")
-            # TODO
-            pass # actor might not have been added
+            # notify blocks for reschedule if necessary
+            for block_id in self.blocks_actor_processing[actor]:
+                self.block_done(worker, block_id, ReturnCode.NETWORK_ERROR)
 
 
 
-    def schedule_blockwise(
+
+    def run_blockwise(
         self,
         total_roi,
         read_roi,
         write_roi,
-        job_handler=None,
         process_function=None,
         check_function=None,
-        process_file=None,
         read_write_conflict=True,
+        num_workers=1,
         fit='valid'):
         '''Run block-wise tasks with dask.
 
@@ -289,6 +335,23 @@ class Scheduler():
             completed in an earlier run).
         '''
 
+        distributed_processing = False
+        if len(signature(process_function).parameters) == 0:
+            distributed_processing = True
+
+        self._start_server()
+        if distributed_processing:
+            for i in range(num_workers):
+                call_async(process_function(), "log.out.worker{}".format(i), "log.err.worker{}".format(i))
+
+        else:
+            multiprocessing.set_start_method('spawn')
+            for i in range(num_workers):
+                call_function_async(local_actor, [process_function])
+
+
+
+
         logger.debug("Creating dynamic blocks")
         blocks = DynamicBlocks(
             total_roi,
@@ -296,6 +359,8 @@ class Scheduler():
             write_roi,
             read_write_conflict,
             fit)
+
+        self.blocks = blocks
 
         if check_function is not None:
 
@@ -310,82 +375,67 @@ class Scheduler():
             pre_check = lambda _: False
             post_check = lambda _: True
 
-        results = []
-        tasks = []
-        self.blocks = blocks
-        self.finished_scheduling = False
+        self.pre_check, self.post_check = (pre_check, post_check)
+
+        self.results = []
 
         logger.info("Scheduling tasks to completion...")
+
         while not blocks.empty():
+
             block = blocks.next()
-            # assert(block != None)
 
             if block != None:
-                # print(block)
-                block_id = block.block_id
-                # tasks = {
-                #     block_to_dask_name(block): (
-                #         check_and_run,
-                #         block,
-                #         process_function,
-                #         pre_check,
-                #         post_check,
-                #         [ block_to_dask_name(ups) for ups in upstream_blocks ]
-                #     )
-                #     for block, upstream_blocks in [(block,[])]
-                # }
-                # task = ()
-                actor = self.get_idle_actor()
-                while actor in self.dead_actors:
-                    logger.debug("Actor {} was found dead or disconnected. Skipping.".format(actor))
+                scheduled = False
+                while not scheduled:
                     actor = self.get_idle_actor()
 
-                # actor.push((block.block_id, process_function, [block])) # TODO: check req completion?
-                self.send_block(actor, block.block_id, block)
+                    with self.actor_list_lock:
+                        if actor not in self.dead_actors:
+                            self.blocks_actor_processing[actor].add(block.block_id)
+                            scheduled = True
+                        else:
+                            logger.debug("Actor {} was found dead or disconnected. Skipping.".format(actor))
+                            continue
 
-                logger.debug("Push job {} to actor {}".format(block, actor))
-                # check_and_run(actor, block, process_function, pre_check, post_check)
+                    self.check_and_run(actor, block, pre_check, post_check)
 
-                # futures.append((block_id, client.get(tasks, list(tasks.keys()), sync=False)))
-                # futures[block_id] = client.get(tasks, list(tasks.keys()), sync=False)
-
-                    # results.append((blocks.get_task(block_id), future.result()))
-
-        # self.finished_scheduling = True
-        self.close_actor_handlers()
+        self.close_all_actors()
 
         # succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
         # skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
         # failed = [ t for t, r in zip(tasks, results) if r == -1 ]
         # errored = [ t for t, r in zip(tasks, results) if r == -2 ]
-        succeeded = [ t for t, r in results if r == 1 ]
-        skipped = [ t for t, r in results if r == 0 ]
-        failed = [ t for t, r in results if r == -1 ]
-        errored = [ t for t, r in results if r == -2 ]
+        succeeded = [ t for t, r in self.results if r == ReturnCode.SUCCESS ]
+        skipped = [ t for t, r in self.results if r == ReturnCode.SKIPPED ]
+        failed = [ t for t, r in self.results if r == ReturnCode.FAILED_POST_CHECK ]
+        errored = [ t for t, r in self.results if r == ReturnCode.ERROR ]
+        network_errored = [ t for t, r in self.results if r == ReturnCode.NETWORK_ERROR ]
 
         logger.info(
-            "Ran %d tasks, of which %d succeeded, %d were skipped, %d failed (%d "
-            "failed check, %d errored)",
-            len(tasks), len(succeeded), len(skipped),
-            len(failed) + len(errored), len(failed), len(errored))
+            "Ran %d tasks (%d with retries), of which %d succeeded, %d were skipped, %d failed (%d "
+            "failed check, %d application errors, %d network errors)",
+            blocks.size(), len(self.results), len(succeeded), len(skipped),
+            len(failed) + len(errored) + len(network_errored),
+            len(failed), len(errored), len(network_errored))
 
-        return len(failed) + len(errored) == 0
+        return len(failed) + len(errored) + len(network_errored) == 0
 
 
     def get_idle_actor(self):
         return self.idle_actor_queue.get()
 
 
-    def close_actor_handlers(self):
+    def close_all_actors(self):
         for actor in self.get_actors():
             self.send_terminate(actor)
 
     def send_terminate(self, actor):
         self.tcpserver.send(actor, SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
 
-    def send_block(self, actor, block_id, block):
+    def send_block(self, actor, block):
         self.tcpserver.send(actor,
-            SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=(block_id, block)),
+            SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=block),
             )
 
         # logger.info("Waiting for actors to close...")
@@ -411,72 +461,79 @@ class Scheduler():
         with self.actor_list_lock:
             return self.actors
 
-    def job_done(self, job_id):
-        logger.info("Job {} is finished".format(job_id))
-        self.blocks.remove_and_update(job_id)
+    def block_done(self, actor, block_id, ret):
+
+        block = self.blocks.get_block(block_id)
+
+        if ret == ReturnCode.SUCCESS:
+            if not self.post_check(block):
+                logger.error("Completion check failed for task for block %s.", block)
+                ret = ReturnCode.FAILED_POST_CHECK
+
+        if ret in [ReturnCode.ERROR, ReturnCode.NETWORK_ERROR, ReturnCode.FAILED_POST_CHECK]:
+            logger.error("Task failed for block %s.", block)
+            self.blocks.cancel_and_reschedule(block_id)
+
+        elif ret in [ReturnCode.SUCCESS, ReturnCode.SKIPPED]:
+            logger.debug("Block {} is done".format(block_id))
+            with self.actor_list_lock:
+                self.blocks.remove_and_update(block_id)
+                self.blocks_actor_processing[actor].remove(block_id)
+
+        else:
+            raise Exception('Unknown ReturnCode {}'.format(ret))
+
+        self.results.append((block, ret))
 
 
+    def check_and_run(self, actor, block, pre_check, post_check, *args):
 
-def check_and_run(actor, block, process_function, pre_check, post_check, *args):
+        if pre_check(block):
+            logger.info("Skipping task for block %s; already processed.", block)
+            ret = ReturnCode.SKIPPED
+            self.block_done(actor, block.block_id, ret)
 
-    if pre_check(block):
-        logger.info("Skipping task for block %s; already processed.", block)
-        return 0
+        self.send_block(actor, block)
+        logger.debug("Push job {} to actor {}".format(block, actor))
 
-    try:
-        # process_function(block)
-        actor.push((block.block_id, block)).result()
-
-    except:
-        # TODO: proper error handling
-        logger.error(
-            "Task for block %s failed:\n%s",
-            block, traceback.format_exc())
-        return -2
-
-    if not post_check(block):
-        logger.error(
-            "Completion check failed for task for block %s.",
-            block)
-        return -1
-
-    return 1
 
 class RemoteActor():
     """ Object that runs on a remote worker providing task management API for user code """
-    # job_queue = None
-    # job_queue_cv = None
-    # req_counter = 0
-
-    # return_queue = None
-    # return_queue_cv = None
-
-    # close_handler = False
 
     connected = False
+    error_state = False
+    stream = None
     END_OF_BLOCK = (-1, None)
-    # user_worker = None
 
-    def __init__(self, ioloop):
-        logger.debug("client init")
+    def __init__(self, sched_addr, sched_port, ioloop=None):
+
+        logger.debug("RemoteActor init")
+
         self.ioloop = ioloop
+        if self.ioloop == None:
+            self.ioloop = IOLoop.current()
+            t = Thread(target=self.ioloop.start, daemon=True)
+            t.start()
+
+        self.sched_addr = sched_addr
+        self.sched_port = sched_port
         self.ioloop.add_callback(self._start)
 
-    async def _start(self):
-        logger.debug("Connecting to scheduler...")
-        self.stream = await TCPClient().connect("localhost", 9988, timeout=60)
+        print("Waiting for connection..")
+        while self.connected == False:
+            time.sleep(.2)
 
-        # self.return_queue = queue.Queue()
-        # self.return_queue_cv = threading.Condition()
+
+    async def _start(self):
+
+        logger.info("Connecting to scheduler at {}".format((self.sched_addr, self.sched_port)))
+        self.stream = await self._connect_with_retry()
+        if self.stream == None:
+            self.error_state = True
+            exit(1)
+
         self.job_queue = deque()
         self.job_queue_cv = threading.Condition()
-        # self.run_thread = threading.Thread(target=worker_fn, args=[self])
-        # self.close_handler = False
-        # if worker_fn != None:
-        #     self.run_thread = threading.Thread(target=worker_fn)
-        #     self.run_thread.start() # run user provided loop
-
-        # self.daisy_initialized = True
 
         self.connected = True
         logger.debug("Connected.")
@@ -484,17 +541,30 @@ class RemoteActor():
         # await gen.multi([self.recv_server()])
         await self.async_recv()
 
+
+    async def _connect_with_retry(self):
+
+        counter = 0
+        while True:
+            try:
+                stream = await TCPClient().connect(self.sched_addr, self.sched_port, timeout=60)
+                return stream
+            except:
+                logger.debug("TCP connect error, retry...")
+                counter = counter + 1
+                if (counter > 60):
+                    logger.debug("Timeout, quitting.")
+                    return None
+                await asyncio.sleep(1)
+
+
+
     async def async_recv(self):
 
         while True:
             try:
-                size = await self.stream.read_bytes(4)
-                size = struct.unpack('I', size)[0]
-                assert(size < 65535) # TODO: parameterize max message size
-                logger.debug("Worker received {} bytes".format(size))
-                pickled_data = await self.stream.read_bytes(size)
-                msg = pickle.loads(pickled_data)
-                logger.debug("Received {}".format(msg.data))
+                msg = await get_and_unpack_message(self.stream)
+                # logger.debug("Received {}".format(msg.data))
 
                 if msg.type == SchedulerMessageType.NEW_BLOCK:
                     block = msg.data
@@ -502,39 +572,30 @@ class RemoteActor():
                         self.job_queue.append(block)
                         self.job_queue_cv.notify()
 
-                # elif msg.type == SchedulerMessageType.WORKER_RET_BLOCK:
-                    # self.handler.job_done(actor)
-
                 elif msg.type == SchedulerMessageType.TERMINATE_WORKER:
                     self.send(SchedulerMessage(SchedulerMessageType.WORKER_EXITING))
                     break
 
             except StreamClosedError:
-                logger.warn("Lost connection to scheduler!")
+                logger.error("Unexpected loss of connection to scheduler!")
                 break
 
-        # done
-        # TODO
+        # worker done, exiting
         with self.job_queue_cv:
             self.job_queue.append(self.END_OF_BLOCK)
             self.job_queue_cv.notify()
 
 
     async def async_send(self, data):
-        await self.stream.write(data)
+
+        try:
+            await self.stream.write(data)
+        except StreamClosedError:
+            logger.error("Unexpected loss of connection to scheduler!")
 
 
     def send(self, data):
-        # print(data)
-        pickled_data = pickle.dumps(data)
-        msg_size_bytes = struct.pack('I', len(pickled_data))
-        self.ioloop.spawn_callback(self.async_send, msg_size_bytes + pickled_data)
-
-
-    # def close(self):
-    #     with self.job_queue_cv:
-    #         self.close_handler = True
-    #         self.job_queue_cv.notify()
+        self.ioloop.spawn_callback(self.async_send, pack_message(data))
 
 
     def acquire_block(self):
@@ -546,33 +607,34 @@ class RemoteActor():
 
             while len(self.job_queue) == 0:
                 self.job_queue_cv.wait()
-                # self.job_queue_cv.wait(timeout=5) # wait for 5 seconds before rechecking
+                # self.job_queue_cv.wait(timeout=5)
 
             ret = self.job_queue.popleft()
-            # print("got job")
             return ret
 
 
-    def release_block(self, jobid, res):
+    def release_block(self, block, ret):
 
-        # self.return_queue.put((jobid, res))
+        if ret == 0:
+            ret = ReturnCode.SUCCESS
+        elif ret == 1:
+            ret = ReturnCode.ERROR
+        else:
+            raise Exception('User return code must be either 0 or 1. Given {}'.format(ret))
+
         self.send(SchedulerMessage(
                     SchedulerMessageType.WORKER_RET_BLOCK,
-                    data=(jobid, res)))
+                    data=(block.block_id, ret)))
 
 
 
+def local_actor(user_function):
+    """ Wrapper for user process function """
 
-# def get_scheduler():
-#     worker = get_worker()
-#     print(worker)
-#     print(worker.actors)
-
-#     actor_list = list(worker.actors.keys())
-#     if len(actor_list) == 0:
-#         raise Exception("Actor is not initialized on this node")
-
-#     actor = worker.actors[actor_list[0]]
-#     # worker.claimed_actors
-#     print("returning actor {}".format(actor))
-#     return actor
+    sched = RemoteActor(sched_addr="10.150.100.185", sched_port=9988)
+    while True:
+        block = sched.acquire_block()
+        if block == RemoteActor.END_OF_BLOCK:
+            break;
+        ret = user_function(block)
+        sched.release_block(block, ret)

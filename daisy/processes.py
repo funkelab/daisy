@@ -1,5 +1,8 @@
 from subprocess import check_call, CalledProcessError
 
+from tornado.ioloop import IOLoop
+from multiprocessing import Process
+
 def call(command, log_out, log_err):
     '''Run ``command`` in a subprocess, log stdout and stderr to ``log_out``
     and ``log_err``'''
@@ -19,3 +22,16 @@ def call(command, log_out, log_err):
             stderr.name))
     except KeyboardInterrupt:
         raise Exception("Cancelled by SIGINT")
+
+def call_async(command, log_out, log_err):
+    '''Run ``command`` in a simultaneous subprocess, log stdout and stderr to ``log_out``
+    and ``log_err``'''
+
+    Process(target = call, args=(command, log_out, log_err)).start()
+
+def call_function_async(function, arg):
+    '''Run ``command`` in a simultaneous subprocess, log stdout and stderr to ``log_out``
+    and ``log_err``'''
+
+    Process(target = function, args=(arg)).start()
+

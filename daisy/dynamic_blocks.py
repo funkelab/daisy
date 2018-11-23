@@ -6,25 +6,23 @@ from .blocks import *
 from .coordinate import Coordinate
 from itertools import product
 import logging
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
 class DynamicBlocks():
 
-    class MyDictSet(dict):
-        def __missing__(self, key):
-            return set()
-
-    dependents = MyDictSet()
-    dependencies = MyDictSet()
-    # dependents = {}
-    # dependencies = {}
+    dependents = defaultdict(set)
+    dependencies = defaultdict(set)
     ready_queue = deque()
     ready_queue_cv = threading.Condition()
     processing_blocks = set()
     blocks = {}
     # update_lock = threading.Lock()
     actor_type = {}
+
+    MAX_RETRIES = 3
+    retry_count = defaultdict(int)
 
     def __init__(
         self,
@@ -95,7 +93,6 @@ class DynamicBlocks():
             return self.blocks[block_id]
 
 
-
     def remove_and_update(self, block_id):
         """Removing a finished block and update ready queue"""
         with self.ready_queue_cv:
@@ -110,8 +107,27 @@ class DynamicBlocks():
                     self.ready_queue.append(dep)
             self.ready_queue_cv.notify()
 
-    def get_task(self, block_id):
+
+    def cancel_and_reschedule(self, block_id):
+        assert(block_id in self.processing_blocks)
+
+        with self.ready_queue_cv:
+            self.processing_blocks.remove(block_id)
+            if self.retry_count[block_id] > self.MAX_RETRIES:
+                logger.warn("Block {} is canceled and will not be rescheduled.".format(block_id))
+                return # simply leave it canceled
+            else:
+                self.ready_queue.append(block_id)
+                logger.warn("Block {} will be rescheduled.".format(block_id))
+
+            self.ready_queue_cv.notify() # in either case, unblock next()
+
+
+    def get_block(self, block_id):
         return self.blocks[block_id]
+
+    def size(self):
+        return len(self.blocks)
 
     def get_actor_type(self, actor):
         return self.actor_type[actor]
