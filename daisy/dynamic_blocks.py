@@ -21,8 +21,11 @@ class DynamicBlocks():
     # update_lock = threading.Lock()
     actor_type = {}
 
-    MAX_RETRIES = 3
+    max_retries = 2
     retry_count = defaultdict(int)
+
+    failed_blocks = set()
+    orphaned_blocks = set()
 
     def __init__(
         self,
@@ -30,7 +33,12 @@ class DynamicBlocks():
         block_read_roi,
         block_write_roi,
         read_write_conflict=True,
-        fit='valid'):
+        fit='valid',
+        max_retries=2):
+
+        self.max_retries = max_retries
+        # self.orphan_count = 0
+        # self.fail_count = 0
 
         # first create the full dependency graph
         blocks = create_dependency_graph(
@@ -109,19 +117,44 @@ class DynamicBlocks():
 
 
     def cancel_and_reschedule(self, block_id):
-        assert(block_id in self.processing_blocks)
+        # assert(block_id in self.processing_blocks)
+        if block_id not in self.processing_blocks:
+            logger.error("Block {} is error".format(block_id))
+            assert(0)
+
+        self.retry_count[block_id] = self.retry_count[block_id] + 1
 
         with self.ready_queue_cv:
             self.processing_blocks.remove(block_id)
-            if self.retry_count[block_id] > self.MAX_RETRIES:
-                logger.warn("Block {} is canceled and will not be rescheduled.".format(block_id))
-                return # simply leave it canceled
+            if self.retry_count[block_id] > self.max_retries:
+
+                self.failed_blocks.add(block_id)
+                logger.error("Block {} is canceled and will not be rescheduled.".format(block_id))
+
+                if len(self.dependents[block_id]):
+                    logger.error("The following blocks are then orphaned and cannot be run: {}".format(self.dependents[block_id]))
+
+                self.check_orphans(block_id)
+
+                # simply leave it canceled
             else:
                 self.ready_queue.append(block_id)
-                logger.warn("Block {} will be rescheduled.".format(block_id))
+                logger.info("Block {} will be rescheduled.".format(block_id))
 
             self.ready_queue_cv.notify() # in either case, unblock next()
 
+    def check_orphans(self, block_id):
+        for orphan_id in self.dependents[block_id]:
+            if orphan_id in self.orphaned_blocks or orphan_id in self.failed_blocks:
+                return
+            self.orphaned_blocks.add(orphan_id)
+            self.check_orphans(orphan_id)
+
+    def get_orphans(self):
+        return self.orphaned_blocks
+
+    def get_failed_blocks(self):
+        return self.failed_blocks
 
     def get_block(self, block_id):
         return self.blocks[block_id]
