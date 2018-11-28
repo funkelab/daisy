@@ -71,7 +71,6 @@ class DynamicBlocks():
                 self.ready_queue.append(block_id)
 
             # print(block)
-            # print(block_dependencies)
             # print(self.dependents)
             # print(self.dependencies)
             # print(self.ready_queue)
@@ -161,6 +160,9 @@ class DynamicBlocks():
 
     def size(self):
         return len(self.blocks)
+
+    def ready_size(self):
+        return len(self.ready_queue)
 
     def get_actor_type(self, actor):
         return self.actor_type[actor]

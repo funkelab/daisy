@@ -181,6 +181,7 @@ class Scheduler():
     idle_workers = []
     idle_workers_lock = threading.Lock()
     dead_actors = set()
+    # actor_id = {}
 
     blocks_actor_processing = defaultdict(set)
 
@@ -205,25 +206,10 @@ class Scheduler():
         self.tcpserver.listen(0) # choose random port
 
         self.net_identity = self.tcpserver.get_identity()
-        logger.info("Server running at {}".format(self.net_identity))
-        # print(net_identity)
-
-        # IOLoop.current().start()
-        # self.ioloop.start()
-
-        # self.tcp_server = Thread(target=self.ioloop.start, daemon=True)
-        # self.tcp_server.start()
-
-
-        # self.scheduler = Scheduler(loop=self.loop, scheduler_file='/groups/funke/home/nguyent3/programming/daisy/workspace/test_cluster.json')
-
-        # for n in range(num_workers):
-        #    future = self.dask_client.submit(RemoteActor, actor=True)
-
 
 
     def remove_worker_callback(self, actor):
-        logger.info("Disconnection callback received for actor {}".format(actor))
+        logger.debug("Disconnection callback received for actor {}".format(actor))
 
         with self.actor_list_lock:
 
@@ -355,24 +341,48 @@ class Scheduler():
             completed in an earlier run).
         '''
 
+        try:
+            os.mkdir('.daisy_logs')
+        except:
+            pass # log dir exists
+
         distributed_processing = False
         if len(signature(process_function).parameters) == 0:
             distributed_processing = True
 
         self._start_server()
+        launch_cmd = None
         if distributed_processing:
             launch_cmd = []
             # adding scheduler net identity as env before python call
+            env_added = False
             for line in process_function():
-                launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR={} DAISY_SCHED_PORT={} python".format(self.net_identity[0], self.net_identity[1])))
-            self.new_actor_fn = lambda: call_async(launch_cmd, "log.out.worker{}".format(i), "log.err.worker{}".format(i))
+                # launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR={} DAISY_SCHED_PORT={} python".format(self.net_identity[0], self.net_identity[1])))
+                if not env_added:
+                    if line.find("run_docker") >= 0:
+                        launch_cmd.append(line.replace("run_docker", "run_docker -e DAISY_SCHED_ADDR_PORT={}:{} ".format(*self.net_identity)))
+                        env_added = True
+                    elif line.find("run_lsf") >= 0:
+                        launch_cmd.append(line.replace("run_lsf", "run_lsf -e DAISY_SCHED_ADDR_PORT={}:{} ".format(*self.net_identity)))
+                        env_added = True
+                    elif line.find("python") >= 0:
+                        launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR_PORT={}:{} python".format(*self.net_identity)))
+                        env_added = True
+                else:
+                    launch_cmd.append(line)
+            # logger.info("Actor launch command is: {}".format(''.join(launch_cmd)))
+            self.new_actor_fn = lambda i: call_async(launch_cmd, ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
+
         else:
-            multiprocessing.set_start_method('spawn') # for compatibility with multithreaded (namely ioloop)
-            self.new_actor_fn = lambda: call_function_async(local_actor, [process_function, self.net_identity[1]])
+            multiprocessing.set_start_method('spawn', force=True) # for compatibility with multithreaded (namely ioloop)
+            self.new_actor_fn = lambda i: call_function_async(local_actor, [process_function, self.net_identity[1]])
 
         for i in range(num_workers):
-            self.new_actor_fn()
+            self.new_actor_fn(i)
+            # self.actor_id
         self.num_workers = num_workers
+        self.actor_id = self.num_workers
+
 
 
 
@@ -405,11 +415,17 @@ class Scheduler():
         self.results = []
 
         logger.info("Server running at {}".format(self.net_identity))
-        logger.info("Scheduling tasks to completion...")
+        logger.info("Scheduling {} tasks to completion.".format(blocks.size()))
+        logger.info("Max parallelism seems to be {}.".format(blocks.ready_size()))
+        if launch_cmd:
+            logger.info("Actor launch command is: {}".format(' '.join(launch_cmd)))
+
 
         while not blocks.empty():
 
+            # logger.debug("getting next block...")
             block = blocks.next()
+            # logger.debug("got block {}".format(block))
 
             if block != None:
                 scheduled = False
@@ -428,13 +444,7 @@ class Scheduler():
 
         self.tcpserver.daisy_close()
         self.close_all_actors()
-        # self.ioloop.stop()
-        # self.ioloop.close()
 
-        # succeeded = [ t for t, r in zip(tasks, results) if r == 1 ]
-        # skipped = [ t for t, r in zip(tasks, results) if r == 0 ]
-        # failed = [ t for t, r in zip(tasks, results) if r == -1 ]
-        # errored = [ t for t, r in zip(tasks, results) if r == -2 ]
         succeeded = [ t for t, r in self.results if r == ReturnCode.SUCCESS ]
         skipped = [ t for t, r in self.results if r == ReturnCode.SKIPPED ]
         failed = [ t for t, r in self.results if r == ReturnCode.FAILED_POST_CHECK ]
@@ -442,14 +452,19 @@ class Scheduler():
         network_errored = [ t for t, r in self.results if r == ReturnCode.NETWORK_ERROR ]
 
         logger.info(
-            "Ran %d tasks (%d with retries), of which %d succeeded, %d were skipped, %d orphans, "
-            "%d failed (%d "
+            "Ran %d tasks "
+            # "(%d retries), "
+            "of which %d succeeded, %d were skipped, %d were orphaned (failed dependencies), "
+            "%d tasks failed (%d "
             "failed check, %d application errors, %d network failures or app crashes)",
-            blocks.size(), len(self.results), len(succeeded), len(skipped), len(blocks.get_orphans()),
-            len(failed) + len(errored) + len(network_errored),
+            blocks.size(),
+            # len(self.results) - blocks.size(),
+            len(succeeded), len(skipped), len(blocks.get_orphans()),
+            # len(failed) + len(errored) + len(network_errored),
+            len(blocks.get_failed_blocks()),
             len(failed), len(errored), len(network_errored))
 
-        return len(failed) + len(errored) + len(network_errored) == 0
+        return blocks.size() - len(succeeded) - len(skipped) == 0
 
 
     def get_idle_actor(self):
@@ -476,7 +491,7 @@ class Scheduler():
         #             self.actor_type_cv.wait()
 
     def initialize_actor(self, worker):
-        print("Activating worker {} as an actor".format(worker))
+        logger.info("Activating worker {} as an actor".format(worker))
         with self.actor_list_lock:
             self.actors.add(worker)
             if worker in self.dead_actors:
@@ -511,10 +526,11 @@ class Scheduler():
             self.blocks.cancel_and_reschedule(block_id)
 
         elif ret in [ReturnCode.SUCCESS, ReturnCode.SKIPPED]:
-            logger.debug("Block {} is done".format(block_id))
+            # logger.debug("Block {} is done".format(block_id))
             with self.actor_list_lock:
                 self.blocks_actor_processing[actor].remove(block_id)
             self.blocks.remove_and_update(block_id)
+            # logger.debug("Block {} is done22".format(block_id))
 
         else:
             raise Exception('Unknown ReturnCode {}'.format(ret))
@@ -528,17 +544,22 @@ class Scheduler():
             logger.info("Skipping task for block %s; already processed.", block)
             ret = ReturnCode.SKIPPED
             self.block_done(actor, block.block_id, ret)
+            self.add_idle_actor(actor)
+            return
 
         self.send_block(actor, block)
-        logger.debug("Push job {} to actor {}".format(block, actor))
+        logger.info("Pushed block {} to actor {}".format(block.block_id, actor))
 
 
     def unexpected_actor_loss(self, actor):
 
         # TODO: should decide whether to make a new actor or not
         if not self.blocks.empty():
-            logger.info("Creating new actor.")
-            self.new_actor_fn()
+            # logger.info("Creating new actor {}: {}.".format(self.actor_id, actor))
+            logger.info("Starting new actor...")
+            self.new_actor_fn(self.actor_id)
+            # self.actor_id[actor] = self.actor_id
+            self.actor_id += 1
 
 
 
@@ -557,10 +578,9 @@ class RemoteActor():
         if sched_addr == None or sched_port == None:
             # attempt to get it through environment variable
             try:
-                sched_addr = os.environ['DAISY_SCHED_ADDR']
-                sched_port = os.environ['DAISY_SCHED_PORT']
+                sched_addr,sched_port = os.environ['DAISY_SCHED_ADDR_PORT'].split(':')
             except:
-                logger.error("Can't find daisy scheduler address through DAISY_SCHED_ADDR and DAISY_SCHED_PORT environment variables! Exiting...")
+                logger.error("Can't find daisy scheduler address through DAISY_SCHED_ADDR_PORT environment variables! Exiting...")
                 exit(1)
 
         self.ioloop = ioloop
