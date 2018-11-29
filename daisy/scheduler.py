@@ -1,8 +1,8 @@
 from __future__ import absolute_import
 from .blocks import create_dependency_graph
 from .dynamic_blocks import DynamicBlocks
-from .processes import call_async
-from .processes import call_function_async
+from .processes import spawn_process
+from .processes import spawn_function
 
 from tornado.ioloop import IOLoop
 from tornado.tcpserver import TCPServer
@@ -25,6 +25,8 @@ from collections import defaultdict
 import socket
 from inspect import signature
 import multiprocessing
+import dill
+# from pathos import multiprocessing
 import os
 
 logger = logging.getLogger(__name__)
@@ -371,11 +373,11 @@ class Scheduler():
                 else:
                     launch_cmd.append(line)
             # logger.info("Actor launch command is: {}".format(''.join(launch_cmd)))
-            self.new_actor_fn = lambda i: call_async(launch_cmd, ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
+            self.new_actor_fn = lambda i: spawn_process(launch_cmd, ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
 
         else:
             multiprocessing.set_start_method('spawn', force=True) # for compatibility with multithreaded (namely ioloop)
-            self.new_actor_fn = lambda i: call_function_async(local_actor, [process_function, self.net_identity[1]])
+            self.new_actor_fn = lambda i: spawn_function(local_actor, [process_function, self.net_identity[1]], ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
 
         for i in range(num_workers):
             self.new_actor_fn(i)
@@ -440,7 +442,7 @@ class Scheduler():
                             logger.debug("Actor {} was found dead or disconnected. Skipping.".format(actor))
                             continue
 
-                    self.check_and_run(actor, block, pre_check, post_check)
+                    self.check_and_run(actor, block, pre_check)
 
         self.tcpserver.daisy_close()
         self.close_all_actors()
@@ -472,8 +474,9 @@ class Scheduler():
 
 
     def close_all_actors(self):
-        for actor in self.get_actors():
-            self.send_terminate(actor)
+        with self.actor_list_lock:
+            for actor in self.actors:
+                self.send_terminate(actor)
 
     def send_terminate(self, actor):
         self.tcpserver.send(actor, SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
@@ -506,17 +509,21 @@ class Scheduler():
         self.idle_actor_queue.put(actor)
 
 
-    def get_actors(self):
-        with self.actor_list_lock:
-            return self.actors
+    # def get_actors(self):
+    #     with self.actor_list_lock:
+    #         return self.actors
 
     def block_done(self, actor, block_id, ret):
 
         block = self.blocks.get_block(block_id)
 
         if ret == ReturnCode.SUCCESS:
-            if not self.post_check(block):
-                logger.error("Completion check failed for task for block %s.", block)
+            try:
+                if not self.post_check(block):
+                    logger.error("Completion check failed for task for block %s.", block)
+                    ret = ReturnCode.FAILED_POST_CHECK
+            except Exception as e:
+                logger.error("Encountered exception while running post_check for block {}. Exception: {}".format(block, e))
                 ret = ReturnCode.FAILED_POST_CHECK
 
         if ret in [ReturnCode.ERROR, ReturnCode.NETWORK_ERROR, ReturnCode.FAILED_POST_CHECK]:
@@ -538,14 +545,18 @@ class Scheduler():
         self.results.append((block, ret))
 
 
-    def check_and_run(self, actor, block, pre_check, post_check, *args):
+    def check_and_run(self, actor, block, pre_check):
 
-        if pre_check(block):
-            logger.info("Skipping task for block %s; already processed.", block)
-            ret = ReturnCode.SKIPPED
-            self.block_done(actor, block.block_id, ret)
-            self.add_idle_actor(actor)
-            return
+        try:
+            if pre_check(block):
+                logger.info("Skipping task for block %s; already processed.", block)
+                ret = ReturnCode.SKIPPED
+                self.block_done(actor, block.block_id, ret)
+                self.add_idle_actor(actor)
+                return
+        except Exception as e:
+            logger.error("Encountered exception while running pre_check for block {}. Exception: {}".format(block, e))
+            # ret = ReturnCode.FAILED_POST_CHECK
 
         self.send_block(actor, block)
         logger.info("Pushed block {} to actor {}".format(block.block_id, actor))
@@ -593,7 +604,7 @@ class RemoteActor():
         self.sched_port = sched_port
         self.ioloop.add_callback(self._start)
 
-        print("Waiting for connection..")
+        logger.debug("Connecting to Daisy scheduler...")
         while self.connected == False:
             time.sleep(.2)
 
@@ -694,7 +705,10 @@ class RemoteActor():
         elif ret == 1:
             ret = ReturnCode.ERROR
         else:
-            raise Exception('User return code must be either 0 or 1. Given {}'.format(ret))
+            logger.warn("Daisy user function should return either 0 or 1--given {}".format(ret))
+            ret = ReturnCode.SUCCESS
+
+            # raise Exception('User return code must be either 0 or 1. Given {}'.format(ret))
 
         self.send(SchedulerMessage(
                     SchedulerMessageType.WORKER_RET_BLOCK,
@@ -712,3 +726,18 @@ def local_actor(user_function, port):
             break;
         ret = user_function(block)
         sched.release_block(block, ret)
+
+global __default_scheduler
+__default_scheduler = None
+
+def run_blockwise(*args, **kwargs):
+
+    global __default_scheduler
+    
+    if __default_scheduler == None:
+        __default_scheduler = Scheduler()
+
+    print(args)
+
+    __default_scheduler.run_blockwise(*args, **kwargs)
+
