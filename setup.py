@@ -32,8 +32,8 @@ setup(
         ],
         install_requires=[
             "numpy",
-            "dask",
-            "distributed"
+            "tornado",
+            "dill"
         ],
         extras_require=extras_require,
 )
