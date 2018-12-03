@@ -32,8 +32,7 @@ setup(
         ],
         install_requires=[
             "numpy",
-            "tornado",
-            "dill"
+            "tornado"
         ],
         extras_require=extras_require,
 )
