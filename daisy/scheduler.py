@@ -1,7 +1,5 @@
 from __future__ import absolute_import
-from .blocks import create_dependency_graph
 from .dynamic_blocks import DynamicBlocks
-from .processes import spawn_process
 from .processes import spawn_function
 
 from tornado.ioloop import IOLoop
@@ -11,21 +9,17 @@ from tornado.iostream import StreamClosedError
 
 import pickle
 import struct
-import traceback
 import logging
 import threading
 import queue
 import time
 from collections import deque
-import importlib
-from threading import Thread
 from enum import Enum
 import asyncio
 from collections import defaultdict
 import socket
 from inspect import signature
 import multiprocessing
-import dill
 # from pathos import multiprocessing
 import os
 
@@ -198,7 +192,7 @@ class Scheduler():
         self.ioloop = ioloop
         if self.ioloop == None:
             self.ioloop = IOLoop.current()
-            t = Thread(target=self.ioloop.start, daemon=True)
+            t = threading.Thread(target=self.ioloop.start, daemon=True)
             t.start()
 
         # ioloop.make_current()
@@ -587,7 +581,7 @@ class RemoteActor():
         self.ioloop = ioloop
         if self.ioloop == None:
             self.ioloop = IOLoop.current()
-            t = Thread(target=self.ioloop.start, daemon=True)
+            t = threading.Thread(target=self.ioloop.start, daemon=True)
             t.start()
 
         self.sched_addr = sched_addr
