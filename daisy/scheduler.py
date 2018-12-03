@@ -348,36 +348,28 @@ class Scheduler():
         except:
             pass # log dir exists
 
-        distributed_processing = False
+        spawn_actors = False
         if len(signature(process_function).parameters) == 0:
-            distributed_processing = True
+            spawn_actors = True
 
         self._start_server()
-        launch_cmd = None
-        if distributed_processing:
-            launch_cmd = []
-            # adding scheduler net identity as env before python call
-            env_added = False
-            for line in process_function():
-                # launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR={} DAISY_SCHED_PORT={} python".format(self.net_identity[0], self.net_identity[1])))
-                if not env_added:
-                    if line.find("run_docker") >= 0:
-                        launch_cmd.append(line.replace("run_docker", "run_docker -e DAISY_SCHED_ADDR_PORT={}:{} ".format(*self.net_identity)))
-                        env_added = True
-                    elif line.find("run_lsf") >= 0:
-                        launch_cmd.append(line.replace("run_lsf", "run_lsf -e DAISY_SCHED_ADDR_PORT={}:{} ".format(*self.net_identity)))
-                        env_added = True
-                    elif line.find("python") >= 0:
-                        launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR_PORT={}:{} python".format(*self.net_identity)))
-                        env_added = True
-                else:
-                    launch_cmd.append(line)
-            # logger.info("Actor launch command is: {}".format(''.join(launch_cmd)))
-            self.new_actor_fn = lambda i: spawn_process(launch_cmd, ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
+        os.environ['DAISY_SCHED_ADDR_PORT'] = '{}:{}'.format(
+            *self.net_identity)
+
+        if spawn_actors:
+            self.new_actor_fn = lambda i: spawn_function(
+                process_function,
+                [],
+                ".daisy_logs/actor.{}.out".format(i),
+                ".daisy_logs/actor.{}.err".format(i))
 
         else:
             multiprocessing.set_start_method('spawn', force=True) # for compatibility with multithreaded (namely ioloop)
-            self.new_actor_fn = lambda i: spawn_function(local_actor, [process_function, self.net_identity[1]], ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
+            self.new_actor_fn = lambda i: spawn_function(
+                local_actor,
+                [process_function, self.net_identity[1]],
+                ".daisy_logs/actor.{}.out".format(i),
+                ".daisy_logs/actor.{}.err".format(i))
 
         for i in range(num_workers):
             self.new_actor_fn(i)
@@ -419,8 +411,6 @@ class Scheduler():
         logger.info("Server running at {}".format(self.net_identity))
         logger.info("Scheduling {} tasks to completion.".format(blocks.size()))
         logger.info("Max parallelism seems to be {}.".format(blocks.ready_size()))
-        if launch_cmd:
-            logger.info("Actor launch command is: {}".format(' '.join(launch_cmd)))
 
 
         while not blocks.empty():
