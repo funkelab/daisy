@@ -1,76 +1,28 @@
 from __future__ import absolute_import
-from .blocks import create_dependency_graph
-from .dynamic_blocks import DynamicBlocks
-from .processes import spawn_process
-from .processes import spawn_function
+# from .blocks import create_dependency_graph
+
+import collections
+import copy
+import logging
+from inspect import signature
+import os
+import queue
+import socket
+import time
+import threading
 
 from tornado.ioloop import IOLoop
 from tornado.tcpserver import TCPServer
-from tornado.tcpclient import TCPClient
 from tornado.iostream import StreamClosedError
 
-import pickle
-import struct
-import traceback
-import logging
-import threading
-import queue
-import time
-from collections import deque
-import importlib
-from threading import Thread
-from enum import Enum
-import asyncio
-from collections import defaultdict
-import socket
-from inspect import signature
-import multiprocessing
-import dill
-# from pathos import multiprocessing
-import os
+from .actor import Actor
+from .dependency_graph import DependencyGraph
+from .processes import spawn_call
+from .processes import spawn_function
+from .scheduler_include import SchedulerMessageType, ReturnCode, SchedulerMessage, get_and_unpack_message, pack_message
+from .task import Task
 
 logger = logging.getLogger(__name__)
-
-
-class SchedulerMessageType(Enum):
-    WORKER_GET_BLOCK = 2,
-    WORKER_RET_BLOCK = 3,
-    WORKER_EXITING = 4,
-    TERMINATE_WORKER = 5,
-    NEW_BLOCK = 6,
-
-class ReturnCode(Enum):
-    SUCCESS = 0,
-    ERROR= 1,
-    FAILED_POST_CHECK = 2,
-    SKIPPED = 3,
-    NETWORK_ERROR = 4,
-
-
-class SchedulerMessage():
-
-    def __init__(self, type, data=None):
-        self.type = type
-        self.data = data
-
-
-async def get_and_unpack_message(stream):
-
-    size = await stream.read_bytes(4)
-    size = struct.unpack('I', size)[0]
-    assert(size < 65535) # TODO: parameterize max message size
-    logger.debug("Receiving {} bytes".format(size))
-    pickled_data = await stream.read_bytes(size)
-    msg = pickle.loads(pickled_data)
-    return msg
-
-
-def pack_message(data):
-    # data = ''.join(msg_size_bytes, data)
-    pickled_data = pickle.dumps(data)
-    msg_size_bytes = struct.pack('I', len(pickled_data))
-    return msg_size_bytes + pickled_data
-
 
 class SchedulerTCPServer(TCPServer):
 
@@ -82,7 +34,6 @@ class SchedulerTCPServer(TCPServer):
 
         actor = address
         logger.debug("Received new actor {}".format(actor))
-        self.handler.initialize_actor(actor)
         self.address_to_stream_mapping[address] = stream
 
         if self.daisy_closed:
@@ -97,7 +48,7 @@ class SchedulerTCPServer(TCPServer):
                 # logger.debug("Received {}".format(msg))
 
                 if msg.type == SchedulerMessageType.WORKER_GET_BLOCK:
-                    self.handler.add_idle_actor(actor)
+                    self.handler.add_idle_actor(actor, task=msg.data)
 
                 elif msg.type == SchedulerMessageType.WORKER_RET_BLOCK:
                     jobid, ret = msg.data
@@ -172,11 +123,13 @@ class SchedulerTCPServer(TCPServer):
 
 class Scheduler():
 
+    tasks = {}
+
     actors = set()
     actor_list_lock = threading.Lock()
     # num_workers = 4
 
-    idle_actor_queue = queue.Queue() #synchronized queue
+    idle_actor_queue = collections.defaultdict(queue.Queue)
 
     actor_type = {}
     actor_type_cv = threading.Condition()
@@ -184,10 +137,17 @@ class Scheduler():
     idle_workers_lock = threading.Lock()
     dead_actors = set()
     # actor_id = {}
+    recruit_actor_fn = {}
+    manual_recruit_cmd = {}
+    local_tasks = set()
 
-    blocks_actor_processing = defaultdict(set)
+    blocks_actor_processing = collections.defaultdict(set)
+    launched_tasks = set()
+    actor_id = 0
 
-    def _start_server (
+    finished_scheduling = False
+
+    def __start_tcp_server (
         self,
         ioloop=None):
 
@@ -198,7 +158,7 @@ class Scheduler():
         self.ioloop = ioloop
         if self.ioloop == None:
             self.ioloop = IOLoop.current()
-            t = Thread(target=self.ioloop.start, daemon=True)
+            t = threading.Thread(target=self.ioloop.start, daemon=True)
             t.start()
 
         # ioloop.make_current()
@@ -213,6 +173,10 @@ class Scheduler():
     def remove_worker_callback(self, actor):
         logger.debug("Disconnection callback received for actor {}".format(actor))
 
+        if actor not in self.actor_type:
+            # actor was not activated, nothing to do
+            return
+
         with self.actor_list_lock:
 
             # be careful with this code + lock
@@ -221,26 +185,352 @@ class Scheduler():
             self.dead_actors.add(actor)
             self.actors.remove(actor)
             processing_blocks = self.blocks_actor_processing[actor].copy()
+            self.actor_type[actor] = None
 
         # notify blocks for reschedule if necessary
         for block_id in processing_blocks:
             self.block_done(actor, block_id, ReturnCode.NETWORK_ERROR)
 
+    def make_spawn_function(self, args, log_dir):
+        """ This helper function is necessary to disambiguate parameters
+            of lambda expressions
+        """
+        return lambda i: spawn_function(_local_actor_wrapper, args, log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i)) 
+
+    def make_spawn_call(self, launch_cmd, log_dir):
+        """ This helper function is necessary to disambiguate parameters
+            of lambda expressions
+        """
+        return lambda i: spawn_call(launch_cmd, log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i))
+
+    def construct_recruit_functions(self):
+
+        for task in self.tasks:
+
+            log_dir = '.daisy_logs_' + task
+            try:
+                os.mkdir(log_dir)
+            except:
+                pass # log dir exists
+
+            new_actor_fn = None
+            process_function = self.tasks[task].process_function
+            local_process_function = True
+            try:
+                if len(signature(process_function).parameters) == 0:
+                    local_process_function = False
+            except:
+                local_process_function = True
+
+            if local_process_function:
+                # new_actor_fn = lambda i: spawn_function(_local_actor_wrapper, [process_function, self.net_identity[1], task], log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i)) 
+                new_actor_fn = self.make_spawn_function([process_function, self.net_identity[1], task], log_dir)
+                # new_actor_fn = (spawn_function, _local_actor_wrapper, [process_function, self.net_identity[1], task], log_dir)
+                # self.local_tasks[task] = new_actor_fn
+                # self.local_tasks.add(task)
+
+            else:
+                launch_cmd = []
+                # adding scheduler net identity as env before python call
+                env_added = False
+                for line in process_function():
+                    # launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR={} DAISY_SCHED_PORT={} python".format(self.net_identity[0], self.net_identity[1])))
+                    if not env_added:
+                        if line.find("run_docker") >= 0:
+                            launch_cmd.append(line.replace("run_docker", "run_docker -e DAISY_CONTEXT={}:{}:{} ".format(*self.net_identity, task)))
+                            env_added = True
+                        elif line.find("run_lsf") >= 0:
+                            launch_cmd.append(line.replace("run_lsf", "run_lsf -e DAISY_CONTEXT={}:{}:{} ".format(*self.net_identity, task)))
+                            env_added = True
+                        elif line.find("python") >= 0:
+                            launch_cmd.append(line.replace("python", "DAISY_CONTEXT={}:{}:{} python".format(*self.net_identity, task)))
+                            env_added = True
+                    else:
+                        launch_cmd.append(line)
+                # logger.info("Actor launch command is: {}".format(''.join(launch_cmd)))
+                # new_actor_fn = lambda i: spawn_call(launch_cmd, log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i))
+                new_actor_fn = self.make_spawn_call(launch_cmd, log_dir)
+                # new_actor_fn = (spawn_call, _local_actor_wrapper, [process_function, self.net_identity[1], task], log_dir)
+
+                self.manual_recruit_cmd[task] = launch_cmd
+
+            self.recruit_actor_fn[task] = copy.deepcopy(new_actor_fn)
+        # raise
 
 
+    def get_idle_actor(self, task):
 
-    def run_blockwise(
-        self,
-        total_roi,
-        read_roi,
-        write_roi,
-        process_function=None,
-        check_function=None,
-        read_write_conflict=True,
-        num_workers=1,
-        max_retries=2,
-        fit='valid'):
-        '''Run block-wise tasks with dask.
+        if task not in self.launched_tasks:
+
+            logger.info("Launching actors for task {}".format(task))
+
+            num_workers = self.tasks[task].num_workers
+
+            for i in range(num_workers):
+                self.recruit_actor_fn[task](self.actor_id)
+                self.actor_id += 1
+
+            if task in self.manual_recruit_cmd:
+                logger.info("Actor recruit cmd: {}".format(' '.join(self.manual_recruit_cmd[task])))
+
+            self.launched_tasks.add(task)
+
+        return self.idle_actor_queue[task].get()
+
+
+    def add_idle_actor(self, actor, task):
+
+        if (actor not in self.actor_type) or (self.actor_type[actor] == None):
+            self.activate_actor(actor, task)
+
+        logger.debug("Add actor {} to idle queue of task {}".format(actor, task))
+        self.idle_actor_queue[task].put(actor)
+
+
+    def close_all_actors(self):
+
+        with self.actor_list_lock:
+            for actor in self.actors:
+                self.send_terminate(actor)
+
+    def finish_task(self, task_id):
+        # close actors of this task
+        with self.actor_list_lock:
+            removed = []
+            for actor in self.actors:
+                if self.actor_type[actor] == task_id:
+                    self.send_terminate(actor)
+                    removed.append(actor)
+            # for actor in removed:
+            #     self.actors.remove(actor)
+            #     self.dead_actors.add(actor)
+            #     self.actor_type[actor] = None
+
+    def send_terminate(self, actor):
+
+        self.tcpserver.send(actor, SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
+
+
+    def send_block(self, actor, block):
+
+        self.tcpserver.send(actor,
+            SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=block),
+            )
+
+        # logger.info("Waiting for actors to close...")
+
+        # for actor in self.actors:
+        #     with self.actor_type_cv:
+        #         while self.actor_type[actor] != None:
+        #             self.actor_type_cv.wait()
+
+    def activate_actor(self, actor, task_id):
+
+        logger.info("Activating actor {}".format(actor))
+
+        if self.finished_scheduling:
+            self.send_terminate(actor)
+            return
+
+        with self.actor_list_lock:
+
+            self.actors.add(actor)
+            self.actor_type[actor] = task_id
+
+            if actor in self.dead_actors:
+                # handle aliasing of previous actors
+                self.dead_actors.remove(actor)
+
+
+    def block_done(self, actor, block_id, ret):
+
+        block = self.graph.get_block(block_id)
+        task_id = block_id[0]
+
+        # run post_check for finishing blocks
+        if ret == ReturnCode.SUCCESS:
+            try:
+                if not self.tasks[task_id].post_check(block):
+                    logger.error("Completion check failed for task for block %s.", block)
+                    ret = ReturnCode.FAILED_POST_CHECK
+
+            except Exception as e:
+                logger.error("Encountered exception while running post_check for block {}. Exception: {}".format(block, e))
+                ret = ReturnCode.FAILED_POST_CHECK
+
+
+        if actor != None:
+            with self.actor_list_lock:
+                self.blocks_actor_processing[actor].remove(block_id)
+
+
+        if ret in [ReturnCode.ERROR, ReturnCode.NETWORK_ERROR, ReturnCode.FAILED_POST_CHECK]:
+            logger.error("Task failed for block %s.", block)
+            self.graph.cancel_and_reschedule(block_id)
+
+        elif ret in [ReturnCode.SUCCESS, ReturnCode.SKIPPED]:
+            self.graph.remove_and_update(block_id)
+
+        else:
+            raise Exception('Unknown ReturnCode {}'.format(ret))
+
+        if self.graph.is_task_done(task_id):
+            self.finish_task(task_id)
+
+        self.results.append((block, ret))
+
+    def unexpected_actor_loss(self, actor):
+        # TODO: better algorithm to decide whether to make a new actor or not?
+        if not self.graph.empty():
+
+            if actor not in self.actor_type:
+                logger.error("Actor was lost before finished initializing. "
+                             "It will not be respawned.")
+                return
+
+            task_id = self.actor_type[actor] 
+            if task_id in self.local_tasks:
+                logger.error("Actor {} belongs to a process task, cannot be"
+                                " restarted.".format(actor))
+                return
+
+            logger.info("Starting new actor due to disconnection")
+            self.recruit_actor_fn[task_id](self.actor_id)
+            self.actor_id += 1
+
+    def distribute(self, graph):
+        self.graph = graph
+        all_tasks = graph.get_tasks()
+        for task in all_tasks:
+            self.tasks[task.task_id] = task
+
+
+        # for task_id in self.local_tasks:
+        #     ''' this is a workaround with regard to multiprocessing
+        #         since using fork is not compatible with multithreading
+        #         (namely ioloop), and using spawn start method breaks
+        #         compatibility with using lambda as process_functions
+        #         we will fork these processes prior to starting
+        #         the TCP server
+        #     '''
+        #     for i in range(self.tasks[task_id].num_workers):
+        #         self.recruit_actor_fn[task_id](self.actor_id)
+        #         self.actor_id += 1
+
+        # multiprocessing.set_start_method('forkserver', force=True) # for compatibility with multithreaded (namely ioloop)
+        # multiprocessing.set_start_method('forkserver', force=True) # for compatibility with multithreaded (namely ioloop)
+
+        self.__start_tcp_server()
+
+        self.construct_recruit_functions()
+
+        self.results = []
+
+        logger.info("Server running at {}".format(self.net_identity))
+        logger.info("Scheduling {} tasks to completion.".format(graph.size()))
+        logger.info("Max parallelism seems to be {}.".format(graph.ready_size()))
+        # if launch_cmd:
+        #     logger.info("Actor launch command is: {}".format(' '.join(launch_cmd)))
+
+        while not graph.empty():
+
+            block = graph.next()
+            if block == None: 
+                continue
+
+            # print("Got block {}".format(block))
+
+            task_id, block = block
+
+            try:
+                # pre_check can intermittently fail
+                pre_check_ret = self.tasks[task_id].pre_check(block)
+            except Exception as e:
+                logger.error(
+                    "pre_check() exception for block {}. Exception: {}"
+                        .format(block, e))
+                pre_check_ret = False
+
+            if pre_check_ret == True:
+
+                logger.info("Skipping {} block {}; already processed.".format(task_id, block.block_id))
+                ret = ReturnCode.SKIPPED
+                self.block_done(None, (task_id, block.block_id), ret)
+
+            else:
+
+                scheduled = False
+                while not scheduled:
+                    actor = self.get_idle_actor(task_id)
+
+                    with self.actor_list_lock:
+                        if actor not in self.dead_actors:
+                            self.blocks_actor_processing[actor].add((task_id, block.block_id))
+                            scheduled = True
+                        else:
+                            logger.debug("Actor {} was found dead or disconnected. Getting new actor.".format(actor))
+                            continue
+
+                self.send_block(actor, block)
+                logger.info("Pushed block {} of task {} to actor {}. Block data: {}".format(block.block_id, task_id, actor, block))
+
+
+        self.finished_scheduling = True
+        self.tcpserver.daisy_close()
+        self.close_all_actors()
+
+        succeeded = [ t for t, r in self.results if r == ReturnCode.SUCCESS ]
+        skipped = [ t for t, r in self.results if r == ReturnCode.SKIPPED ]
+        failed = [ t for t, r in self.results if r == ReturnCode.FAILED_POST_CHECK ]
+        errored = [ t for t, r in self.results if r == ReturnCode.ERROR ]
+        network_errored = [ t for t, r in self.results if r == ReturnCode.NETWORK_ERROR ]
+
+        logger.info(
+            "Ran %d tasks "
+            # "(%d retries), "
+            "of which %d succeeded, %d were skipped, %d were orphaned (failed dependencies), "
+            "%d tasks failed (%d "
+            "failed check, %d application errors, %d network failures or app crashes)",
+            graph.size(),
+            # len(self.results) - graph.size(),
+            len(succeeded), len(skipped), len(graph.get_orphans()),
+            # len(failed) + len(errored) + len(network_errored),
+            len(graph.get_failed_blocks()),
+            len(failed), len(errored), len(network_errored))
+
+        return graph.size() == (len(succeeded) + len(skipped))
+
+
+def _local_actor_wrapper(received_fn, port, task_id):
+    """ Wrapper for local process function """
+
+    sched = Actor(sched_addr="localhost", sched_port=port, task_id=task_id)
+
+    try:
+        user_fn, args = received_fn
+        fn = lambda b: user_fn(b, *args)
+    except:
+        fn = received_fn
+
+    while True:
+        block = sched.acquire_block()
+        if block == Actor.END_OF_BLOCK:
+            break;
+        ret = fn(block)
+        sched.release_block(block, ret)
+
+
+def run_blockwise(
+    total_roi,
+    read_roi,
+    write_roi,
+    process_function=None,
+    check_function=None,
+    read_write_conflict=True,
+    num_workers=1,
+    max_retries=2,
+    fit='valid'):
+    '''Run block-wise tasks.
 
         Args:
 
@@ -301,6 +591,11 @@ class Scheduler():
                 The number of parallel processes or threads to run. Only effective
                 if ``client`` is ``None``.
 
+            max_retries (int, optional):
+
+                The maximum number of times a task will be retried if failed (either
+                due to failed post_check or application crashes or network failure)
+
             fit (``string``, optional):
 
                 How to handle cases where shifting blocks by the size of
@@ -343,401 +638,78 @@ class Scheduler():
             completed in an earlier run).
         '''
 
+    # Scheduler().run_blockwise(*args, **kwargs)
+
+    if check_function is not None:
         try:
-            os.mkdir('.daisy_logs')
+            user_pre_check, user_post_check = check_function
         except:
-            pass # log dir exists
-
-        distributed_processing = False
-        if len(signature(process_function).parameters) == 0:
-            distributed_processing = True
-
-        self._start_server()
-        launch_cmd = None
-        if distributed_processing:
-            launch_cmd = []
-            # adding scheduler net identity as env before python call
-            env_added = False
-            for line in process_function():
-                # launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR={} DAISY_SCHED_PORT={} python".format(self.net_identity[0], self.net_identity[1])))
-                if not env_added:
-                    if line.find("run_docker") >= 0:
-                        launch_cmd.append(line.replace("run_docker", "run_docker -e DAISY_SCHED_ADDR_PORT={}:{} ".format(*self.net_identity)))
-                        env_added = True
-                    elif line.find("run_lsf") >= 0:
-                        launch_cmd.append(line.replace("run_lsf", "run_lsf -e DAISY_SCHED_ADDR_PORT={}:{} ".format(*self.net_identity)))
-                        env_added = True
-                    elif line.find("python") >= 0:
-                        launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR_PORT={}:{} python".format(*self.net_identity)))
-                        env_added = True
-                else:
-                    launch_cmd.append(line)
-            # logger.info("Actor launch command is: {}".format(''.join(launch_cmd)))
-            self.new_actor_fn = lambda i: spawn_process(launch_cmd, ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
-
-        else:
-            multiprocessing.set_start_method('spawn', force=True) # for compatibility with multithreaded (namely ioloop)
-            self.new_actor_fn = lambda i: spawn_function(local_actor, [process_function, self.net_identity[1]], ".daisy_logs/actor.{}.out".format(i), ".daisy_logs/actor.{}.err".format(i))
-
-        for i in range(num_workers):
-            self.new_actor_fn(i)
-            # self.actor_id
-        self.num_workers = num_workers
-        self.actor_id = self.num_workers
-
-
-
-
-        logger.debug("Creating dynamic blocks")
-        blocks = DynamicBlocks(
-            total_roi,
-            read_roi,
-            write_roi,
-            read_write_conflict,
-            fit,
-            max_retries)
-
-        self.blocks = blocks
-
-        if check_function is not None:
-
-            try:
-                pre_check, post_check = check_function
-            except:
-                pre_check = check_function
-                post_check = check_function
-
-        else:
-
-            pre_check = lambda _: False
-            post_check = lambda _: True
-
-        self.pre_check, self.post_check = (pre_check, post_check)
-
-        self.results = []
-
-        logger.info("Server running at {}".format(self.net_identity))
-        logger.info("Scheduling {} tasks to completion.".format(blocks.size()))
-        logger.info("Max parallelism seems to be {}.".format(blocks.ready_size()))
-        if launch_cmd:
-            logger.info("Actor launch command is: {}".format(' '.join(launch_cmd)))
-
-
-        while not blocks.empty():
-
-            # logger.debug("getting next block...")
-            block = blocks.next()
-            # logger.debug("got block {}".format(block))
-
-            if block != None:
-                scheduled = False
-                while not scheduled:
-                    actor = self.get_idle_actor()
-
-                    with self.actor_list_lock:
-                        if actor not in self.dead_actors:
-                            self.blocks_actor_processing[actor].add(block.block_id)
-                            scheduled = True
-                        else:
-                            logger.debug("Actor {} was found dead or disconnected. Skipping.".format(actor))
-                            continue
-
-                    self.check_and_run(actor, block, pre_check)
-
-        self.tcpserver.daisy_close()
-        self.close_all_actors()
-
-        succeeded = [ t for t, r in self.results if r == ReturnCode.SUCCESS ]
-        skipped = [ t for t, r in self.results if r == ReturnCode.SKIPPED ]
-        failed = [ t for t, r in self.results if r == ReturnCode.FAILED_POST_CHECK ]
-        errored = [ t for t, r in self.results if r == ReturnCode.ERROR ]
-        network_errored = [ t for t, r in self.results if r == ReturnCode.NETWORK_ERROR ]
+            user_pre_check = check_function
+            user_post_check = check_function
 
-        logger.info(
-            "Ran %d tasks "
-            # "(%d retries), "
-            "of which %d succeeded, %d were skipped, %d were orphaned (failed dependencies), "
-            "%d tasks failed (%d "
-            "failed check, %d application errors, %d network failures or app crashes)",
-            blocks.size(),
-            # len(self.results) - blocks.size(),
-            len(succeeded), len(skipped), len(blocks.get_orphans()),
-            # len(failed) + len(errored) + len(network_errored),
-            len(blocks.get_failed_blocks()),
-            len(failed), len(errored), len(network_errored))
+    else:
+        user_pre_check = lambda _: False
+        user_post_check = lambda _: True
 
-        return blocks.size() - len(succeeded) - len(skipped) == 0
 
+    class BlockwiseTask(Task):
 
-    def get_idle_actor(self):
-        return self.idle_actor_queue.get()
-
+        process_function = staticmethod(process_function)
+        pre_check = staticmethod(user_pre_check)
+        post_check = staticmethod(user_post_check)
 
-    def close_all_actors(self):
-        with self.actor_list_lock:
-            for actor in self.actors:
-                self.send_terminate(actor)
 
-    def send_terminate(self, actor):
-        self.tcpserver.send(actor, SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
+    daisy_task = BlockwiseTask()
+    daisy_task.num_workers = num_workers
+    daisy_task.total_roi = total_roi
+    daisy_task.read_roi = read_roi
+    daisy_task.write_roi = write_roi
+    daisy_task.read_write_conflict = read_write_conflict
+    daisy_task.max_retries = max_retries
+    daisy_task.fit = fit
 
-    def send_block(self, actor, block):
-        self.tcpserver.send(actor,
-            SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=block),
-            )
+    task = {'task': daisy_task}
 
-        # logger.info("Waiting for actors to close...")
+    dependency_graph = DependencyGraph()
 
-        # for actor in self.actors:
-        #     with self.actor_type_cv:
-        #         while self.actor_type[actor] != None:
-        #             self.actor_type_cv.wait()
+    dependency_graph.add(daisy_task)
 
-    def initialize_actor(self, worker):
-        logger.info("Activating worker {} as an actor".format(worker))
-        with self.actor_list_lock:
-            self.actors.add(worker)
-            if worker in self.dead_actors:
-                # handle aliasing of previous actors
-                self.dead_actors.remove(worker)
+    # dependency_graph.init(total_roi, read_roi, write_roi, read_write_conflict, max_retries, fit)
+    dependency_graph.init()
 
-        self.actor_type[worker] = True
+    # TODO
+    # if request != None:
+    #     dependency_graph = dependency_graph.get_subgraph(request)
 
+    return Scheduler().distribute(dependency_graph)
 
-    def add_idle_actor(self, actor):
-        logger.debug("Add actor {} to idle queue".format(actor))
-        self.idle_actor_queue.put(actor)
 
 
-    # def get_actors(self):
-    #     with self.actor_list_lock:
-    #         return self.actors
+def distribute(tasks, global_config=None):
+    ''' Execute tasks in a block-wise fashion using the Task interface
 
-    def block_done(self, actor, block_id, ret):
+        Args:
 
-        block = self.blocks.get_block(block_id)
+            tasks (`list`({'task': `class.Daisy.Task`
+                           'request': `class:daisy.Roi`, optional})):
 
-        if ret == ReturnCode.SUCCESS:
-            try:
-                if not self.post_check(block):
-                    logger.error("Completion check failed for task for block %s.", block)
-                    ret = ReturnCode.FAILED_POST_CHECK
-            except Exception as e:
-                logger.error("Encountered exception while running post_check for block {}. Exception: {}".format(block, e))
-                ret = ReturnCode.FAILED_POST_CHECK
+                List of tasks to be executed. Each task is a dictionary mapping
+                'task' to a `Task`, and 'request' to a sub-Roi for the task
+    '''
 
-        if ret in [ReturnCode.ERROR, ReturnCode.NETWORK_ERROR, ReturnCode.FAILED_POST_CHECK]:
-            logger.error("Task failed for block %s.", block)
-            with self.actor_list_lock:
-                self.blocks_actor_processing[actor].remove(block_id)
-            self.blocks.cancel_and_reschedule(block_id)
+    dependency_graph = DependencyGraph(global_config=global_config)
 
-        elif ret in [ReturnCode.SUCCESS, ReturnCode.SKIPPED]:
-            # logger.debug("Block {} is done".format(block_id))
-            with self.actor_list_lock:
-                self.blocks_actor_processing[actor].remove(block_id)
-            self.blocks.remove_and_update(block_id)
-            # logger.debug("Block {} is done22".format(block_id))
+    if len(tasks) > 1:
+        raise NotImplementedError(
+            "Daisy does not support distribute() multiple tasks yet.")
 
-        else:
-            raise Exception('Unknown ReturnCode {}'.format(ret))
+    task = tasks[0]
+    dependency_graph.add(task['task'])
+    dependency_graph.init()
 
-        self.results.append((block, ret))
+    if 'request' in task and task['request'] != None:
+        subgraph = dependency_graph.get_subgraph(task['request'])
+        dependency_graph = subgraph
 
-
-    def check_and_run(self, actor, block, pre_check):
-
-        try:
-            if pre_check(block):
-                logger.info("Skipping task for block %s; already processed.", block)
-                ret = ReturnCode.SKIPPED
-                self.block_done(actor, block.block_id, ret)
-                self.add_idle_actor(actor)
-                return
-        except Exception as e:
-            logger.error("Encountered exception while running pre_check for block {}. Exception: {}".format(block, e))
-            # ret = ReturnCode.FAILED_POST_CHECK
-
-        self.send_block(actor, block)
-        logger.info("Pushed block {} to actor {}".format(block.block_id, actor))
-
-
-    def unexpected_actor_loss(self, actor):
-
-        # TODO: should decide whether to make a new actor or not
-        if not self.blocks.empty():
-            # logger.info("Creating new actor {}: {}.".format(self.actor_id, actor))
-            logger.info("Starting new actor...")
-            self.new_actor_fn(self.actor_id)
-            # self.actor_id[actor] = self.actor_id
-            self.actor_id += 1
-
-
-
-class RemoteActor():
-    """ Object that runs on a remote worker providing task management API for user code """
-
-    connected = False
-    error_state = False
-    stream = None
-    END_OF_BLOCK = (-1, None)
-
-    def __init__(self, sched_addr=None, sched_port=None, ioloop=None):
-
-        logger.debug("RemoteActor init")
-
-        if sched_addr == None or sched_port == None:
-            # attempt to get it through environment variable
-            try:
-                sched_addr,sched_port = os.environ['DAISY_SCHED_ADDR_PORT'].split(':')
-            except:
-                logger.error("Can't find daisy scheduler address through DAISY_SCHED_ADDR_PORT environment variables! Exiting...")
-                exit(1)
-
-        self.ioloop = ioloop
-        if self.ioloop == None:
-            self.ioloop = IOLoop.current()
-            t = Thread(target=self.ioloop.start, daemon=True)
-            t.start()
-
-        self.sched_addr = sched_addr
-        self.sched_port = sched_port
-        self.ioloop.add_callback(self._start)
-
-        logger.debug("Connecting to Daisy scheduler...")
-        while self.connected == False:
-            time.sleep(.2)
-
-
-    async def _start(self):
-
-        logger.info("Connecting to scheduler at {}".format((self.sched_addr, self.sched_port)))
-        self.stream = await self._connect_with_retry()
-        if self.stream == None:
-            self.error_state = True
-            exit(1)
-
-        self.job_queue = deque()
-        self.job_queue_cv = threading.Condition()
-
-        self.connected = True
-        logger.debug("Connected.")
-
-        # await gen.multi([self.recv_server()])
-        await self.async_recv()
-
-
-    async def _connect_with_retry(self):
-
-        counter = 0
-        while True:
-            try:
-                stream = await TCPClient().connect(self.sched_addr, self.sched_port, timeout=60)
-                return stream
-            except:
-                logger.debug("TCP connect error, retry...")
-                counter = counter + 1
-                if (counter > 60):
-                    logger.debug("Timeout, quitting.")
-                    return None
-                await asyncio.sleep(1)
-
-
-
-    async def async_recv(self):
-
-        while True:
-            try:
-                msg = await get_and_unpack_message(self.stream)
-                # logger.debug("Received {}".format(msg.data))
-
-                if msg.type == SchedulerMessageType.NEW_BLOCK:
-                    block = msg.data
-                    with self.job_queue_cv:
-                        self.job_queue.append(block)
-                        self.job_queue_cv.notify()
-
-                elif msg.type == SchedulerMessageType.TERMINATE_WORKER:
-                    self.send(SchedulerMessage(SchedulerMessageType.WORKER_EXITING))
-                    break
-
-            except StreamClosedError:
-                logger.error("Unexpected loss of connection to scheduler!")
-                break
-
-        # worker done, exiting
-        with self.job_queue_cv:
-            self.job_queue.append(self.END_OF_BLOCK)
-            self.job_queue_cv.notify()
-
-
-    async def async_send(self, data):
-
-        try:
-            await self.stream.write(data)
-        except StreamClosedError:
-            logger.error("Unexpected loss of connection to scheduler!")
-
-
-    def send(self, data):
-        self.ioloop.spawn_callback(self.async_send, pack_message(data))
-
-
-    def acquire_block(self):
-
-        self.send(SchedulerMessage(
-                    SchedulerMessageType.WORKER_GET_BLOCK))
-
-        with self.job_queue_cv:
-
-            while len(self.job_queue) == 0:
-                self.job_queue_cv.wait()
-                # self.job_queue_cv.wait(timeout=5)
-
-            ret = self.job_queue.popleft()
-            return ret
-
-
-    def release_block(self, block, ret):
-
-        if ret == 0:
-            ret = ReturnCode.SUCCESS
-        elif ret == 1:
-            ret = ReturnCode.ERROR
-        else:
-            logger.warn("Daisy user function should return either 0 or 1--given {}".format(ret))
-            ret = ReturnCode.SUCCESS
-
-            # raise Exception('User return code must be either 0 or 1. Given {}'.format(ret))
-
-        self.send(SchedulerMessage(
-                    SchedulerMessageType.WORKER_RET_BLOCK,
-                    data=(block.block_id, ret)))
-
-
-
-def local_actor(user_function, port):
-    """ Wrapper for user process function """
-
-    sched = RemoteActor(sched_addr="localhost", sched_port=port)
-    while True:
-        block = sched.acquire_block()
-        if block == RemoteActor.END_OF_BLOCK:
-            break;
-        ret = user_function(block)
-        sched.release_block(block, ret)
-
-global __default_scheduler
-__default_scheduler = None
-
-def run_blockwise(*args, **kwargs):
-
-    global __default_scheduler
-    
-    if __default_scheduler == None:
-        __default_scheduler = Scheduler()
-
-    print(args)
-
-    __default_scheduler.run_blockwise(*args, **kwargs)
+    return Scheduler().distribute(dependency_graph)
 

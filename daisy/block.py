@@ -47,10 +47,11 @@ class Block(Freezable):
         self.write_roi = write_roi
         self.requested_write_roi = write_roi.copy()
 
-        self.__compute_block_id(total_roi, write_roi)
+        self.block_id = self.compute_block_id(total_roi, write_roi)
         self.freeze()
 
-    def __compute_block_id(self, total_roi, write_roi):
+
+    def compute_block_id(self, total_roi, write_roi):
 
         one = (1,)*total_roi.dims()
         # this is an upper bound on the number of blocks per dimension, the
@@ -62,10 +63,13 @@ class Block(Freezable):
         block_index = write_roi.get_offset()/write_roi.get_shape()
 
         f = 1
-        self.block_id = 0
+        block_id = 0
         for d in range(total_roi.dims())[::-1]:
-            self.block_id += block_index[d]*f
+            block_id += block_index[d]*f
             f *= num_blocks[d]
+        return block_id
+
+
 
     def __repr__(self):
 

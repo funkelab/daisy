@@ -1,28 +1,30 @@
 from __future__ import absolute_import
-from collections import deque
-import threading
-from .block import Block
-from .blocks import *
-from .coordinate import Coordinate
+
+import collections
 from itertools import product
 import logging
-from collections import defaultdict
+import threading
+
+# from .block import Block
+from .blocks import create_dependency_graph
+# import blocks
+from .coordinate import Coordinate
 
 logger = logging.getLogger(__name__)
 
 class DynamicBlocks():
 
-    dependents = defaultdict(set)
-    dependencies = defaultdict(set)
-    ready_queue = deque()
+    dependents = collections.defaultdict(set)
+    dependencies = collections.defaultdict(set)
+    ready_queue = collections.deque()
     ready_queue_cv = threading.Condition()
     processing_blocks = set()
     blocks = {}
     # update_lock = threading.Lock()
-    actor_type = {}
+    # actor_type = {}
 
     max_retries = 2
-    retry_count = defaultdict(int)
+    retry_count = collections.defaultdict(int)
 
     failed_blocks = set()
     orphaned_blocks = set()
@@ -59,10 +61,10 @@ class DynamicBlocks():
 
             for dep_id in [x.block_id for x in block_dependencies]:
                 # TODO: is this inefficient?
-                if dep_id not in self.dependents:
-                    self.dependents[dep_id] = set()
-                if block_id not in self.dependencies:
-                    self.dependencies[block_id] = set()
+                # if dep_id not in self.dependents:
+                #     self.dependents[dep_id] = set()
+                # if block_id not in self.dependencies:
+                #     self.dependencies[block_id] = set()
                 self.dependents[dep_id].add(block_id)
                 self.dependencies[block_id].add(dep_id)
 
@@ -164,7 +166,7 @@ class DynamicBlocks():
     def ready_size(self):
         return len(self.ready_queue)
 
-    def get_actor_type(self, actor):
-        return self.actor_type[actor]
+    # def get_actor_type(self, actor):
+        # return self.actor_type[actor]
 
 
