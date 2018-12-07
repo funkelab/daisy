@@ -5,6 +5,8 @@ from .parameter import Parameter
 class Task():
 
     task_id = Parameter()
+    log_to_files = Parameter(default=True)
+    log_to_stdout = Parameter(default=False)
 
     def __init__(self, task_id=None, **kwargs):
         if task_id:

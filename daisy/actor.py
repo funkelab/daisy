@@ -11,7 +11,7 @@ from tornado.ioloop import IOLoop
 from tornado.tcpclient import TCPClient
 from tornado.iostream import StreamClosedError
 
-from .scheduler_include import SchedulerMessageType, ReturnCode, SchedulerMessage, get_and_unpack_message, pack_message
+from .tcp import *
 
 logger = logging.getLogger(__name__)
 

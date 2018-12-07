@@ -74,7 +74,7 @@ class DependencyGraph():
         # print(self.dependencies)
 
     def __recursively_create_dependency_graph(self, task_id):
-        """ Create dependency graph for its dependencies first before own """
+        ''' Create dependency graph for its dependencies first before own '''
 
         if task_id in self.created_tasks:
             return
@@ -134,12 +134,12 @@ class DependencyGraph():
         self.task_map[task].prepare()
 
     def next(self):
-        """ Get the next available block.
+        ''' Get the next available block.
             Blocks and waits for outstanding blocks if there is none ready.
 
             Returns tuple (task_name, block) if available.
             Returns `None` if there will be no more blocks to run.
-        """
+        '''
 
         with self.ready_queue_cv:
             while not self.empty() and len(self.ready_queue) == 0:
@@ -219,7 +219,7 @@ class DependencyGraph():
             self.recursively_check_orphans(orphan_id)
 
     def remove_and_update(self, block_id):
-        """Removing a finished block and update ready queue"""
+        '''Removing a finished block and update ready queue'''
         with self.ready_queue_cv:
             self.task_done_count[block_id[0]] += 1
             self.processing_blocks.remove(block_id)
