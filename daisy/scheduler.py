@@ -1,5 +1,4 @@
 from __future__ import absolute_import
-# from .blocks import create_dependency_graph
 
 import collections
 import copy
@@ -147,12 +146,10 @@ class Scheduler():
 
     finished_scheduling = False
 
-    def __start_tcp_server (
+    def _start_tcp_server (
         self,
         ioloop=None):
-
-        """
-            Args:
+        """Start TCP server to handle remote actor requests.
         """
 
         self.ioloop = ioloop
@@ -191,11 +188,11 @@ class Scheduler():
         for block_id in processing_blocks:
             self.block_done(actor, block_id, ReturnCode.NETWORK_ERROR)
 
-    def make_spawn_function(self, args, log_dir):
+    def make_spawn_function(self, function, args, env, log_dir):
         """ This helper function is necessary to disambiguate parameters
             of lambda expressions
         """
-        return lambda i: spawn_function(_local_actor_wrapper, args, log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i)) 
+        return lambda i: spawn_function(function, args, env, log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i)) 
 
     def make_spawn_call(self, launch_cmd, log_dir):
         """ This helper function is necessary to disambiguate parameters
@@ -215,48 +212,33 @@ class Scheduler():
 
             new_actor_fn = None
             process_function = self.tasks[task].process_function
-            local_process_function = True
+            spawn_actors = True
             try:
                 if len(signature(process_function).parameters) == 0:
-                    local_process_function = False
+                    spawn_actors = False
             except:
-                local_process_function = True
+                spawn_actors = True
 
-            if local_process_function:
-                # new_actor_fn = lambda i: spawn_function(_local_actor_wrapper, [process_function, self.net_identity[1], task], log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i)) 
-                new_actor_fn = self.make_spawn_function([process_function, self.net_identity[1], task], log_dir)
-                # new_actor_fn = (spawn_function, _local_actor_wrapper, [process_function, self.net_identity[1], task], log_dir)
-                # self.local_tasks[task] = new_actor_fn
-                # self.local_tasks.add(task)
+            # add daisy scheduler context as an env
+            # os.environ['DAISY_CONTEXT'] = '{}:{}:{}'.format(
+                # *self.net_identity, task)
+            env = {'DAISY_CONTEXT': '{}:{}:{}'
+                .format(*self.net_identity, task)}
 
+            if spawn_actors:
+                new_actor_fn = self.make_spawn_function(
+                    process_function,
+                    [],
+                    env,
+                    log_dir)
             else:
-                launch_cmd = []
-                # adding scheduler net identity as env before python call
-                env_added = False
-                for line in process_function():
-                    # launch_cmd.append(line.replace("python", "DAISY_SCHED_ADDR={} DAISY_SCHED_PORT={} python".format(self.net_identity[0], self.net_identity[1])))
-                    if not env_added:
-                        if line.find("run_docker") >= 0:
-                            launch_cmd.append(line.replace("run_docker", "run_docker -e DAISY_CONTEXT={}:{}:{} ".format(*self.net_identity, task)))
-                            env_added = True
-                        elif line.find("run_lsf") >= 0:
-                            launch_cmd.append(line.replace("run_lsf", "run_lsf -e DAISY_CONTEXT={}:{}:{} ".format(*self.net_identity, task)))
-                            env_added = True
-                        elif line.find("python") >= 0:
-                            launch_cmd.append(line.replace("python", "DAISY_CONTEXT={}:{}:{} python".format(*self.net_identity, task)))
-                            env_added = True
-                    else:
-                        launch_cmd.append(line)
-                # logger.info("Actor launch command is: {}".format(''.join(launch_cmd)))
-                # new_actor_fn = lambda i: spawn_call(launch_cmd, log_dir+"/actor.{}.out".format(i), log_dir+"/actor.{}.err".format(i))
-                new_actor_fn = self.make_spawn_call(launch_cmd, log_dir)
-                # new_actor_fn = (spawn_call, _local_actor_wrapper, [process_function, self.net_identity[1], task], log_dir)
-
-                self.manual_recruit_cmd[task] = launch_cmd
+                new_actor_fn = self.make_spawn_function(
+                    _local_actor_wrapper,
+                    [process_function, self.net_identity[1], task], 
+                    env,
+                    log_dir)
 
             self.recruit_actor_fn[task] = copy.deepcopy(new_actor_fn)
-        # raise
-
 
     def get_idle_actor(self, task):
 
@@ -307,40 +289,27 @@ class Scheduler():
             #     self.actor_type[actor] = None
 
     def send_terminate(self, actor):
-
-        self.tcpserver.send(actor, SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
-
+        self.tcpserver.send(
+            actor,
+            SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
 
     def send_block(self, actor, block):
-
-        self.tcpserver.send(actor,
-            SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=block),
-            )
-
-        # logger.info("Waiting for actors to close...")
-
-        # for actor in self.actors:
-        #     with self.actor_type_cv:
-        #         while self.actor_type[actor] != None:
-        #             self.actor_type_cv.wait()
+        self.tcpserver.send(
+            actor,
+            SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=block))
 
     def activate_actor(self, actor, task_id):
-
         logger.info("Activating actor {}".format(actor))
-
         if self.finished_scheduling:
             self.send_terminate(actor)
             return
 
         with self.actor_list_lock:
-
             self.actors.add(actor)
             self.actor_type[actor] = task_id
-
             if actor in self.dead_actors:
                 # handle aliasing of previous actors
                 self.dead_actors.remove(actor)
-
 
     def block_done(self, actor, block_id, ret):
 
@@ -404,23 +373,7 @@ class Scheduler():
         for task in all_tasks:
             self.tasks[task.task_id] = task
 
-
-        # for task_id in self.local_tasks:
-        #     ''' this is a workaround with regard to multiprocessing
-        #         since using fork is not compatible with multithreading
-        #         (namely ioloop), and using spawn start method breaks
-        #         compatibility with using lambda as process_functions
-        #         we will fork these processes prior to starting
-        #         the TCP server
-        #     '''
-        #     for i in range(self.tasks[task_id].num_workers):
-        #         self.recruit_actor_fn[task_id](self.actor_id)
-        #         self.actor_id += 1
-
-        # multiprocessing.set_start_method('forkserver', force=True) # for compatibility with multithreaded (namely ioloop)
-        # multiprocessing.set_start_method('forkserver', force=True) # for compatibility with multithreaded (namely ioloop)
-
-        self.__start_tcp_server()
+        self._start_tcp_server()
 
         self.construct_recruit_functions()
 
