@@ -6,8 +6,8 @@ from subprocess import check_call, CalledProcessError
 import sys
 
 def _freopen(filename, mode, fobj):
-    """Redirects file descriptors
-    Example: _freopen(log_out, 'w', sys.stdout)
+    """Redirect file descriptors
+    Example usage: _freopen(log_out, 'w', sys.stdout)
     """
     new = open(filename, mode)
     newfd = new.fileno()
@@ -40,40 +40,41 @@ def call_function(function, args, env, log_out, log_err,
     """Run ``function(args)`` in a subprocess, log stdout and stderr to
     ``log_out`` and ``log_in``"""
 
-    # passing env to Daisy client
+    # passing environment variables to Daisy client
     for e in env:
         os.environ[e] = env[e]
 
     if log_to_files and not log_to_stdout:
+        # simply redirect outputs to files if we don't need to display
+        # output to stdout/stderr
         _freopen(log_out, 'w', sys.stdout)
         _freopen(log_err, 'w', sys.stderr)
 
     try:
+
         if log_to_files and log_to_stdout:
-            # add redirection for logging
+            # if logging to both files and stdout, add file logging
+            # option to logger
             logger = logging.getLogger()
             logger.addHandler(logging.FileHandler(log_out))
-            # logger.handlers = []
-            # logging.basicConfig(
-            #     level=logging.INFO,
-            #     filename=log_out,
-            #     format='%(levelname)s:%(name)s:%(message)s')
+
         function(*args)
+
     except Exception as exc:
         raise Exception(
-                "Function {} failed with return code {}, stderr in {}"
-                    .format(function, exc.returncode, sys.stderr.name))
+            "Function {} failed with return code {}, stderr in {}"
+                .format(function, exc.returncode, sys.stderr.name))
+        
     except KeyboardInterrupt:
         raise Exception("Canceled by SIGINT")
 
 
 def spawn_function(function, args, env, log_out, log_err,
     log_to_files, log_to_stdout):
-    """Spawn ``function(args)`` in a simultaneous subprocess, log stdout
-    and stderr to ``log_out`` and ``log_err``"""
+    """Helper function to spawn ``call_function`` in a simultaneous
+    process"""
     Process(
         target=call_function,
         args=(function, args, env, log_out, log_err,
               log_to_files, log_to_stdout)
     ).start()
-
