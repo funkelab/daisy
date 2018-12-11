@@ -1,4 +1,3 @@
-
 import asyncio
 from collections import deque
 import logging
@@ -16,15 +15,60 @@ from .tcp import *
 logger = logging.getLogger(__name__)
 
 class Actor():
-    """ Object that runs on a remote worker providing task management API for user code """
+    '''Client code that runs on a remote worker providing task management
+    API for user code. It communicates with the scheduler through TCP/IP.
+
+    Scheduler IP address, port, and other configurations are typically
+    passed to ``Actor`` through an environment variable named
+    'DAISY_CONTEXT'.
+
+    Example usage:
+
+        def blockwise_process(block):
+            ...
+
+        def main():
+            sched = Actor()
+            while True:
+                block = sched.acquire_block()
+                if block == Actor.END_OF_BLOCK:
+                    break;
+                ret = blockwise_process(block)
+                sched.release_block(block, ret)
+    '''
 
     connected = False
     error_state = False
     stream = None
     END_OF_BLOCK = (-1, None)
 
-    def __init__(self, sched_addr=None, sched_port=None, task_id=None, ioloop=None):
+    def __init__(
+        self,
+        sched_addr=None,
+        sched_port=None,
+        task_id=None,
+        ioloop=None):
+        '''Initialize TCP connection with the scheduler.
 
+        Args:
+
+            sched_addr(``str``, optional):
+
+                Scheduler IP address.
+
+            sched_port(``str``, optional):
+
+                Scheduler port number.
+
+            task_id(``str``, optional):
+
+                Unique ID for this task.
+
+            ioloop(``tornado.IOLoop``, optional):
+
+                If not passed in, Actor will start an ioloop
+                in a concurrent thread
+        '''
         logger.info("Actor init")
 
         if sched_addr == None or sched_port == None or task_id == None:
@@ -59,31 +103,33 @@ class Actor():
         while self.connected == False:
             time.sleep(.2)
 
-
     async def _start(self):
+        '''Start the TCP client.'''
+        logger.info(
+            "Connecting to scheduler at {}".format((self.sched_addr,
+                                                    self.sched_port)))
 
-        logger.info("Connecting to scheduler at {}".format((self.sched_addr, self.sched_port)))
         self.stream = await self._connect_with_retry()
         if self.stream == None:
             self.error_state = True
-            exit(1)
+            raise
 
         self.job_queue = deque()
         self.job_queue_cv = threading.Condition()
-
         self.connected = True
         logger.debug("Connected.")
 
-        # await gen.multi([self.recv_server()])
         await self.async_recv()
 
-
     async def _connect_with_retry(self):
-
+        '''Helper method that tries to connect to the scheduler within
+        a number of retries.'''
         counter = 0
         while True:
             try:
-                stream = await TCPClient().connect(self.sched_addr, self.sched_port, timeout=60)
+                stream = await TCPClient().connect(self.sched_addr,
+                                                   self.sched_port,
+                                                   timeout=60)
                 return stream
             except:
                 logger.debug("TCP connect error, retry...")
@@ -93,10 +139,8 @@ class Actor():
                     return None
                 await asyncio.sleep(1)
 
-
-
     async def async_recv(self):
-
+        '''Loop that receives commands from Daisy scheduler.'''
         while True:
             try:
                 msg = await get_and_unpack_message(self.stream)
@@ -109,33 +153,33 @@ class Actor():
                         self.job_queue_cv.notify()
 
                 elif msg.type == SchedulerMessageType.TERMINATE_WORKER:
-                    self.send(SchedulerMessage(SchedulerMessageType.WORKER_EXITING))
+                    self.send(SchedulerMessage(
+                                SchedulerMessageType.WORKER_EXITING))
                     break
 
             except StreamClosedError:
                 logger.error("Unexpected loss of connection to scheduler!")
                 break
 
-        # worker done, exiting
+        # all done, notify client code to exit
         with self.job_queue_cv:
             self.job_queue.append(self.END_OF_BLOCK)
             self.job_queue_cv.notify()
 
-
     async def async_send(self, data):
-
+        '''Send ``data`` to the scheduler. ``data`` must have been formated
+        using tcp.pack_message()'''
         try:
             await self.stream.write(data)
         except StreamClosedError:
             logger.error("Unexpected loss of connection to scheduler!")
 
-
     def send(self, data):
+        '''Non-async wrapper for async_send()'''
         self.ioloop.spawn_callback(self.async_send, pack_message(data))
 
-
     def acquire_block(self):
-
+        '''API for client to get a new block. It works by sending a get block message to the scheduler, then wait for async_recv() to append to the queue.'''
         self.send(SchedulerMessage(
                     SchedulerMessageType.WORKER_GET_BLOCK, data=self.task_id))
 
@@ -143,21 +187,34 @@ class Actor():
 
             while len(self.job_queue) == 0:
                 self.job_queue_cv.wait()
-                # self.job_queue_cv.wait(timeout=5)
 
             ret = self.job_queue.popleft()
             logger.debug("Received block {}".format(ret))
             return ret
 
-
     def release_block(self, block, ret):
+        '''API for client to return a a block.
 
+        Args:
+
+            block(daisy.Block):
+
+                The block that was acquired with acquire_block()
+
+            ret(``int``):
+
+                Integer return value for the block. Currently only 
+                either 0 or 1 are valid. 
+
+        '''
         if ret == 0:
             ret = ReturnCode.SUCCESS
         elif ret == 1:
             ret = ReturnCode.ERROR
         else:
-            logger.warn("Daisy user function should return either 0 or 1--given {}".format(ret))
+            logger.warn(
+                "Daisy user function should return either 0 or 1--given %s",
+                ret)
             ret = ReturnCode.SUCCESS
 
         logger.debug("Releasing block {}".format(block.block_id))
@@ -165,4 +222,3 @@ class Actor():
         self.send(SchedulerMessage(
                     SchedulerMessageType.WORKER_RET_BLOCK,
                     data=((self.task_id, block.block_id), ret)))
-
