@@ -2,6 +2,7 @@
 from enum import Enum
 import logging
 import pickle
+import socket
 import struct
 
 from tornado.iostream import StreamClosedError
