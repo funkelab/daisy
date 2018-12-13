@@ -100,8 +100,10 @@ class Actor():
         self.ioloop.add_callback(self._start)
 
         logger.info("Waiting for connection to Daisy scheduler...")
-        while self.connected == False:
+        while not self.connected:
             time.sleep(.2)
+            if self.error_state:
+                raise Exception("Cannot connect to Daisy scheduler")
 
     async def _start(self):
         '''Start the TCP client.'''
@@ -134,7 +136,8 @@ class Actor():
             except:
                 logger.debug("TCP connect error, retry...")
                 counter = counter + 1
-                if (counter > 60):
+                if (counter > 10):
+                    # retry for 10 seconds
                     logger.debug("Timeout, quitting.")
                     return None
                 await asyncio.sleep(1)
