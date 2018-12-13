@@ -36,8 +36,8 @@ class Task():
     # (sub)class name, but can be overridden in the constructor
     task_id = Parameter()
 
-    log_to_files = Parameter(default=True)
-    log_to_stdout = Parameter(default=False)
+    log_to_files = Parameter(default=False)
+    log_to_stdout = Parameter(default=True)
 
     def __init__(self, task_id=None, **kwargs):
         '''Constructor for ``Task``. Should not be overridden by
