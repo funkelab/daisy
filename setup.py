@@ -28,12 +28,15 @@ setup(
         license='MIT',
         packages=[
             'daisy',
-            'daisy.ext'
+            'daisy.ext',
+            'daisy.persistence'
         ],
         install_requires=[
-            "numpy",
             "dask",
-            "distributed"
+            "distributed",
+            "networkx",
+            "numpy",
+            "pymongo"
         ],
         extras_require=extras_require,
 )

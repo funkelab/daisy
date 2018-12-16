@@ -1,3 +1,5 @@
-numpy
 dask
 distributed
+networkx
+numpy
+pymongo
