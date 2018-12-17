@@ -93,7 +93,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_db()
             self.__open_collections()
 
-            nodes = self.nodes.find(self.__pos_query(roi))
+            nodes = self.nodes.find(self.__pos_query(roi), { '_id': False })
 
         finally:
 
