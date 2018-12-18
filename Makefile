@@ -5,6 +5,6 @@ default:
 install-dev:
 	pip install -e .[full]
 
-.PHONY: test
-test:
+.PHONY: tests
+tests:
 	python -m tests -v
