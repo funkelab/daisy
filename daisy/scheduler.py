@@ -383,7 +383,7 @@ def _local_actor_wrapper(received_fn, port, task_id):
         fn = received_fn
     while True:
         block = sched.acquire_block()
-        if block == Actor.END_OF_BLOCK:
+        if block == None:
             break;
         ret = fn(block)
         sched.release_block(block, ret)

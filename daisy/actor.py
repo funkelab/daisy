@@ -3,6 +3,7 @@ from collections import deque
 import logging
 import pickle
 import os
+import sys
 import threading
 import time
 
@@ -31,16 +32,11 @@ class Actor():
             sched = Actor()
             while True:
                 block = sched.acquire_block()
-                if block == Actor.END_OF_BLOCK:
+                if block == None:
                     break;
                 ret = blockwise_process(block)
                 sched.release_block(block, ret)
     '''
-
-    connected = False
-    error_state = False
-    stream = None
-    END_OF_BLOCK = (-1, None)
 
     def __init__(
         self,
@@ -70,6 +66,9 @@ class Actor():
                 in a concurrent thread
         '''
         logger.info("Actor init")
+        self.connected = False
+        self.error_state = False
+        self.stream = None
 
         if sched_addr == None or sched_port == None or task_id == None:
             # attempt to get them through environment variable
@@ -103,7 +102,8 @@ class Actor():
         while not self.connected:
             time.sleep(.2)
             if self.error_state:
-                raise Exception("Cannot connect to Daisy scheduler")
+                logger.error("Cannot connect to Daisy scheduler")
+                sys.exit(1)
 
     async def _start(self):
         '''Start the TCP client.'''
@@ -114,7 +114,8 @@ class Actor():
         self.stream = await self._connect_with_retry()
         if self.stream == None:
             self.error_state = True
-            raise
+            # raise
+            return
 
         self.job_queue = deque()
         self.job_queue_cv = threading.Condition()
@@ -166,7 +167,7 @@ class Actor():
 
         # all done, notify client code to exit
         with self.job_queue_cv:
-            self.job_queue.append(self.END_OF_BLOCK)
+            self.job_queue.append(None)
             self.job_queue_cv.notify()
 
     async def async_send(self, data):
