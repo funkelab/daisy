@@ -11,6 +11,21 @@ import shutil
 
 logger = logging.getLogger(__name__)
 
+
+# monkey patching to auto set temp file permission so other users can
+# access our data, until zarr fixes this issue
+# https://github.com/zarr-developers/zarr/issues/325
+import tempfile
+tempfile.NamedTemporaryFile2 = tempfile.NamedTemporaryFile
+def UmaskNamedTemporaryFile(*args, **kargs):
+    fdesc = tempfile.NamedTemporaryFile2(*args, **kargs)
+    umask = os.umask(0)
+    os.umask(umask)
+    os.chmod(fdesc.name, 0o666 & ~umask)
+    return fdesc
+tempfile.NamedTemporaryFile = UmaskNamedTemporaryFile
+
+
 def _read_voxel_size_offset(ds, order='C'):
 
     voxel_size = None
