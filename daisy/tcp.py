@@ -13,9 +13,11 @@ logger = logging.getLogger(__name__)
 
 class DaisyTCPServer(TCPServer):
 
-    scheduler = None
-    address_to_stream_mapping = {}
-    scheduler_closed = False
+    def __init__(self):
+        super().__init__()
+        self.scheduler = None
+        self.address_to_stream_mapping = {}
+        self.scheduler_closed = False
 
     async def handle_stream(self, stream, address):
 
