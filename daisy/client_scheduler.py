@@ -102,8 +102,7 @@ class ClientScheduler():
 
         logger.info("Waiting for connection to Daisy scheduler...")
         while not self.connected:
-            print("Waiting for connection...")
-            time.sleep(1)
+            time.sleep(.1)
             if self.error_state:
                 logger.error("Cannot connect to Daisy scheduler")
                 sys.exit(1)
