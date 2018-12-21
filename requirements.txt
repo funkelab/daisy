@@ -1,2 +1,4 @@
+networkx
 numpy
+pymongo
 tornado
