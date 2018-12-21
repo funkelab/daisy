@@ -131,6 +131,10 @@ class Task():
             self.pre_check = lambda _: False
             self.post_check = lambda _: True
 
+    def cleanup(self):
+        ''' Override this to perform any post-task cleanup action '''
+        pass
+
     def requires(self):
         ''' Subclasses override this to specify its dependencies as a
         list of ``Task``s'''
