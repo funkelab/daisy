@@ -23,31 +23,29 @@ class DependencyGraph():
     ``get_subgraph``.
     '''
 
-    global_config = None
-
-    leaf_task_id = None
-    tasks = set()
-    task_map = {}
-    prepared_tasks = set()
-    created_tasks = set()
-    task_dependency = collections.defaultdict(set)
-
-    dependents = collections.defaultdict(set)
-    dependencies = collections.defaultdict(set)
-    ready_queue = collections.deque()
-    ready_queue_cv = threading.Condition()
-    processing_blocks = set()
-    blocks = {}
-
-    retry_count = collections.defaultdict(int)
-    failed_blocks = set()
-    orphaned_blocks = set()
-
-    task_done_count = collections.defaultdict(int)
-    task_total_block_count = {}
-
     def __init__(self, global_config):
         self.global_config = global_config
+
+        self.leaf_task_id = None
+        self.tasks = set()
+        self.task_map = {}
+        self.prepared_tasks = set()
+        self.created_tasks = set()
+        self.task_dependency = collections.defaultdict(set)
+
+        self.dependents = collections.defaultdict(set)
+        self.dependencies = collections.defaultdict(set)
+        self.ready_queue = collections.deque()
+        self.ready_queue_cv = threading.Condition()
+        self.processing_blocks = set()
+        self.blocks = {}
+
+        self.retry_count = collections.defaultdict(int)
+        self.failed_blocks = set()
+        self.orphaned_blocks = set()
+
+        self.task_done_count = collections.defaultdict(int)
+        self.task_total_block_count = {}
 
     def add(self, task):
         '''Add a ``Task`` to the graph.

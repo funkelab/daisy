@@ -7,7 +7,6 @@ from inspect import signature
 import os
 import queue
 import socket
-import time
 import threading
 
 from tornado.ioloop import IOLoop
@@ -39,25 +38,27 @@ class Scheduler():
     See the DependencyGraph class for more information.
     '''
 
-    # a copy of tasks from the DependencyGraph
-    tasks = {}
+    def __init__(self):
 
-    # set of currently connected actors
-    actors = set()
+        # a copy of tasks from the DependencyGraph
+        self.tasks = {}
 
-    # actor states
-    actor_states_lock = threading.Lock()
-    idle_actors = collections.defaultdict(queue.Queue)
-    actor_type = {}
-    dead_actors = set()
-    actor_outstanding_blocks = collections.defaultdict(set)
+        # set of currently connected actors
+        self.actors = set()
 
-    # precomputed recruit functions
-    actor_recruit_fn = {}
+        # actor states
+        self.actor_states_lock = threading.Lock()
+        self.idle_actors = collections.defaultdict(queue.Queue)
+        self.actor_type = {}
+        self.dead_actors = set()
+        self.actor_outstanding_blocks = collections.defaultdict(set)
 
-    launched_tasks = set()
-    actor_id = 0
-    finished_scheduling = False
+        # precomputed recruit functions
+        self.actor_recruit_fn = {}
+
+        self.launched_tasks = set()
+        self.actor_id = 0
+        self.finished_scheduling = False
 
     def distribute(self, graph):
         self.graph = graph
@@ -408,9 +409,10 @@ def run_blockwise(
     process_function=None,
     check_function=None,
     read_write_conflict=True,
+    fit='valid',
     num_workers=1,
-    max_retries=2,
-    fit='valid'):
+    processes=None,
+    max_retries=2):
     '''Convenient function to run a single block-wise task.
 
     Args:
@@ -467,16 +469,6 @@ def run_blockwise(
             simply a means of convenience to ensure no out-of-bound accesses
             and to avoid re-computation of it in each block.
 
-        num_workers (int, optional):
-
-            The number of parallel processes or threads to run. Only effective
-            if ``client`` is ``None``.
-
-        max_retries (int, optional):
-
-            The maximum number of times a task will be retried if failed (either
-            due to failed post_check or application crashes or network failure)
-
         fit (``string``, optional):
 
             How to handle cases where shifting blocks by the size of
@@ -512,6 +504,20 @@ def run_blockwise(
                 |rrrr|wwwwww|rrrr|                block 1
                        |rrrr|wwwwww|rrrr|         block 2
                               |rrrr|www|rrrr|     block 3 (shrunk)
+
+        num_workers (int, optional):
+
+            The number of parallel processes or threads to run. Only effective
+            if ``client`` is ``None``.
+
+        processes (bool, optional):
+
+            Deprecated.
+
+        max_retries (int, optional):
+
+            The maximum number of times a task will be retried if failed (either
+            due to failed post_check or application crashes or network failure)
 
     Returns:
 
