@@ -15,12 +15,12 @@ from .tcp import *
 
 logger = logging.getLogger(__name__)
 
-class Actor():
+class ClientScheduler():
     '''Client code that runs on a remote worker providing task management
     API for user code. It communicates with the scheduler through TCP/IP.
 
     Scheduler IP address, port, and other configurations are typically
-    passed to ``Actor`` through an environment variable named
+    passed to ``ClientScheduler`` through an environment variable named
     'DAISY_CONTEXT'.
 
     Example usage:
@@ -29,7 +29,7 @@ class Actor():
             ...
 
         def main():
-            sched = Actor()
+            sched = ClientScheduler()
             while True:
                 block = sched.acquire_block()
                 if block == None:
@@ -62,10 +62,10 @@ class Actor():
 
             ioloop(``tornado.IOLoop``, optional):
 
-                If not passed in, Actor will start an ioloop
+                If not passed in, ClientScheduler will start an ioloop
                 in a concurrent thread
         '''
-        logger.info("Actor init")
+        logger.info("ClientScheduler init")
         self.connected = False
         self.error_state = False
         self.stream = None
@@ -88,7 +88,9 @@ class Actor():
 
         self.ioloop = ioloop
         if self.ioloop == None:
-            asyncio.set_event_loop(asyncio.new_event_loop())
+            new_event_loop = asyncio.new_event_loop()
+            asyncio._set_running_loop(new_event_loop)
+            asyncio.set_event_loop(new_event_loop)
             self.ioloop = IOLoop.current()
             t = threading.Thread(target=self.ioloop.start, daemon=True)
             t.start()
@@ -100,7 +102,8 @@ class Actor():
 
         logger.info("Waiting for connection to Daisy scheduler...")
         while not self.connected:
-            time.sleep(.2)
+            print("Waiting for connection...")
+            time.sleep(1)
             if self.error_state:
                 logger.error("Cannot connect to Daisy scheduler")
                 sys.exit(1)
@@ -216,7 +219,7 @@ class Actor():
         elif ret == 1:
             ret = ReturnCode.ERROR
         else:
-            logger.warn(
+            logger.warning(
                 "Daisy user function should return either 0 or 1--given %s",
                 ret)
             ret = ReturnCode.SUCCESS

@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 
+import asyncio
 import collections
 import logging
 from inspect import signature
@@ -11,7 +12,7 @@ import threading
 
 from tornado.ioloop import IOLoop
 
-from .actor import Actor
+from .client_scheduler import ClientScheduler
 from .dependency_graph import DependencyGraph
 from .processes import spawn_function
 from .tcp import *
@@ -63,6 +64,7 @@ class Scheduler():
         all_tasks = graph.get_tasks()
         for task in all_tasks:
             self.tasks[task.task_id] = task
+        self.finished_tasks = set()
 
         self._start_tcp_server()
         self._construct_recruit_functions()
@@ -153,6 +155,9 @@ class Scheduler():
         '''
         self.ioloop = ioloop
         if self.ioloop == None:
+            new_event_loop = asyncio.new_event_loop()
+            asyncio._set_running_loop(new_event_loop)
+            asyncio.set_event_loop(new_event_loop)
             self.ioloop = IOLoop.current()
             t = threading.Thread(target=self.ioloop.start, daemon=True)
             t.start()
@@ -278,6 +283,9 @@ class Scheduler():
             for actor in self.actors:
                 self.send_terminate(actor)
 
+        for task in self.tasks:
+            self.tasks[task].cleanup()
+
     def finish_task(self, task_id):
         '''Called when a task is completely finished. Currently this function
         closes all actors of this task.'''
@@ -285,6 +293,8 @@ class Scheduler():
             for actor in self.actors:
                 if self.actor_type[actor] == task_id:
                     self.send_terminate(actor)
+        self.finished_tasks.add(task_id)
+        self.tasks[task_id].cleanup()
 
     def send_terminate(self, actor):
         '''Send TERMINATE_WORKER command to actor'''
@@ -360,22 +370,24 @@ class Scheduler():
         unexpectedly'''
 
         # TODO: better algorithm to decide whether to make a new actor or not?
-        if not self.graph.empty():
-            if actor not in self.actor_type:
-                logger.error(
-                    "Actor was lost before finished initializing. "
-                    "It will not be respawned.")
-                return
+        # if not self.graph.empty():
+        if actor not in self.actor_type:
+            logger.error(
+                "Actor was lost before finished initializing. "
+                "It will not be respawned.")
+            return
 
+        task_id = self.actor_type[actor] 
+
+        if task_id not in self.finished_tasks:
             logger.info("Spawning a new actor due to disconnection")
-            task_id = self.actor_type[actor] 
             self.actor_recruit_fn[task_id](self.actor_id)
             self.actor_id += 1
 
 
 def _local_actor_wrapper(received_fn, port, task_id):
     '''Simple wrapper for local process function'''
-    sched = Actor(sched_addr="localhost", sched_port=port, task_id=task_id)
+    sched = ClientScheduler(sched_addr="localhost", sched_port=port, task_id=task_id)
     try:
         user_fn, args = received_fn
         fn = lambda b: user_fn(b, *args)

@@ -1,8 +1,8 @@
 from __future__ import absolute_import
 from . import persistence
-from .actor import Actor
 from .array import Array
 from .blocks import create_dependency_graph
+from .client_scheduler import ClientScheduler
 from .coordinate import Coordinate
 from .datasets import open_ds, prepare_ds
 from .dependency_graph import DependencyGraph
