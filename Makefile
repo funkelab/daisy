@@ -1,10 +1,12 @@
 default:
+	pip install -r requirements.txt
 	pip install .
 
-.PHONY: install-dev
 install-dev:
+	pip install -r requirements_dev.txt
 	pip install -e .[full]
 
 .PHONY: tests
 tests:
-	python -m tests -v
+	pytest -v --cov=daisy daisy
+	flake8 daisy

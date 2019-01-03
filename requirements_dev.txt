@@ -1,0 +1,7 @@
+flake8
+networkx
+numpy
+pymongo
+pytest
+pytest-cov
+tornado
