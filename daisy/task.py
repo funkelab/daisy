@@ -1,5 +1,6 @@
 from .parameter import Parameter
 
+
 class Task():
     '''``daisy.Task`` takes inspiration from ``luigi.Task``, where
     users can define a task (or a stage in the pipeline) and chain
@@ -78,14 +79,14 @@ class Task():
         given in the constructor.
         '''
 
-        if global_config == None:
+        if global_config is None:
             return
         if self.task_id not in global_config:
             return
 
         config = global_config[self.task_id]
         for key in config:
-            if hasattr(self, key) and getattr(self, key) != None:
+            if hasattr(self, key) and getattr(self, key) is not None:
                 # do not override config from __init__()
                 continue
             value = config[key]
@@ -123,7 +124,7 @@ class Task():
         if check_function is not None:
             try:
                 self.pre_check, self.post_check = check_function
-            except:
+            except ValueError:
                 self.pre_check = check_function
                 self.post_check = check_function
 

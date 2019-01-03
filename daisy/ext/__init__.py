@@ -20,12 +20,13 @@ class NoSuchModule(object):
         print(self.__traceback_str, file=sys.stderr)
         raise self.__exception
 
+
 try:
     import h5py
-except ImportError as e:
+except ImportError:
     h5py = NoSuchModule('h5py')
 
 try:
     import zarr
-except ImportError as e:
+except ImportError:
     zarr = NoSuchModule('zarr')

@@ -3,26 +3,29 @@ from .array import Array
 from .coordinate import Coordinate
 from .ext import zarr, h5py
 from .roi import Roi
-import fractions
 import json
 import logging
 import os
 import shutil
+import tempfile
 
 logger = logging.getLogger(__name__)
 
 
-# monkey patching to auto set temp file permission so other users can
-# access our data, until zarr fixes this issue
+# monkey patch to auto set temp file permission so other users can access our
+# data, until zarr fixes this issue:
 # https://github.com/zarr-developers/zarr/issues/325
-import tempfile
-tempfile.NamedTemporaryFile2 = tempfile.NamedTemporaryFile
+
+
 def UmaskNamedTemporaryFile(*args, **kargs):
     fdesc = tempfile.NamedTemporaryFile2(*args, **kargs)
     umask = os.umask(0)
     os.umask(umask)
     os.chmod(fdesc.name, 0o666 & ~umask)
     return fdesc
+
+
+tempfile.NamedTemporaryFile2 = tempfile.NamedTemporaryFile
 tempfile.NamedTemporaryFile = UmaskNamedTemporaryFile
 
 
@@ -61,6 +64,7 @@ def _read_voxel_size_offset(ds, order='C'):
         voxel_size = voxel_size[::-1]
 
     return Coordinate(voxel_size), Coordinate(offset)
+
 
 def open_ds(filename, ds_name, mode='r'):
 
@@ -113,7 +117,8 @@ def open_ds(filename, ds_name, mode='r'):
     else:
 
         logger.error("don't know data format of %s in %s", ds_name, filename)
-        raise RuntimeError("Unknown file format for %s"%filename)
+        raise RuntimeError("Unknown file format for %s" % filename)
+
 
 def prepare_ds(
         filename,
@@ -145,7 +150,7 @@ def prepare_ds(
     elif filename.endswith('.n5'):
         file_format = 'n5'
     else:
-        raise RuntimeError("Unknown file format for %s"%filename)
+        raise RuntimeError("Unknown file format for %s" % filename)
 
     shape = total_roi.get_shape()/voxel_size
 
@@ -161,14 +166,14 @@ def prepare_ds(
 
     if not os.path.isdir(filename):
 
-        logger.info("Creating new %s"%filename)
+        logger.info("Creating new %s", filename)
         os.makedirs(filename)
 
         zarr.open(filename, mode='w')
 
     if not os.path.isdir(os.path.join(filename, ds_name)):
 
-        logger.info("Creating new %s in %s"%(ds_name, filename))
+        logger.info("Creating new %s in %s", ds_name, filename)
 
         root = zarr.open(filename, mode='a')
         ds = root.create_dataset(
@@ -189,25 +194,34 @@ def prepare_ds(
 
     else:
 
-        logger.debug("Trying to reuse existing dataset %s in %s..."%(ds_name, filename))
+        logger.debug(
+            "Trying to reuse existing dataset %s in %s...",
+            ds_name,
+            filename)
         ds = open_ds(filename, ds_name, mode='a')
 
         compatible = True
 
         if ds.shape != shape:
-            logger.info("Shapes differ: %s vs %s"%(ds.shape, shape))
+            logger.info("Shapes differ: %s vs %s", ds.shape, shape)
             compatible = False
 
         if ds.roi != total_roi:
-            logger.info("ROIs differ: %s vs %s"%(ds.roi, total_roi))
+            logger.info("ROIs differ: %s vs %s", ds.roi, total_roi)
             compatible = False
 
         if ds.voxel_size != voxel_size:
-            logger.info("Voxel sizes differ: %s vs %s"%(ds.voxel_size, voxel_size))
+            logger.info(
+                "Voxel sizes differ: %s vs %s",
+                ds.voxel_size,
+                voxel_size)
             compatible = False
 
         if write_roi is not None and ds.data.chunks != chunk_size:
-            logger.info("Chunk sizes differ: %s vs %s"%(ds.data.chunks, chunk_size))
+            logger.info(
+                "Chunk sizes differ: %s vs %s",
+                ds.data.chunks,
+                chunk_size)
             compatible = False
 
         if not compatible:
@@ -230,6 +244,7 @@ def prepare_ds(
             logger.info("Reusing existing dataset")
             return ds
 
+
 def get_chunk_size(block_size):
     '''Get a reasonable chunk size that divides the given block size.'''
 
@@ -241,13 +256,14 @@ def get_chunk_size(block_size):
 
     return chunk_size
 
+
 def get_chunk_size_dim(b, target_chunk_size):
 
     best_k = None
     best_target_diff = 0
 
     for k in range(1, b+1):
-        if ((b//k)*k)%b == 0:
+        if ((b//k)*k) % b == 0:
             diff = abs(b//k - target_chunk_size)
             if best_k is None or diff < best_target_diff:
                 best_target_diff = diff

@@ -6,12 +6,13 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 def create_dependency_graph(
-    total_roi,
-    block_read_roi,
-    block_write_roi,
-    read_write_conflict=True,
-    fit='valid'):
+        total_roi,
+        block_read_roi,
+        block_write_roi,
+        read_write_conflict=True,
+        fit='valid'):
     '''Create a dependency graph as a list with elements::
 
         (block, [upstream_blocks])
@@ -86,9 +87,6 @@ def create_dependency_graph(
     level_offsets = compute_level_offsets(block_write_roi, level_stride)
 
     total_shape = total_roi.get_shape()
-    read_shape = block_read_roi.get_shape()
-
-    block_tasks = []
 
     # create a list of conflict offsets for each level, that span the total
     # ROI
@@ -147,7 +145,6 @@ def create_dependency_graph(
             fit)
 
     return blocks
-
 
 
 def compute_level_stride(block_read_roi, block_write_roi):
@@ -244,12 +241,12 @@ def get_conflict_offsets(level_offset, prev_level_offset, level_stride):
 
 
 def enumerate_blocks(
-    total_roi,
-    block_read_roi,
-    block_write_roi,
-    conflict_offsets,
-    block_offsets,
-    fit):
+        total_roi,
+        block_read_roi,
+        block_write_roi,
+        conflict_offsets,
+        block_offsets,
+        fit):
 
     inclusion_criteria = {
         'valid': lambda b: total_roi.contains(b.read_roi),
@@ -258,8 +255,8 @@ def enumerate_blocks(
     }[fit]
 
     fit_block = {
-        'valid': lambda b: b, # noop
-        'overhang': lambda b: b, # noop
+        'valid': lambda b: b,  # noop
+        'overhang': lambda b: b,  # noop
         'shrink': lambda b: shrink(total_roi, b)
     }[fit]
 
@@ -308,7 +305,7 @@ def shrink_possible(total_roi, block):
 
     # test if write roi would be non-empty
     b = shrink(total_roi, block)
-    return all([ s > 0 for s in b.write_roi.get_shape()])
+    return all([s > 0 for s in b.write_roi.get_shape()])
 
 
 def shrink(total_roi, block):
@@ -327,25 +324,26 @@ def shrink(total_roi, block):
 
 
 def get_subgraph_blocks(
-    sub_roi,
-    total_roi,
-    block_read_roi,
-    block_write_roi,
-    fit):
+        sub_roi,
+        total_roi,
+        block_read_roi,
+        block_write_roi,
+        fit):
     ''' return ids of blocks, as instantiated in the full graph, such that
         their total write rois fully cover `sub_roi`
     '''
 
     # first align sub_roi to write roi shape
-    full_graph_offset = (block_write_roi.get_begin()
-                        + total_roi.get_begin()
-                        - block_read_roi.get_begin())
+    full_graph_offset = (
+        block_write_roi.get_begin() +
+        total_roi.get_begin() -
+        block_read_roi.get_begin())
 
     begin = sub_roi.get_begin() - full_graph_offset
     end = sub_roi.get_end() - full_graph_offset
     aligned_subroi = (
         begin // block_write_roi.get_shape(),  # `floordiv`
-        -(-end // block_write_roi.get_shape()) # `ceildiv`
+        -(-end // block_write_roi.get_shape())  # `ceildiv`
         )
     # generate relative offsets of relevant write blocks
     block_dim_offsets = [
@@ -367,4 +365,4 @@ def get_subgraph_blocks(
         conflict_offsets=[],
         block_offsets=block_offsets,
         fit=fit)
-    return [block.block_id for block,_ in blocks]
+    return [block.block_id for block, _ in blocks]

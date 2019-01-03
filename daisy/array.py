@@ -4,6 +4,7 @@ from .freezable import Freezable
 from .roi import Roi
 import numpy as np
 
+
 class Array(Freezable):
     '''A ROI and voxel size annotated ndarray-like. Acts as a view into actual
     data.
@@ -12,9 +13,9 @@ class Array(Freezable):
 
         data (``ndarray``-like):
 
-            The data to hold. Can be a numpy, HDF5, zarr, etc. array like. Needs
-            to have ``shape`` and slicing support for reading/writing. It is
-            assumed that slicing returns an ``ndarray``.
+            The data to hold. Can be a numpy, HDF5, zarr, etc. array like.
+            Needs to have ``shape`` and slicing support for reading/writing. It
+            is assumed that slicing returns an ``ndarray``.
 
         roi (`class:Roi`):
 
@@ -43,20 +44,20 @@ class Array(Freezable):
             self.voxel_size*self.data.shape[self.n_channel_dims:])
 
         assert self.roi.get_begin().is_multiple_of(voxel_size), (
-            "roi offset %s is not a multiple of voxel size %s"%(
-            self.roi.get_begin(), voxel_size))
+            "roi offset %s is not a multiple of voxel size %s" % (
+                self.roi.get_begin(), voxel_size))
 
         assert self.roi.get_shape().is_multiple_of(voxel_size), (
-            "roi shape %s is not a multiple of voxel size %s"%(
-            self.roi.get_shape(), voxel_size))
+            "roi shape %s is not a multiple of voxel size %s" % (
+                self.roi.get_shape(), voxel_size))
 
         assert data_offset.is_multiple_of(voxel_size), (
-            "data offset %s is not a multiple of voxel size %s"%(
-            data_offset, voxel_size))
+            "data offset %s is not a multiple of voxel size %s" % (
+                data_offset, voxel_size))
 
         assert self.data_roi.contains(roi), (
-            "data ROI %s does not contain given ROI %s"%(
-            self.data_roi, roi))
+            "data ROI %s does not contain given ROI %s" % (
+                self.data_roi, roi))
 
         self.freeze()
 
@@ -90,11 +91,11 @@ class Array(Freezable):
 
         Returns:
 
-            If ``key`` is a `class:Roi`, returns a `class:Array` that represents
-            this ROI. This is a light-weight operation that does not access the
-            actual data held by this array. If ``key`` is a `class:Coordinate`,
-            the array value (possible multi-channel) closest to the coordinate
-            is returned.
+            If ``key`` is a `class:Roi`, returns a `class:Array` that
+            represents this ROI. This is a light-weight operation that does not
+            access the actual data held by this array. If ``key`` is a
+            `class:Coordinate`, the array value (possible multi-channel)
+            closest to the coordinate is returned.
         '''
 
         if isinstance(key, Roi):
@@ -104,7 +105,11 @@ class Array(Freezable):
             assert self.roi.contains(roi), (
                 "Requested roi is not contained in this array.")
 
-            return Array(self.data, roi, self.voxel_size, self.data_roi.get_begin())
+            return Array(
+                self.data,
+                roi,
+                self.voxel_size,
+                self.data_roi.get_begin())
 
         elif isinstance(key, Coordinate):
 
@@ -126,21 +131,21 @@ class Array(Freezable):
 
             value (`class:Array`, or broadcastable to ``ndarray``):
 
-                The value to write. If an `class:Array`, the ROIs do not have to
-                match, however, the shape of ``value`` has to be broadcastable
-                to the voxel shape of ``roi``.
+                The value to write. If an `class:Array`, the ROIs do not have
+                to match, however, the shape of ``value`` has to be
+                broadcastable to the voxel shape of ``roi``.
         '''
 
         assert isinstance(roi, Roi), (
-            "Roi expected, but got %s"%(type(roi)))
+            "Roi expected, but got %s" % (type(roi)))
 
         assert roi.get_begin().is_multiple_of(self.voxel_size), (
-            "roi offset %s is not a multiple of voxel size %s"%(
-            roi.get_begin(), self.voxel_size))
+            "roi offset %s is not a multiple of voxel size %s" % (
+                roi.get_begin(), self.voxel_size))
 
         assert roi.get_shape().is_multiple_of(self.voxel_size), (
-            "roi shape %s is not a multiple of voxel size %s"%(
-            roi.get_shape(), self.voxel_size))
+            "roi shape %s is not a multiple of voxel size %s" % (
+                roi.get_shape(), self.voxel_size))
 
         target = self.data
         target_slices = self.__slices(roi)

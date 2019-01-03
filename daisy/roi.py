@@ -5,6 +5,7 @@ import copy
 import numbers
 import numpy as np
 
+
 class Roi(Freezable):
     '''A rectangular region of interest, defined by an offset and a shape.
 
@@ -85,7 +86,7 @@ class Roi(Freezable):
         if self.__offset is not None:
 
             assert self.__offset.dims() == self.__shape.dims(), (
-                "offset dimension %d != shape dimension %d"%(
+                "offset dimension %d != shape dimension %d" % (
                     self.__offset.dims(),
                     self.__shape.dims()))
 
@@ -102,7 +103,8 @@ class Roi(Freezable):
         return self.__offset
 
     def get_end(self):
-        '''Smallest coordinate which is component-wise larger than any inside ROI.'''
+        '''Smallest coordinate which is component-wise larger than any inside
+        ROI.'''
         if not self.__shape:
             return self.__offset
 
@@ -180,7 +182,7 @@ class Roi(Freezable):
             (b is None or p is not None and p >= b)
             and
             (e is None or p is not None and p < e)
-            for p, b, e in zip(other, self.get_begin(), self.get_end() )
+            for p, b, e in zip(other, self.get_begin(), self.get_end())
         ])
 
     def intersects(self, other):
@@ -217,7 +219,7 @@ class Roi(Freezable):
         '''Get the intersection of this ROI with another :class:`Roi`.'''
 
         if not self.intersects(other):
-            return Roi(shape=(0,)*self.dims()) # empty ROI
+            return Roi(shape=(0,)*self.dims())  # empty ROI
 
         begin = Coordinate((
             self.__left_max(b1, b2)
@@ -261,15 +263,15 @@ class Roi(Freezable):
             mode (string, optional):
 
                 How to align the ROI if it is not a multiple of the voxel size.
-                Available modes are 'grow', 'shrink', and 'closest'. Defaults to
-                'grow'.
+                Available modes are 'grow', 'shrink', and 'closest'. Defaults
+                to 'grow'.
         '''
 
         begin_in_voxel_fractions = (
-            np.asarray(self.get_begin(), dtype=np.float32)/
+            np.asarray(self.get_begin(), dtype=np.float32) /
             np.asarray(voxel_size))
         end_in_voxel_fractions = (
-            np.asarray(self.get_end(), dtype=np.float32)/
+            np.asarray(self.get_end(), dtype=np.float32) /
             np.asarray(voxel_size))
 
         if mode == 'closest':
@@ -282,7 +284,7 @@ class Roi(Freezable):
             begin_in_voxel = np.ceil(begin_in_voxel_fractions)
             end_in_voxel = np.floor(end_in_voxel_fractions)
         else:
-            assert False, 'Unknown mode %s for snap_to_grid'%mode
+            assert False, 'Unknown mode %s for snap_to_grid' % mode
 
         return Roi(
             begin_in_voxel*voxel_size,
@@ -357,32 +359,38 @@ class Roi(Freezable):
 
     def __add__(self, other):
 
-        assert isinstance(other, tuple), "can only add Coordinate or tuples to Roi"
+        assert isinstance(other, tuple), \
+            "can only add Coordinate or tuples to Roi"
         return self.shift(other)
 
     def __sub__(self, other):
 
-        assert isinstance(other, Coordinate), "can only subtract Coordinate from Roi"
+        assert isinstance(other, Coordinate), \
+            "can only subtract Coordinate from Roi"
         return self.shift(-other)
 
     def __mul__(self, other):
 
-        assert isinstance(other, tuple) or isinstance(other, numbers.Number), "can only multiply with a number or tuple of numbers"
+        assert isinstance(other, tuple) or isinstance(other, numbers.Number), \
+            "can only multiply with a number or tuple of numbers"
         return Roi(self.__offset*other, self.__shape*other)
 
     def __div__(self, other):
 
-        assert isinstance(other, tuple) or isinstance(other, numbers.Number), "can only divide by a number or tuple of numbers"
+        assert isinstance(other, tuple) or isinstance(other, numbers.Number), \
+            "can only divide by a number or tuple of numbers"
         return Roi(self.__offset/other, self.__shape/other)
 
     def __truediv__(self, other):
 
-        assert isinstance(other, tuple) or isinstance(other, numbers.Number), "can only divide by a number or tuple of numbers"
+        assert isinstance(other, tuple) or isinstance(other, numbers.Number), \
+            "can only divide by a number or tuple of numbers"
         return Roi(self.__offset/other, self.__shape/other)
 
     def __floordiv__(self, other):
 
-        assert isinstance(other, tuple) or isinstance(other, numbers.Number), "can only divide by a number or tuple of numbers"
+        assert isinstance(other, tuple) or isinstance(other, numbers.Number), \
+            "can only divide by a number or tuple of numbers"
         return Roi(self.__offset//other, self.__shape//other)
 
     def __eq__(self, other):

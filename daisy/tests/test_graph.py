@@ -7,6 +7,7 @@ import random
 
 logger = logging.getLogger(__name__)
 
+
 class TestGraph(unittest.TestCase):
 
     def test_graph_io(self):
@@ -45,11 +46,11 @@ class TestGraph(unittest.TestCase):
         ]
 
         nodes = sorted(list(graph.nodes()))
-        nodes.remove(2) # node 2 has no position and will not be queried
+        nodes.remove(2)  # node 2 has no position and will not be queried
         compare_nodes = sorted(list(compare_graph.nodes()))
 
         edges = sorted(list(graph.edges()))
-        edges.remove((2, 42)) # node 2 has no position and will not be queried
+        edges.remove((2, 42))  # node 2 has no position and will not be queried
         compare_edges = sorted(list(compare_graph.edges()))
 
         self.assertEqual(nodes, compare_nodes)

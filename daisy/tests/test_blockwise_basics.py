@@ -8,6 +8,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class TestBlockwiseBasics(TmpDirTestCase):
 
     def test_local(self):
@@ -67,6 +68,6 @@ class TestBlockwiseBasics(TmpDirTestCase):
         if block.block_id == fail:
             raise RuntimeError("intended failure")
 
-        path = os.path.join(outdir, '%d.block'%block.block_id)
+        path = os.path.join(outdir, '%d.block' % block.block_id)
         with open(path, 'w') as f:
             f.write(str(block.block_id))
