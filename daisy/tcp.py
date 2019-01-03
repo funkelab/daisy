@@ -57,7 +57,7 @@ class DaisyTCPServer(TCPServer):
                     # assert(0)
 
             except StreamClosedError:
-                logger.warn("Lost connection to actor {}".format(actor))
+                logger.warning("Lost connection to actor {}".format(actor))
                 self.scheduler.unexpected_actor_loss_callback(actor)
                 break
 
@@ -77,7 +77,7 @@ class DaisyTCPServer(TCPServer):
     def send(self, address, data):
 
         if address not in self.address_to_stream_mapping:
-            logger.warn("{} is no longer alive".format(address))
+            logger.warning("{} is no longer alive".format(address))
             return
 
         stream = self.address_to_stream_mapping[address]
