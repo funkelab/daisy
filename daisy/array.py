@@ -37,8 +37,16 @@ class Array(Freezable):
         self.roi = roi
         self.voxel_size = Coordinate(voxel_size)
         self.n_channel_dims = len(data.shape) - roi.dims()
+
+        assert self.voxel_size.dims() == self.roi.dims(), (
+            "dimension of voxel_size (%d) does not match dimension of roi (%d)"
+            % (self.voxel_size.dims(), self.roi.dims()))
+
         if data_offset is None:
             data_offset = roi.get_begin()
+        else:
+            data_offset = Coordinate(data_offset)
+
         self.data_roi = Roi(
             data_offset,
             self.voxel_size*self.data.shape[self.n_channel_dims:])
