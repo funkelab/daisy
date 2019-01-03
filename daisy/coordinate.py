@@ -101,7 +101,7 @@ class Coordinate(tuple):
                 "multiplication of Coordinate with type %s not supported" %
                 type(other))
 
-    def __div__(self, other):
+    def __div__(self, other):  # pragma: py3 no cover
 
         if isinstance(other, tuple):
 
