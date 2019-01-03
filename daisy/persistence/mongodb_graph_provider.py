@@ -73,8 +73,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.edges.drop()
 
             if (
-                    nodes_collection not in self.database.collection_names() or
-                    edges_collection not in self.database.collection_names()):
+                    nodes_collection not in self.database.list_collection_names() or
+                    edges_collection not in self.database.list_collection_names()):
                 self.__create_collections()
 
         finally:
