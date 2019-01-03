@@ -48,8 +48,9 @@ class Coordinate(tuple):
 
     def __add__(self, other):
 
-        assert isinstance(other, tuple), \
-            "can only add Coordinate or tuples to Coordinate"
+        if not isinstance(other, tuple):
+            raise TypeError(
+                "can only add Coordinate or tuples to Coordinate")
         assert self.dims() == len(other), \
             "can only add Coordinate of equal dimensions"
 
@@ -61,8 +62,9 @@ class Coordinate(tuple):
 
     def __sub__(self, other):
 
-        assert isinstance(other, tuple), \
-            "can only subtract Coordinate or tuples to Coordinate"
+        if not isinstance(other, tuple):
+            raise TypeError(
+                "can only subtract Coordinate or tuples to Coordinate")
         assert self.dims() == len(other), \
             "can only subtract Coordinate of equal dimensions"
 
