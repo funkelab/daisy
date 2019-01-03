@@ -55,9 +55,6 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(nodes, compare_nodes)
         self.assertEqual(edges, compare_edges)
 
-    @unittest.skip(
-        "This test works outside of unittest, but not within. A "
-        "multiprocessing issue?")
     def test_graph_read_blockwise(self):
 
         graph_provider = daisy.persistence.MongoDbGraphProvider(
