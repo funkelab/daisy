@@ -242,6 +242,9 @@ class Roi(Freezable):
                 to 'grow'.
         '''
 
+        assert len(voxel_size) == self.dims(), \
+            "dimension of voxel size does not match ROI"
+
         begin_in_voxel_fractions = (
             np.asarray(self.get_begin(), dtype=np.float32) /
             np.asarray(voxel_size))
@@ -259,11 +262,20 @@ class Roi(Freezable):
             begin_in_voxel = np.ceil(begin_in_voxel_fractions)
             end_in_voxel = np.floor(end_in_voxel_fractions)
         else:
-            assert False, 'Unknown mode %s for snap_to_grid' % mode
+            raise RuntimeError('Unknown mode %s for snap_to_grid' % mode)
 
-        return Roi(
-            begin_in_voxel*voxel_size,
-            (end_in_voxel - begin_in_voxel)*voxel_size)
+        offset = tuple(
+            b*v
+            if not np.isnan(b)
+            else None
+            for b, v in zip(begin_in_voxel, voxel_size))
+        shape = tuple(
+            (e - b)*v
+            if not np.isnan(e) and not np.isnan(b)
+            else None
+            for b, e, v in zip(begin_in_voxel, end_in_voxel, voxel_size))
+
+        return Roi(offset, shape)
 
     def grow(self, amount_neg, amount_pos):
         '''Grow a ROI by the given amounts in each direction:
