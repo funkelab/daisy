@@ -17,28 +17,24 @@ class Roi(Freezable):
 
     Args:
 
-        offset (array-like of ``int``, optional):
+        offset (array-like of ``int``):
 
-            The starting point (inclusive) of the ROI. Can be ``None``
-            (default) if the ROI only characterizes a shape.
+            The starting point (inclusive) of the ROI. Entries can be ``None``
+            to indicate unboundedness.
 
         shape (array-like):
 
             The shape of the ROI. Entries can be ``None`` to indicate
-            unboundedness. If ``None`` is passed instead of a tuple, all
-            dimensions are set to ``None``, if the number of dimensions can be
-            inferred from ``offset``.
+            unboundedness.
     '''
 
-    def __init__(self, offset=None, shape=None):
+    def __init__(self, offset, shape):
 
-        self.__offset = None
-        self.__shape = None
+        self.__offset = Coordinate(offset)
+        self.__shape = Coordinate(shape)
         self.freeze()
 
-        self.set_shape(shape)
-        if offset is not None:
-            self.set_offset(offset)
+        self.__consolidate_offset()
 
     def set_offset(self, offset):
 
@@ -60,18 +56,7 @@ class Roi(Freezable):
 
         if shape is None:
 
-            if self.__shape is not None:
-
-                dims = self.__shape.dims()
-
-            else:
-
-                assert self.__offset is not None, (
-                    "Can not infer dimension of ROI (there is no offset or "
-                    "previous shape). Call set_shape with a tuple.")
-
-                dims = self.__offset.dims()
-
+            dims = self.__shape.dims()
             self.__shape = Coordinate((None,)*dims)
 
         else:
@@ -83,17 +68,15 @@ class Roi(Freezable):
     def __consolidate_offset(self):
         '''Ensure that offsets for unbound dimensions are None.'''
 
-        if self.__offset is not None:
+        assert self.__offset.dims() == self.__shape.dims(), (
+            "offset dimension %d != shape dimension %d" % (
+                self.__offset.dims(),
+                self.__shape.dims()))
 
-            assert self.__offset.dims() == self.__shape.dims(), (
-                "offset dimension %d != shape dimension %d" % (
-                    self.__offset.dims(),
-                    self.__shape.dims()))
-
-            self.__offset = Coordinate((
-                o
-                if s is not None else None
-                for o, s in zip(self.__offset, self.__shape)))
+        self.__offset = Coordinate((
+            o
+            if s is not None else None
+            for o, s in zip(self.__offset, self.__shape)))
 
     def get_offset(self):
         return self.__offset
@@ -105,25 +88,17 @@ class Roi(Freezable):
     def get_end(self):
         '''Smallest coordinate which is component-wise larger than any inside
         ROI.'''
-        if not self.__shape:
-            return self.__offset
-
         return self.__offset + self.__shape
 
     def get_shape(self):
         return self.__shape
 
     def get_center(self):
-
         return self.__offset + self.__shape/2
 
     def to_slices(self):
         '''Get a ``tuple`` of ``slice`` that represent this ROI and can be used
         to index arrays.'''
-
-        if self.__offset is None:
-            return None
-
         return tuple(
                 slice(
                     int(self.__offset[d])
@@ -137,9 +112,6 @@ class Roi(Freezable):
 
     def dims(self):
         '''The the number of dimensions of this ROI.'''
-
-        if self.__shape is None:
-            return 0
         return self.__shape.dims()
 
     def size(self):
@@ -219,7 +191,7 @@ class Roi(Freezable):
         '''Get the intersection of this ROI with another :class:`Roi`.'''
 
         if not self.intersects(other):
-            return Roi(shape=(0,)*self.dims())  # empty ROI
+            return Roi((0,)*self.dims(), (0,)*self.dims())  # empty ROI
 
         begin = Coordinate((
             self.__left_max(b1, b2)
