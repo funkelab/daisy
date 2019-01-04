@@ -143,12 +143,15 @@ class Roi(Freezable):
         if isinstance(other, Roi):
 
             if other.empty():
-                return True
 
-            return (
-                self.contains(other.get_begin())
-                and
-                self.contains(other.get_end() - (1,)*other.dims()))
+                return self.contains(other.get_begin())
+
+            else:
+
+                return (
+                    self.contains(other.get_begin())
+                    and
+                    self.contains(other.get_end() - (1,)*other.dims()))
 
         return all([
             (b is None or p is not None and p >= b)
