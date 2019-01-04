@@ -347,14 +347,14 @@ class Roi(Freezable):
     def __add__(self, other):
 
         assert isinstance(other, tuple), \
-            "can only add Coordinate or tuples to Roi"
+            "can only add Coordinate or tuple to Roi"
         return self.shift(other)
 
     def __sub__(self, other):
 
-        assert isinstance(other, Coordinate), \
-            "can only subtract Coordinate from Roi"
-        return self.shift(-other)
+        assert isinstance(other, tuple), \
+            "can only subtract Coordinate or tuple from Roi"
+        return self.shift(-Coordinate(other))
 
     def __mul__(self, other):
 
@@ -362,7 +362,7 @@ class Roi(Freezable):
             "can only multiply with a number or tuple of numbers"
         return Roi(self.__offset*other, self.__shape*other)
 
-    def __div__(self, other):
+    def __div__(self, other):  # pragma: py3 no cover
 
         assert isinstance(other, tuple) or isinstance(other, numbers.Number), \
             "can only divide by a number or tuple of numbers"
@@ -384,17 +384,17 @@ class Roi(Freezable):
 
         if isinstance(other, self.__class__):
             return self.__dict__ == other.__dict__
-        return NotImplemented
+        return NotImplemented  # pragma: no cover
 
     def __ne__(self, other):
 
         if isinstance(other, self.__class__):
             return not self.__eq__(other)
-        return NotImplemented
+        return NotImplemented  # pragma: no cover
 
     def __repr__(self):
         if self.empty():
-            return "[empty ROI]"
+            return "[empty ROI]"  # pragma: no cover
         slices = ", ".join(
             [
                 (str(b) if b is not None else "") +
