@@ -1,9 +1,9 @@
-
-import logging
 from multiprocessing import Process
-import os
 from subprocess import check_call, CalledProcessError
+import logging
+import os
 import sys
+
 
 def _freopen(filename, mode, fobj):
     """Redirect file descriptors
@@ -14,6 +14,7 @@ def _freopen(filename, mode, fobj):
     targetfd = fobj.fileno()
     os.close(targetfd)
     os.dup2(newfd, targetfd)
+
 
 def call(command, log_out, log_err):
     """Run ``command`` in a subprocess, log stdout and stderr to ``log_out``
@@ -27,10 +28,9 @@ def call(command, log_out, log_err):
                     stdout=stdout,
                     stderr=stderr)
     except CalledProcessError as exc:
-        raise Exception("Calling %s failed with return code %s, stderr in %s"%(
-            ' '.join(command),
-            exc.returncode,
-            stderr.name))
+        raise Exception(
+            "Calling %s failed with return code %s, stderr in %s" %
+            (' '.join(command), exc.returncode, stderr.name))
     except KeyboardInterrupt:
         raise Exception("Canceled by SIGINT")
 
@@ -63,14 +63,20 @@ def call_function(function, args, env, log_out, log_err,
     except Exception as exc:
         raise Exception(
             "Function {} failed with return code {}, stderr in {}"
-                .format(function, exc.returncode, sys.stderr.name))
-        
+            .format(function, exc.returncode, sys.stderr.name))
+
     except KeyboardInterrupt:
         raise Exception("Canceled by SIGINT")
 
 
-def spawn_function(function, args, env, log_out, log_err,
-    log_to_files, log_to_stdout):
+def spawn_function(
+        function,
+        args,
+        env,
+        log_out,
+        log_err,
+        log_to_files,
+        log_to_stdout):
     """Helper function to spawn ``call_function`` in a simultaneous
     process"""
     Process(

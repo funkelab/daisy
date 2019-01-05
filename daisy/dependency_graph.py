@@ -2,16 +2,12 @@ from __future__ import absolute_import
 
 import collections
 import copy
-from itertools import product
 import logging
 import threading
-import queue
-
-from .block import Block
-from .blocks import *
-from .coordinate import Coordinate
+from .blocks import create_dependency_graph, get_subgraph_blocks
 
 logger = logging.getLogger(__name__)
+
 
 class DependencyGraph():
     '''This class constructs a block-wise dependency graph of a given
@@ -90,7 +86,7 @@ class DependencyGraph():
         its own'''
         if task_id in self.created_tasks:
             return
-        else:            
+        else:
             self.created_tasks.add(task_id)
 
         for dependency_task in self.task_dependency[task_id]:
@@ -126,7 +122,10 @@ class DependencyGraph():
                 roi = block.read_roi
                 for dependent_task in self.task_dependency[task_id]:
                     block_ids = self._get_subgraph_blocks(dependent_task, roi)
-                    dependencies.extend([(dependent_task, block_id) for block_id in block_ids])
+                    dependencies.extend([
+                        (dependent_task, block_id)
+                        for block_id in block_ids
+                    ])
 
             for dep_id in dependencies:
                 self.dependents[dep_id].add(block_id)
@@ -184,8 +183,9 @@ class DependencyGraph():
         '''Return ``True`` if there is no more blocks to be executed,
         either because all blocks have been completed, or because there
         are failed blocks that prevent other blocks from running.'''
-        return ((len(self.ready_queue) == 0)
-                 and (len(self.processing_blocks) == 0))
+        return (
+            (len(self.ready_queue) == 0) and
+            (len(self.processing_blocks) == 0))
 
     def size(self):
         '''Return the size of the block-wise graph.'''
@@ -224,7 +224,9 @@ class DependencyGraph():
             self.processing_blocks.remove(block_id)
             task_name = block_id[0]
 
-            if self.retry_count[block_id] > self.task_map[task_name].max_retries:
+            if (
+                    self.retry_count[block_id] >
+                    self.task_map[task_name].max_retries):
 
                 self.failed_blocks.add(block_id)
                 logger.error(
@@ -292,11 +294,11 @@ class DependencyGraph():
 
         # get blocks of the leaf task that writes to the given ROI
         to_check = collections.deque()
-        to_check.extend(
-            [(self.leaf_task_id, block)
-                for block in self._get_subgraph_blocks(self.leaf_task_id, roi)
-            ])
-            
+        to_check.extend([
+            (self.leaf_task_id, block)
+            for block in self._get_subgraph_blocks(self.leaf_task_id, roi)
+        ])
+
         processed = set()
         while len(to_check) > 0:
 

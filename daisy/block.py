@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from .freezable import Freezable
 
+
 class Block(Freezable):
     '''Describes a block to process with attributes:
 
@@ -50,7 +51,6 @@ class Block(Freezable):
         self.block_id = self.compute_block_id(total_roi, write_roi)
         self.freeze()
 
-
     def compute_block_id(self, total_roi, write_roi):
 
         one = (1,)*total_roi.dims()
@@ -69,11 +69,9 @@ class Block(Freezable):
             f *= num_blocks[d]
         return block_id
 
-
-
     def __repr__(self):
 
-        return "id: %d (read_roi: %s, write_roi %s)"%(
+        return "id: %d (read_roi: %s, write_roi %s)" % (
             self.block_id,
             self.read_roi,
             self.write_roi)

@@ -6,6 +6,7 @@ from queue import Empty
 import multiprocessing
 import numpy as np
 
+
 class SharedGraphProvider(object):
     '''Interface for shared graph providers that supports slicing to retrieve
     subgraphs.
@@ -57,7 +58,13 @@ class SharedGraphProvider(object):
 
         master = multiprocessing.Process(
             target=read_blockwise_master,
-            args=(self, roi, block_size, num_workers, block_queue, blocks_done))
+            args=(
+                self,
+                roi,
+                block_size,
+                num_workers,
+                block_queue,
+                blocks_done))
         master.start()
 
         nodes = {}
@@ -99,38 +106,49 @@ class SharedGraphProvider(object):
         return (nodes, edges)
 
     def __getitem__(self, roi):
-        raise RuntimeError("not implemented in %s"%self.name())
+        raise RuntimeError("not implemented in %s" % self.name())
 
     def name(self):
         return type(self).__name__
+
 
 class SharedSubGraph(Graph):
 
     def write_edges(self, roi=None):
         '''Write edges and their attributes. Restrict the write to the given
         ROI, if given.'''
-        raise RuntimeError("not implemented in %s"%self.name())
+        raise RuntimeError("not implemented in %s" % self.name())
 
     def write_nodes(self, roi=None):
         '''Write nodes and their attributes. Restrict the write to the given
         ROI, if given.'''
-        raise RuntimeError("not implemented in %s"%self.name())
+        raise RuntimeError("not implemented in %s" % self.name())
 
     def name(self):
         return type(self).__name__
 
-def read_blockwise_master(graph_provider, roi, block_size, num_workers, block_queue, blocks_done):
+
+def read_blockwise_master(
+        graph_provider,
+        roi,
+        block_size,
+        num_workers,
+        block_queue,
+        blocks_done):
 
     run_blockwise(
         roi,
         read_roi=Roi((0,)*len(block_size), block_size),
         write_roi=Roi((0,)*len(block_size), block_size),
-        process_function=lambda b: read_blockwise_worker(graph_provider, b, block_queue),
-        # process_function=lambda b: read_blockwise_worker(graph_provider, b, None),
+        process_function=lambda b: read_blockwise_worker(
+            graph_provider,
+            b,
+            block_queue),
         fit='shrink',
         num_workers=num_workers)
 
     blocks_done.set()
+
 
 def read_blockwise_worker(graph_provider, block, block_queue):
 

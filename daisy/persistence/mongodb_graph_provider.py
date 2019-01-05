@@ -7,6 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class MongoDbGraphProvider(SharedGraphProvider):
     '''Provides shared graphs stored in a MongoDB.
 
@@ -72,9 +73,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.nodes.drop()
                 self.edges.drop()
 
+            collection_names = self.database.list_collection_names()
             if (
-                    nodes_collection not in self.database.collection_names() or
-                    edges_collection not in self.database.collection_names()):
+                    nodes_collection not in collection_names or
+                    edges_collection not in collection_names):
                 self.__create_collections()
 
         finally:
@@ -93,7 +95,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_db()
             self.__open_collections()
 
-            nodes = self.nodes.find(self.__pos_query(roi), { '_id': False })
+            nodes = self.nodes.find(self.__pos_query(roi), {'_id': False})
 
         finally:
 
@@ -103,7 +105,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def num_nodes(self, roi):
 
-        assert roi.dims() == 3, "Sorry, MongoDbGraphProvider backend does only 3D"
+        assert roi.dims() == 3, \
+            "Sorry, MongoDbGraphProvider backend does only 3D"
 
         try:
 
@@ -121,7 +124,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def has_edges(self, roi):
 
-        assert roi.dims() == 3, "Sorry, MongoDbGraphProvider backend does only 3D"
+        assert roi.dims() == 3, \
+            "Sorry, MongoDbGraphProvider backend does only 3D"
 
         try:
 
@@ -148,7 +152,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def __getitem__(self, roi):
 
-        assert roi.dims() == 3, "Sorry, MongoDbGraphProvider backend does only 3D"
+        assert roi.dims() == 3, \
+            "Sorry, MongoDbGraphProvider backend does only 3D"
 
         # get all nodes within roi
         nodes = self.read_nodes(roi)
@@ -168,11 +173,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("read nodes: %s", node_list)
 
             # get all edges that have their u in the selected nodes
-            node_ids = list([ node[0] for node in node_list])
+            node_ids = list([node[0] for node in node_list])
             logger.debug("looking for edges with u in %s", node_ids)
             edges = self.edges.find(
                 {
-                    'u': { '$in': node_ids }
+                    'u': {'$in': node_ids}
                 })
 
             # create a list of edges and their attributes
@@ -259,9 +264,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
         end = roi.get_end()
 
         return {
-            'position.%d'%d: { '$gte': b, '$lt': e }
+            'position.%d' % d: {'$gte': b, '$lt': e}
             for d, (b, e) in enumerate(zip(begin, end))
         }
+
 
 class MongoDbSubGraph(SharedSubGraph):
 
