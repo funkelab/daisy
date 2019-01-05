@@ -1,24 +1,22 @@
 from __future__ import absolute_import
 
-import asyncio
-import collections
-import logging
-from inspect import signature
-import os
-import queue
-import socket
-import threading
-
-from tornado.ioloop import IOLoop
-
 from .client_scheduler import ClientScheduler
 from .dependency_graph import DependencyGraph
 from .processes import spawn_function
-from .tcp import *
 from .task import Task
-from .tcp import DaisyTCPServer
+from .tcp import ReturnCode, SchedulerMessage, SchedulerMessageType, \
+    DaisyTCPServer
+from inspect import signature
+from tornado.ioloop import IOLoop
+import asyncio
+import collections
+import logging
+import os
+import queue
+import threading
 
 logger = logging.getLogger(__name__)
+
 
 class Scheduler():
     '''This is the main scheduler that tracks states of tasks and actors.
@@ -79,7 +77,7 @@ class Scheduler():
         while not graph.empty():
 
             block = graph.next()
-            if block == None: 
+            if block is None:
                 continue
 
             task_id, block = block
@@ -93,7 +91,7 @@ class Scheduler():
                     block, e)
                 pre_check_ret = False
 
-            if pre_check_ret == True:
+            if pre_check_ret:
                 logger.info(
                     "Skipping %s block %d; already processed.",
                     task_id, block.block_id)
@@ -120,21 +118,24 @@ class Scheduler():
                     "Pushed block %d of task %s to actor %s. \nBlock info: %s",
                     block.block_id, task_id, actor, block)
 
-
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
         self.close_all_actors()
 
-        succeeded = [ t for t, r in self.results if r == ReturnCode.SUCCESS ]
-        skipped = [ t for t, r in self.results if r == ReturnCode.SKIPPED ]
-        failed = [ t for t, r in self.results
-                   if r == ReturnCode.FAILED_POST_CHECK ]
-        errored = [ t for t, r in self.results if r == ReturnCode.ERROR ]
-        network_errored = [ t for t, r in self.results 
-                            if r == ReturnCode.NETWORK_ERROR ]
+        succeeded = [t for t, r in self.results if r == ReturnCode.SUCCESS]
+        skipped = [t for t, r in self.results if r == ReturnCode.SKIPPED]
+        failed = [
+            t for t, r in self.results
+            if r == ReturnCode.FAILED_POST_CHECK
+        ]
+        errored = [t for t, r in self.results if r == ReturnCode.ERROR]
+        network_errored = [
+            t for t, r in self.results
+            if r == ReturnCode.NETWORK_ERROR
+        ]
 
         logger.info(
-            "Ran %d tasks of which %d succeeded, %d were skipped, %d were " 
+            "Ran %d tasks of which %d succeeded, %d were skipped, %d were "
             "orphaned (failed dependencies), %d tasks failed (%d "
             "failed check, %d application errors, %d network failures "
             "or app crashes)",
@@ -155,7 +156,7 @@ class Scheduler():
                 in a concurrent thread
         '''
         self.ioloop = ioloop
-        if self.ioloop == None:
+        if self.ioloop is None:
             new_event_loop = asyncio.new_event_loop()
             asyncio._set_running_loop(new_event_loop)
             asyncio.set_event_loop(new_event_loop)
@@ -164,7 +165,7 @@ class Scheduler():
             t.start()
         self.tcpserver = DaisyTCPServer()
         self.tcpserver.add_handler(self)
-        self.tcpserver.listen(0) # 0 == random port
+        self.tcpserver.listen(0)  # 0 == random port
         self.net_identity = self.tcpserver.get_identity()
 
     def remove_worker_callback(self, actor):
@@ -191,7 +192,7 @@ class Scheduler():
             self.block_return(actor, block_id, ReturnCode.NETWORK_ERROR)
 
     def _make_spawn_function(self, function, args, env, log_dir,
-                            log_to_files, log_to_stdout):
+                             log_to_files, log_to_stdout):
         '''This helper function is necessary to disambiguate parameters
         of lambda expressions'''
         return lambda i: spawn_function(
@@ -207,14 +208,14 @@ class Scheduler():
             log_dir = '.daisy_logs_' + task_id
             try:
                 os.mkdir(log_dir)
-            except:
-                pass # log dir exists
+            except OSError:
+                pass  # log dir exists
 
             new_actor_fn = None
             process_function = self.tasks[task_id].process_function
             log_to_files = self.tasks[task_id].log_to_files
             log_to_stdout = self.tasks[task_id].log_to_stdout
-            
+
             spawn_actors = False
             try:
                 if len(signature(process_function).parameters) == 0:
@@ -223,7 +224,11 @@ class Scheduler():
                 spawn_actors = False
 
             # add daisy scheduler context as an env
-            env = {'DAISY_CONTEXT': '{}:{}:{}'.format(*self.net_identity, task_id)}
+            env = {
+                'DAISY_CONTEXT': '{}:{}:{}'.format(
+                    *self.net_identity,
+                    task_id)
+            }
 
             if spawn_actors:
                 if log_to_files and log_to_stdout:
@@ -243,7 +248,7 @@ class Scheduler():
             else:
                 new_actor_fn = self._make_spawn_function(
                     _local_actor_wrapper,
-                    [process_function, self.net_identity[1], task_id], 
+                    [process_function, self.net_identity[1], task_id],
                     env,
                     log_dir,
                     log_to_files,
@@ -269,7 +274,7 @@ class Scheduler():
 
     def add_idle_actor_callback(self, actor, task):
         '''TCP server calls this to add an actor to the idle queue'''
-        if (actor not in self.actor_type) or (self.actor_type[actor] == None):
+        if (actor not in self.actor_type) or (self.actor_type[actor] is None):
             self.register_actor(actor, task)
 
         logger.debug(
@@ -378,7 +383,7 @@ class Scheduler():
                 "It will not be respawned.")
             return
 
-        task_id = self.actor_type[actor] 
+        task_id = self.actor_type[actor]
 
         if task_id not in self.finished_tasks:
             logger.info("Spawning a new actor due to disconnection")
@@ -388,31 +393,37 @@ class Scheduler():
 
 def _local_actor_wrapper(received_fn, port, task_id):
     '''Simple wrapper for local process function'''
-    sched = ClientScheduler(sched_addr="localhost", sched_port=port, task_id=task_id)
+    sched = ClientScheduler(
+        sched_addr="localhost",
+        sched_port=port,
+        task_id=task_id)
     try:
         user_fn, args = received_fn
-        fn = lambda b: user_fn(b, *args)
-    except:
+
+        def fn(b):
+            return user_fn(b, *args)
+
+    except Exception:
         fn = received_fn
     while True:
         block = sched.acquire_block()
-        if block == None:
-            break;
+        if block is None:
+            break
         ret = fn(block)
         sched.release_block(block, ret)
 
 
 def run_blockwise(
-    total_roi,
-    read_roi,
-    write_roi,
-    process_function=None,
-    check_function=None,
-    read_write_conflict=True,
-    fit='valid',
-    num_workers=1,
-    processes=None,
-    max_retries=2):
+        total_roi,
+        read_roi,
+        write_roi,
+        process_function=None,
+        check_function=None,
+        read_write_conflict=True,
+        fit='valid',
+        num_workers=1,
+        processes=None,
+        max_retries=2):
     '''Convenient function to run a single block-wise task.
 
     Args:
@@ -516,8 +527,9 @@ def run_blockwise(
 
         max_retries (int, optional):
 
-            The maximum number of times a task will be retried if failed (either
-            due to failed post_check or application crashes or network failure)
+            The maximum number of times a task will be retried if failed
+            (either due to failed post_check or application crashes or network
+            failure)
 
     Returns:
 
@@ -562,9 +574,8 @@ def distribute(tasks, global_config=None):
     dependency_graph.add(task['task'])
     dependency_graph.init()
 
-    if 'request' in task and task['request'] != None:
+    if 'request' in task and task['request'] is not None:
         subgraph = dependency_graph.get_subgraph(task['request'])
         dependency_graph = subgraph
 
     return Scheduler().distribute(dependency_graph)
-
