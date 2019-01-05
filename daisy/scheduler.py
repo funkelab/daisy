@@ -400,10 +400,10 @@ def _local_actor_wrapper(received_fn, port, task_id):
     try:
         user_fn, args = received_fn
 
-        def fb(b):
+        def fn(b):
             return user_fn(b, *args)
 
-    except ValueError:
+    except Exception:
         fn = received_fn
     while True:
         block = sched.acquire_block()
