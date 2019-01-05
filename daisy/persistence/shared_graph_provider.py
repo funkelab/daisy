@@ -1,7 +1,7 @@
 from __future__ import absolute_import
-from ..dask_scheduler import run_blockwise
 from ..graph import Graph
 from ..roi import Roi
+from ..scheduler import run_blockwise
 from queue import Empty
 import multiprocessing
 import numpy as np

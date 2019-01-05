@@ -1,5 +1,4 @@
-dask
-distributed
 networkx
 numpy
 pymongo
+tornado

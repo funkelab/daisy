@@ -1,6 +1,6 @@
 from __future__ import absolute_import
+from ..coordinate import Coordinate
 from .shared_graph_provider import SharedGraphProvider, SharedSubGraph
-from daisy import Coordinate
 from pymongo import MongoClient, ASCENDING
 from pymongo.errors import BulkWriteError
 import logging

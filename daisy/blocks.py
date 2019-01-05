@@ -148,6 +148,8 @@ def create_dependency_graph(
 
     return blocks
 
+
+
 def compute_level_stride(block_read_roi, block_write_roi):
     '''Get the stride that separates independent blocks in one level.'''
 
@@ -194,6 +196,7 @@ def compute_level_stride(block_read_roi, block_write_roi):
 
     return level_stride
 
+
 def compute_level_offsets(block_write_roi, level_stride):
     '''Create a list of all offsets, such that blocks started with these
     offsets plus a multiple of level stride are mutually independent.'''
@@ -218,6 +221,7 @@ def compute_level_offsets(block_write_roi, level_stride):
 
     return level_offsets
 
+
 def get_conflict_offsets(level_offset, prev_level_offset, level_stride):
     '''Get the offsets to all previous level blocks that are in conflict
     with the current level blocks.'''
@@ -237,6 +241,7 @@ def get_conflict_offsets(level_offset, prev_level_offset, level_stride):
     logger.debug("conflict offsets to previous level: %s", conflict_offsets)
 
     return conflict_offsets
+
 
 def enumerate_blocks(
     total_roi,
@@ -295,6 +300,7 @@ def enumerate_blocks(
 
     return blocks
 
+
 def shrink_possible(total_roi, block):
 
     if not total_roi.contains(block.write_roi.get_begin()):
@@ -303,6 +309,7 @@ def shrink_possible(total_roi, block):
     # test if write roi would be non-empty
     b = shrink(total_roi, block)
     return all([ s > 0 for s in b.write_roi.get_shape()])
+
 
 def shrink(total_roi, block):
     '''Ensure that read and write ROI are within total ROI by shrinking both.
@@ -317,3 +324,47 @@ def shrink(total_roi, block):
     block.write_roi = w
 
     return block
+
+
+def get_subgraph_blocks(
+    sub_roi,
+    total_roi,
+    block_read_roi,
+    block_write_roi,
+    fit):
+    ''' return ids of blocks, as instantiated in the full graph, such that
+        their total write rois fully cover `sub_roi`
+    '''
+
+    # first align sub_roi to write roi shape
+    full_graph_offset = (block_write_roi.get_begin()
+                        + total_roi.get_begin()
+                        - block_read_roi.get_begin())
+
+    begin = sub_roi.get_begin() - full_graph_offset
+    end = sub_roi.get_end() - full_graph_offset
+    aligned_subroi = (
+        begin // block_write_roi.get_shape(),  # `floordiv`
+        -(-end // block_write_roi.get_shape()) # `ceildiv`
+        )
+    # generate relative offsets of relevant write blocks
+    block_dim_offsets = [
+        range(lo, e, s)
+        for lo, e, s in zip(
+            aligned_subroi[0] * block_write_roi.get_shape(),
+            aligned_subroi[1] * block_write_roi.get_shape(),
+            block_write_roi.get_shape())
+    ]
+    # generate absolute offsets
+    block_offsets = [
+        Coordinate(o) + full_graph_offset
+        for o in product(*block_dim_offsets)
+    ]
+    blocks = enumerate_blocks(
+        total_roi,
+        block_read_roi,
+        block_write_roi,
+        conflict_offsets=[],
+        block_offsets=block_offsets,
+        fit=fit)
+    return [block.block_id for block,_ in blocks]

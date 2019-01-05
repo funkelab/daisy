@@ -14,10 +14,9 @@ setup(
             'daisy.persistence'
         ],
         install_requires=[
-            "dask",
-            "distributed",
-            "networkx",
             "numpy",
+            "tornado",
+            "networkx",
             "pymongo"
         ]
 )
