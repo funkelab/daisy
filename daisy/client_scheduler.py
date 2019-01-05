@@ -1,19 +1,18 @@
-import asyncio
+from .tcp import pack_message, get_and_unpack_message, \
+    SchedulerMessage, SchedulerMessageType, ReturnCode
 from collections import deque
+from tornado.ioloop import IOLoop
+from tornado.iostream import StreamClosedError
+from tornado.tcpclient import TCPClient
+import asyncio
 import logging
-import pickle
 import os
 import sys
 import threading
 import time
 
-from tornado.ioloop import IOLoop
-from tornado.tcpclient import TCPClient
-from tornado.iostream import StreamClosedError
-
-from .tcp import *
-
 logger = logging.getLogger(__name__)
+
 
 class ClientScheduler():
     '''Client code that runs on a remote worker providing task management
@@ -39,11 +38,11 @@ class ClientScheduler():
     '''
 
     def __init__(
-        self,
-        sched_addr=None,
-        sched_port=None,
-        task_id=None,
-        ioloop=None):
+            self,
+            sched_addr=None,
+            sched_port=None,
+            task_id=None,
+            ioloop=None):
         '''Initialize TCP connection with the scheduler.
 
         Args:
@@ -70,24 +69,24 @@ class ClientScheduler():
         self.error_state = False
         self.stream = None
 
-        if sched_addr == None or sched_port == None or task_id == None:
+        if sched_addr is None or sched_port is None or task_id is None:
             # attempt to get them through environment variable
             try:
                 context = os.environ['DAISY_CONTEXT'].split(':')
-            except:
+            except KeyError:
                 logger.error(
-                    "DAISY_CONTEXT environment variable is not found!")
+                    "DAISY_CONTEXT environment variable not found!")
                 raise
 
             try:
-                sched_addr,sched_port,task_id = context
-            except:
+                sched_addr, sched_port, task_id = context
+            except ValueError:
                 logger.error(
-                    "DAISY_CONTEXT is found but is incorrectly formatted!")
+                    "DAISY_CONTEXT found but incorrectly formatted!")
                 raise
 
         self.ioloop = ioloop
-        if self.ioloop == None:
+        if self.ioloop is None:
             new_event_loop = asyncio.new_event_loop()
             asyncio._set_running_loop(new_event_loop)
             asyncio.set_event_loop(new_event_loop)
@@ -114,7 +113,7 @@ class ClientScheduler():
                                                     self.sched_port)))
 
         self.stream = await self._connect_with_retry()
-        if self.stream == None:
+        if self.stream is None:
             self.error_state = True
             # raise
             return
@@ -136,7 +135,7 @@ class ClientScheduler():
                                                    self.sched_port,
                                                    timeout=60)
                 return stream
-            except:
+            except Exception:
                 logger.debug("TCP connect error, retry...")
                 counter = counter + 1
                 if (counter > 10):
@@ -185,9 +184,12 @@ class ClientScheduler():
         self.ioloop.spawn_callback(self.async_send, pack_message(data))
 
     def acquire_block(self):
-        '''API for client to get a new block. It works by sending a get block message to the scheduler, then wait for async_recv() to append to the queue.'''
-        self.send(SchedulerMessage(
-                    SchedulerMessageType.WORKER_GET_BLOCK, data=self.task_id))
+        '''API for client to get a new block. It works by sending a get block
+        message to the scheduler, then wait for async_recv() to append to the
+        queue.'''
+        self.send(
+            SchedulerMessage(
+                SchedulerMessageType.WORKER_GET_BLOCK, data=self.task_id))
 
         with self.job_queue_cv:
 
@@ -209,8 +211,8 @@ class ClientScheduler():
 
             ret(``int``):
 
-                Integer return value for the block. Currently only 
-                either 0 or 1 are valid. 
+                Integer return value for the block. Currently only either 0 or
+                1 are valid.
 
         '''
         if ret == 0:
@@ -225,6 +227,7 @@ class ClientScheduler():
 
         logger.debug("Releasing block {}".format(block.block_id))
 
-        self.send(SchedulerMessage(
-                    SchedulerMessageType.WORKER_RET_BLOCK,
-                    data=((self.task_id, block.block_id), ret)))
+        self.send(
+            SchedulerMessage(
+                SchedulerMessageType.WORKER_RET_BLOCK,
+                data=((self.task_id, block.block_id), ret)))

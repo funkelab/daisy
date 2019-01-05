@@ -18,7 +18,7 @@ class TestRoi(unittest.TestCase):
 
         # unbounded ROI
         r = daisy.Roi((0,), (None,))
-        assert r.size() == None
+        assert r.size() is None
         assert r.empty() is False
         assert r.unbounded() is True
         assert r.get_offset() == (None,)
@@ -48,7 +48,7 @@ class TestRoi(unittest.TestCase):
         assert r.get_offset() == (None,)
         assert r.get_end() == (None,)
         assert r.get_shape() == (None,)
-        assert r.size() == None
+        assert r.size() is None
 
     def test_operators(self):
 

@@ -11,6 +11,7 @@ from tornado.ioloop import IOLoop
 
 logger = logging.getLogger(__name__)
 
+
 class DaisyTCPServer(TCPServer):
 
     def __init__(self):
@@ -26,7 +27,8 @@ class DaisyTCPServer(TCPServer):
         self.address_to_stream_mapping[address] = stream
 
         if self.scheduler_closed:
-            logger.debug("Closing actor {} because Daisy is done".format(actor))
+            logger.debug(
+                "Closing actor {} because Daisy is done".format(actor))
             stream.close()
             return
 
@@ -49,7 +51,9 @@ class DaisyTCPServer(TCPServer):
 
                 else:
                     logger.error(
-                        "Unknown message from remote actor {}: {}".format(actor, msg))
+                        "Unknown message from remote actor {}: {}".format(
+                            actor,
+                            msg))
                     logger.error("Closing connection to {}".format(actor))
                     stream.close()
                     self.scheduler.unexpected_actor_loss_callback(actor)
@@ -65,14 +69,12 @@ class DaisyTCPServer(TCPServer):
         self.scheduler.remove_worker_callback(actor)
         del self.address_to_stream_mapping[actor]
 
-
     async def async_send(self, stream, data):
 
         try:
             await stream.write(data)
         except StreamClosedError:
             logger.error("Unexpected loss of connection while sending data.")
-
 
     def send(self, address, data):
 
@@ -84,10 +86,8 @@ class DaisyTCPServer(TCPServer):
         IOLoop.current().spawn_callback(
             self.async_send, stream, pack_message(data))
 
-
     def add_handler(self, scheduler):
         self.scheduler = scheduler
-
 
     def get_own_ip(self, port):
         sock = None
@@ -95,13 +95,12 @@ class DaisyTCPServer(TCPServer):
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             sock.connect(("8.8.8.8", port))
             return sock.getsockname()[0]
-        except:
+        except Exception:
             logger.error("Could not detect own IP address, returning bogus IP")
             return "8.8.8.8"
         finally:
             if sock:
                 sock.close()
-
 
     def get_identity(self):
         sock = self._sockets[list(self._sockets.keys())[0]]
@@ -123,7 +122,7 @@ class SchedulerMessageType(Enum):
 
 class ReturnCode(Enum):
     SUCCESS = 0,
-    ERROR= 1,
+    ERROR = 1,
     FAILED_POST_CHECK = 2,
     SKIPPED = 3,
     NETWORK_ERROR = 4,
@@ -139,7 +138,7 @@ class SchedulerMessage():
 async def get_and_unpack_message(stream):
     size = await stream.read_bytes(4)
     size = struct.unpack('I', size)[0]
-    assert(size < 65535) # TODO: parameterize max message size
+    assert(size < 65535)  # TODO: parameterize max message size
     logger.debug("Receiving {} bytes".format(size))
     pickled_data = await stream.read_bytes(size)
     msg = pickle.loads(pickled_data)
