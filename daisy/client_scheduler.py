@@ -83,6 +83,11 @@ class ClientScheduler():
                 logger.error("Cannot connect to Daisy scheduler")
                 sys.exit(1)
 
+        self.send(
+            SchedulerMessage(
+                SchedulerMessageType.WORKER_HANDSHAKE,
+                data=self.context.actor_id))
+
     async def _start(self):
         '''Start the TCP client.'''
         logger.info(
