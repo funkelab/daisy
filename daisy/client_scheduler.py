@@ -1,3 +1,4 @@
+from .context import Context
 from .tcp import pack_message, get_and_unpack_message, \
     SchedulerMessage, SchedulerMessageType, ReturnCode
 from collections import deque
@@ -6,7 +7,6 @@ from tornado.iostream import StreamClosedError
 from tornado.tcpclient import TCPClient
 import asyncio
 import logging
-import os
 import sys
 import threading
 import time
@@ -39,25 +39,17 @@ class ClientScheduler():
 
     def __init__(
             self,
-            sched_addr=None,
-            sched_port=None,
-            task_id=None,
+            context=None,
             ioloop=None):
         '''Initialize TCP connection with the scheduler.
 
         Args:
 
-            sched_addr(``str``, optional):
+            context (`class:daisy.Context`, optional):
 
-                Scheduler IP address.
-
-            sched_port(``str``, optional):
-
-                Scheduler port number.
-
-            task_id(``str``, optional):
-
-                Unique ID for this task.
+                If given, will be used to connect to the scheduler. If not
+                given, the context will be read from environment variable
+                ``DAISY_CONTEXT``.
 
             ioloop(``tornado.IOLoop``, optional):
 
@@ -65,25 +57,13 @@ class ClientScheduler():
                 in a concurrent thread
         '''
         logger.info("ClientScheduler init")
+        self.context = context
         self.connected = False
         self.error_state = False
         self.stream = None
 
-        if sched_addr is None or sched_port is None or task_id is None:
-            # attempt to get them through environment variable
-            try:
-                context = os.environ['DAISY_CONTEXT'].split(':')
-            except KeyError:
-                logger.error(
-                    "DAISY_CONTEXT environment variable not found!")
-                raise
-
-            try:
-                sched_addr, sched_port, task_id = context
-            except ValueError:
-                logger.error(
-                    "DAISY_CONTEXT found but incorrectly formatted!")
-                raise
+        if self.context is None:
+            self.context = Context.from_env()
 
         self.ioloop = ioloop
         if self.ioloop is None:
@@ -94,9 +74,6 @@ class ClientScheduler():
             t = threading.Thread(target=self.ioloop.start, daemon=True)
             t.start()
 
-        self.sched_addr = sched_addr
-        self.sched_port = sched_port
-        self.task_id = task_id
         self.ioloop.add_callback(self._start)
 
         logger.info("Waiting for connection to Daisy scheduler...")
@@ -109,8 +86,9 @@ class ClientScheduler():
     async def _start(self):
         '''Start the TCP client.'''
         logger.info(
-            "Connecting to scheduler at {}".format((self.sched_addr,
-                                                    self.sched_port)))
+            "Connecting to scheduler at %s:%d",
+            self.context.hostname,
+            self.context.port)
 
         self.stream = await self._connect_with_retry()
         if self.stream is None:
@@ -131,9 +109,10 @@ class ClientScheduler():
         counter = 0
         while True:
             try:
-                stream = await TCPClient().connect(self.sched_addr,
-                                                   self.sched_port,
-                                                   timeout=60)
+                stream = await TCPClient().connect(
+                    self.context.hostname,
+                    self.context.port,
+                    timeout=60)
                 return stream
             except Exception:
                 logger.debug("TCP connect error, retry...")
@@ -189,7 +168,8 @@ class ClientScheduler():
         queue.'''
         self.send(
             SchedulerMessage(
-                SchedulerMessageType.WORKER_GET_BLOCK, data=self.task_id))
+                SchedulerMessageType.WORKER_GET_BLOCK,
+                data=self.context.task_id))
 
         with self.job_queue_cv:
 
@@ -230,4 +210,4 @@ class ClientScheduler():
         self.send(
             SchedulerMessage(
                 SchedulerMessageType.WORKER_RET_BLOCK,
-                data=((self.task_id, block.block_id), ret)))
+                data=((self.context.task_id, block.block_id), ret)))
