@@ -402,10 +402,15 @@ class Scheduler():
         task_id = self.actor_type[actor]
         num_workers = self.tasks[task_id].num_workers
 
-        # TODO: reuse actor_id
         if task_id not in self.finished_tasks:
             logger.info("Respawning actor %s due to disconnection", actor)
-            self.actor_recruit_fn[task_id](actor.actor_id, num_workers)
+            context = Context(
+                self.net_identity[0],
+                self.net_identity[1],
+                task_id,
+                actor.actor_id,
+                num_workers)
+            self.actor_recruit_fn[task_id](context)
 
 
 def _local_actor_wrapper(received_fn, port, task_id):
