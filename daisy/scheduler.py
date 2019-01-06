@@ -333,7 +333,7 @@ class Scheduler():
     def register_actor(self, actor, task_id):
         '''Register new actor with bookkeeping variables. If scheduler loop
         had finished it will not, instead terminating this new actor.'''
-        logger.info("Registering new actor {}".format(actor))
+        logger.info("Registering new actor %s", actor)
         if self.finished_scheduling:
             self.send_terminate(actor)
             return
