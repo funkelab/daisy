@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 from .client_scheduler import ClientScheduler
+from .context import Context
 from .dependency_graph import DependencyGraph
 from .processes import spawn_function
 from .task import Task
@@ -55,7 +56,7 @@ class Scheduler():
         self.actor_recruit_fn = {}
 
         self.launched_tasks = set()
-        self.actor_id = 0
+        self.next_actor_id = 0
         self.finished_scheduling = False
 
     def distribute(self, graph):
@@ -191,14 +192,21 @@ class Scheduler():
         for block_id in outstanding_blocks:
             self.block_return(actor, block_id, ReturnCode.NETWORK_ERROR)
 
-    def _make_spawn_function(self, function, args, env, log_dir,
-                             log_to_files, log_to_stdout):
-        '''This helper function is necessary to disambiguate parameters
-        of lambda expressions'''
-        return lambda i: spawn_function(
+    def _recruit_actor(
+            self,
+            function,
+            args,
+            context,
+            log_dir,
+            log_to_files,
+            log_to_stdout):
+
+        env = {'DAISY_CONTEXT': context.to_env()}
+
+        spawn_function(
             function, args, env,
-            log_dir+"/actor.{}.out".format(i),
-            log_dir+"/actor.{}.err".format(i),
+            log_dir+"/actor.{}.out".format(context.actor_id),
+            log_dir+"/actor.{}.err".format(context.actor_id),
             log_to_files, log_to_stdout)
 
     def _construct_recruit_functions(self):
@@ -223,13 +231,6 @@ class Scheduler():
             except Exception:
                 spawn_actors = False
 
-            # add daisy scheduler context as an env
-            env = {
-                'DAISY_CONTEXT': '{}:{}:{}'.format(
-                    *self.net_identity,
-                    task_id)
-            }
-
             if spawn_actors:
                 if log_to_files and log_to_stdout:
                     logger.warn(
@@ -238,38 +239,53 @@ class Scheduler():
                         "will be disabled for task %s.", task_id)
                     log_to_files = False
 
-                new_actor_fn = self._make_spawn_function(
-                    process_function,
-                    [],
-                    env,
-                    log_dir,
-                    log_to_files,
-                    log_to_stdout)
+                def new_actor_fn(context):
+                    self._recruit_actor(
+                        process_function,
+                        [],
+                        context,
+                        log_dir,
+                        log_to_files,
+                        log_to_stdout)
             else:
-                new_actor_fn = self._make_spawn_function(
-                    _local_actor_wrapper,
-                    [process_function, self.net_identity[1], task_id],
-                    env,
-                    log_dir,
-                    log_to_files,
-                    log_to_stdout)
+
+                def new_actor_fn(context):
+                    self._recruit_actor(
+                        _local_actor_wrapper,
+                        [process_function, self.net_identity[1], task_id],
+                        context,
+                        log_dir,
+                        log_to_files,
+                        log_to_stdout)
 
             self.actor_recruit_fn[task_id] = new_actor_fn
 
-    def get_idle_actor(self, task):
+    def get_idle_actor(self, task_id):
         '''Scheduler loop calls this to get an idle actor ready to accept
         jobs. This function blocks until an actor submits itself into the
         idle queue through TCP. It will also launch ``num_workers`` of
         actors if have not already '''
-        if task not in self.launched_tasks:
-            logger.info("Launching actors for task {}".format(task))
-            num_workers = self.tasks[task].num_workers
-            for i in range(num_workers):
-                self.actor_recruit_fn[task](self.actor_id)
-                self.actor_id += 1
-            self.launched_tasks.add(task)
 
-        actor = self.idle_actors[task].get()
+        if task_id not in self.launched_tasks:
+
+            logger.info("Launching actors for task %s", task_id)
+            num_workers = self.tasks[task_id].num_workers
+
+            for i in range(num_workers):
+
+                context = Context(
+                    self.net_identity[0],
+                    self.net_identity[1],
+                    task_id,
+                    self.next_actor_id,
+                    num_workers)
+                self.actor_recruit_fn[task_id](context)
+
+                self.next_actor_id += 1
+
+            self.launched_tasks.add(task_id)
+
+        actor = self.idle_actors[task_id].get()
         return actor
 
     def add_idle_actor_callback(self, actor, task):
@@ -317,7 +333,7 @@ class Scheduler():
     def register_actor(self, actor, task_id):
         '''Register new actor with bookkeeping variables. If scheduler loop
         had finished it will not, instead terminating this new actor.'''
-        logger.info("Registering new actor {}".format(actor))
+        logger.info("Registering new actor %s", actor)
         if self.finished_scheduling:
             self.send_terminate(actor)
             return
@@ -384,19 +400,24 @@ class Scheduler():
             return
 
         task_id = self.actor_type[actor]
+        num_workers = self.tasks[task_id].num_workers
 
         if task_id not in self.finished_tasks:
-            logger.info("Spawning a new actor due to disconnection")
-            self.actor_recruit_fn[task_id](self.actor_id)
-            self.actor_id += 1
+            logger.info("Respawning actor %s due to disconnection", actor)
+            context = Context(
+                self.net_identity[0],
+                self.net_identity[1],
+                task_id,
+                actor.actor_id,
+                num_workers)
+            self.actor_recruit_fn[task_id](context)
 
 
 def _local_actor_wrapper(received_fn, port, task_id):
     '''Simple wrapper for local process function'''
-    sched = ClientScheduler(
-        sched_addr="localhost",
-        sched_port=port,
-        task_id=task_id)
+
+    sched = ClientScheduler()
+
     try:
         user_fn, args = received_fn
 

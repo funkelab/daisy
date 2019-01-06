@@ -1,13 +1,12 @@
-
+from .actor import Actor
 from enum import Enum
+from tornado.ioloop import IOLoop
+from tornado.iostream import StreamClosedError
+from tornado.tcpserver import TCPServer
 import logging
 import pickle
 import socket
 import struct
-
-from tornado.iostream import StreamClosedError
-from tornado.tcpserver import TCPServer
-from tornado.ioloop import IOLoop
 
 logger = logging.getLogger(__name__)
 
@@ -17,20 +16,36 @@ class DaisyTCPServer(TCPServer):
     def __init__(self):
         super().__init__()
         self.scheduler = None
-        self.address_to_stream_mapping = {}
         self.scheduler_closed = False
+        self.connected_actors = set()
 
     async def handle_stream(self, stream, address):
 
-        actor = address
-        logger.debug("Received new actor {}".format(actor))
-        self.address_to_stream_mapping[address] = stream
+        logger.debug("Received new connection from %s:%d", *address)
+
+        try:
+            msg = await get_and_unpack_message(stream)
+        except StreamClosedError:
+            logger.error(
+                "Lost connection to %s before getting actor ID",
+                address)
+            return
+
+        if msg.type != SchedulerMessageType.WORKER_HANDSHAKE:
+            logger.error("Unexpected message %s received", msg.type)
+            return
+
+        actor_id = msg.data
+        actor = Actor(actor_id, address, stream)
 
         if self.scheduler_closed:
             logger.debug(
-                "Closing actor {} because Daisy is done".format(actor))
+                "Closing connection to %s:%d, no more blocks to schedule",
+                *address)
             stream.close()
             return
+
+        self.connected_actors.add(actor)
 
         # one IO loop scheduler per worker
         while True:
@@ -51,10 +66,12 @@ class DaisyTCPServer(TCPServer):
 
                 else:
                     logger.error(
-                        "Unknown message from remote actor {}: {}".format(
-                            actor,
-                            msg))
-                    logger.error("Closing connection to {}".format(actor))
+                        "Unknown message from actor %d: %s",
+                        actor.actor_id,
+                        msg)
+                    logger.error(
+                        "Closing connection to %s:%d",
+                        *actor.address)
                     stream.close()
                     self.scheduler.unexpected_actor_loss_callback(actor)
                     break
@@ -67,7 +84,7 @@ class DaisyTCPServer(TCPServer):
 
         # done, removing worker from list
         self.scheduler.remove_worker_callback(actor)
-        del self.address_to_stream_mapping[actor]
+        self.connected_actors.remove(actor)
 
     async def async_send(self, stream, data):
 
@@ -76,15 +93,14 @@ class DaisyTCPServer(TCPServer):
         except StreamClosedError:
             logger.error("Unexpected loss of connection while sending data.")
 
-    def send(self, address, data):
+    def send(self, actor, data):
 
-        if address not in self.address_to_stream_mapping:
-            logger.warning("{} is no longer alive".format(address))
+        if actor not in self.connected_actors:
+            logger.warning("actor %d is no longer alive", actor.actor_id)
             return
 
-        stream = self.address_to_stream_mapping[address]
         IOLoop.current().spawn_callback(
-            self.async_send, stream, pack_message(data))
+            self.async_send, actor.stream, pack_message(data))
 
     def add_handler(self, scheduler):
         self.scheduler = scheduler
@@ -113,6 +129,7 @@ class DaisyTCPServer(TCPServer):
 
 
 class SchedulerMessageType(Enum):
+    WORKER_HANDSHAKE = 1,
     WORKER_GET_BLOCK = 2,
     WORKER_RET_BLOCK = 3,
     WORKER_EXITING = 4,
