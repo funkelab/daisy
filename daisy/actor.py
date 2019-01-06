@@ -10,4 +10,3 @@ class Actor():
             self.actor_id,
             self.address[0],
             self.address[1])
-
