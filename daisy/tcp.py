@@ -51,7 +51,6 @@ class DaisyTCPServer(TCPServer):
         while True:
             try:
                 msg = await get_and_unpack_message(stream)
-                # logger.debug("Received {}".format(msg))
 
                 if msg.type == SchedulerMessageType.WORKER_GET_BLOCK:
                     self.scheduler.add_idle_actor_callback(
@@ -61,9 +60,6 @@ class DaisyTCPServer(TCPServer):
                     jobid, ret = msg.data
                     self.scheduler.block_return(actor, jobid, ret)
 
-                elif msg.type == SchedulerMessageType.WORKER_EXITING:
-                    break
-
                 else:
                     logger.error(
                         "Unknown message from actor %d: %s",
@@ -72,17 +68,18 @@ class DaisyTCPServer(TCPServer):
                     logger.error(
                         "Closing connection to %s:%d",
                         *actor.address)
-                    stream.close()
-                    self.scheduler.unexpected_actor_loss_callback(actor)
                     break
-                    # assert(0)
 
             except StreamClosedError:
-                logger.warning("Lost connection to actor {}".format(actor))
-                self.scheduler.unexpected_actor_loss_callback(actor)
+                # note: may not be an actual error--workers exits and closes
+                # TCP connection without explicitly notifying the scheduler
+                logger.debug(
+                    "Losing connection to actor %s",
+                    actor)
                 break
 
         # done, removing worker from list
+        stream.close()
         self.scheduler.remove_worker_callback(actor)
         self.connected_actors.remove(actor)
 
@@ -91,7 +88,8 @@ class DaisyTCPServer(TCPServer):
         try:
             await stream.write(data)
         except StreamClosedError:
-            logger.error("Unexpected loss of connection while sending data.")
+            # might actually be okay if worker exits normally
+            logger.debug("Scheduler lost connection while sending data.")
 
     def send(self, actor, data):
 

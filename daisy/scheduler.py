@@ -177,27 +177,50 @@ class Scheduler():
         self.net_identity = self.tcpserver.get_identity()
 
     def remove_worker_callback(self, actor):
-        """ Called by TCP server when connection is lost
-        or otherwise exited"""
-        logger.debug(
-            "Disconnection callback received for actor {}".format(actor))
+        """ Called by TCP server when connection is lost or otherwise
+        exited. This happens for both when the worker unexpected
+        exits (eg., error, network error) or when it exists normally.
+        """
+        logger.debug("Actor %s disconnected", actor)
 
         if actor not in self.actor_type:
-            # actor was not registered
+            logger.error(
+                "Actor %s closed before finished initializing. ",
+                "It will not be respawned.",
+                actor
+            )
             return
 
+        task_id = self.actor_type[actor]
+
+        # update actor bookkeeping
         with self.actor_states_lock:
             # Be careful with this code + lock in conjunction with the loop
-            # in distribute(). It can lead to dead locks or forgotten blocks
-            # if not thought about carefully
+            # in distribute(). It can lead to dead locks or forgotten
+            # blocks if not thought about carefully
             self.dead_actors.add(actor)
             self.actors.remove(actor)
-            outstanding_blocks = self.actor_outstanding_blocks[actor].copy()
             self.actor_type[actor] = None
 
-        # reschedule if necessary
-        for block_id in outstanding_blocks:
-            self.block_return(actor, block_id, ReturnCode.NETWORK_ERROR)
+        if task_id not in self.finished_tasks:
+            # task is unfinished--keep respawning to finish task
+
+            num_workers = self.tasks[task_id].num_workers
+
+            logger.info("Respawning actor %s due to disconnection", actor)
+            context = Context(
+                self.net_identity[0],
+                self.net_identity[1],
+                task_id,
+                actor.actor_id,
+                num_workers)
+            self.actor_recruit_fn[task_id](context)
+
+            # reschedule block if necessary
+            with self.actor_states_lock:
+                outstanding_blocks = self.actor_outstanding_blocks[actor].copy()
+            for block_id in outstanding_blocks:
+                self.block_return(actor, block_id, ReturnCode.NETWORK_ERROR)
 
     def _recruit_actor(
             self,
@@ -395,31 +418,6 @@ class Scheduler():
             self.finish_task(task_id)
 
         self.results.append((block, ret))
-
-    def unexpected_actor_loss_callback(self, actor):
-        '''Called by TCP server when losing connection to an actor
-        unexpectedly'''
-
-        # TODO: better algorithm to decide whether to make a new actor or not?
-        # if not self.graph.empty():
-        if actor not in self.actor_type:
-            logger.error(
-                "Actor was lost before finished initializing. "
-                "It will not be respawned.")
-            return
-
-        task_id = self.actor_type[actor]
-        num_workers = self.tasks[task_id].num_workers
-
-        if task_id not in self.finished_tasks:
-            logger.info("Respawning actor %s due to disconnection", actor)
-            context = Context(
-                self.net_identity[0],
-                self.net_identity[1],
-                task_id,
-                actor.actor_id,
-                num_workers)
-            self.actor_recruit_fn[task_id](context)
 
 
 def _local_actor_wrapper(received_fn, port, task_id):

@@ -142,12 +142,12 @@ class ClientScheduler():
                         self.job_queue_cv.notify()
 
                 elif msg.type == SchedulerMessageType.TERMINATE_WORKER:
-                    self.send(SchedulerMessage(
-                                SchedulerMessageType.WORKER_EXITING))
                     break
 
             except StreamClosedError:
-                logger.error("Unexpected loss of connection to scheduler!")
+                logger.error(
+                    "Actor %s async_recv got StreamClosedError" %
+                    self.context.actor_id)
                 break
 
         # all done, notify client code to exit
@@ -161,7 +161,9 @@ class ClientScheduler():
         try:
             await self.stream.write(data)
         except StreamClosedError:
-            logger.error("Unexpected loss of connection to scheduler!")
+            logger.error(
+                "Actor %s async_send got StreamClosedError" %
+                self.context.actor_id)
 
     def send(self, data):
         '''Non-async wrapper for async_send()'''
@@ -182,7 +184,9 @@ class ClientScheduler():
                 self.job_queue_cv.wait()
 
             ret = self.job_queue.popleft()
-            logger.debug("Received block {}".format(ret))
+            logger.info(
+                "Actor %s received block %s" %
+                (self.context.actor_id, ret))
             return ret
 
     def release_block(self, block, ret):
