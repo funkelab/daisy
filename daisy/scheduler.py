@@ -81,7 +81,7 @@ class Scheduler():
 
         while not graph.empty():
 
-            block = graph.next()
+            block = graph.next(available_actors=self.idle_actors)
             if block is None:
                 continue
 
@@ -218,7 +218,8 @@ class Scheduler():
 
             # reschedule block if necessary
             with self.actor_states_lock:
-                outstanding_blocks = self.actor_outstanding_blocks[actor].copy()
+                outstanding_blocks = (self.actor_outstanding_blocks[actor]
+                                      .copy())
             for block_id in outstanding_blocks:
                 self.block_return(actor, block_id, ReturnCode.NETWORK_ERROR)
 

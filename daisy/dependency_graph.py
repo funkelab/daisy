@@ -31,7 +31,7 @@ class DependencyGraph():
 
         self.dependents = collections.defaultdict(set)
         self.dependencies = collections.defaultdict(set)
-        self.ready_queue = collections.deque()
+        self.ready_queues = collections.defaultdict(collections.deque)
         self.ready_queue_cv = threading.Condition()
         self.processing_blocks = set()
         self.blocks = {}
@@ -134,7 +134,7 @@ class DependencyGraph():
             if len(dependencies) == 0:
                 # if this block has no dependencies, add it to the ready
                 # queue immediately
-                self.ready_queue.append(block_id)
+                self.ready_queues[task_id].append(block_id)
 
     def __recursively_prepare(self, task):
 
@@ -147,14 +147,14 @@ class DependencyGraph():
 
         self.task_map[task].prepare()
 
-    def next(self):
+    def next(self, available_actors={}):
         '''Called by the ``scheduler`` to get the next available block.
         Current implementation blocks and waits for outstanding (issued)
         blocks if there is none ready. After an outstanding block
         finished, a new block may become ready and will be returned.
 
         Return:
-            Tuple (task_name, block) if available, or ``None``.
+            Tuple (task_id, block) if available, or ``None``.
             Returning ``None`` does not necessarily mean that there is
             no more blocks to be run (though it is the case currently).
             The scheduler should call empty() to really make sure that
@@ -162,18 +162,36 @@ class DependencyGraph():
         '''
 
         with self.ready_queue_cv:
-            while not self.empty() and len(self.ready_queue) == 0:
+            # Block release is conducted in 2 phases
+
+            # First, return a block of a task queue if there is
+            # available actors.
+            for task_type in self.ready_queues:
+
+                if len(self.ready_queues[task_type]) == 0:
+                    continue
+
+                if task_type in available_actors:
+                    if available_actors[task_type].qsize() == 0:
+                        continue
+
+                block_id = self.ready_queues[task_type].popleft()
+                self.processing_blocks.add(block_id)
+                return (block_id[0], self.blocks[block_id])
+
+            # Otherwise, return any other block. The scheduler will then
+            # spawn necessary actors for this block.
+            while not self.empty() and self.ready_size() == 0:
                 self.ready_queue_cv.wait()
 
             if self.empty():
                 return None
 
-            # TODO: add option for graph execution method
-            # pop() gives DFS-style execution (new blocks first)
-            # popleft() would give BFS
-            block_id = self.ready_queue.pop()
-            self.processing_blocks.add(block_id)
-            return (block_id[0], self.blocks[block_id])
+            for task_type in self.ready_queues:
+                if len(self.ready_queues[task_type]):
+                    block_id = self.ready_queues[task_type].popleft()
+                    self.processing_blocks.add(block_id)
+                    return (block_id[0], self.blocks[block_id])
 
     def get_tasks(self):
         '''Get all tasks in the graph.'''
@@ -184,7 +202,7 @@ class DependencyGraph():
         either because all blocks have been completed, or because there
         are failed blocks that prevent other blocks from running.'''
         return (
-            (len(self.ready_queue) == 0) and
+            (self.ready_size() == 0) and
             (len(self.processing_blocks) == 0))
 
     def size(self):
@@ -193,7 +211,10 @@ class DependencyGraph():
 
     def ready_size(self):
         '''Return the number of blocks ready to be run.'''
-        return len(self.ready_queue)
+        count = 0
+        for task in self.ready_queues:
+            count += len(self.ready_queues[task])
+        return count
 
     def get_orphans(self):
         '''Return the number of blocks cannot be issued due to failed
@@ -222,11 +243,11 @@ class DependencyGraph():
         with self.ready_queue_cv:
 
             self.processing_blocks.remove(block_id)
-            task_name = block_id[0]
+            task_id = block_id[0]
 
             if (
                     self.retry_count[block_id] >
-                    self.task_map[task_name].max_retries):
+                    self.task_map[task_id].max_retries):
 
                 self.failed_blocks.add(block_id)
                 logger.error(
@@ -243,7 +264,7 @@ class DependencyGraph():
 
             else:
 
-                self.ready_queue.appendleft(block_id)
+                self.ready_queues[task_id].appendleft(block_id)
                 logger.info("Block {} will be rescheduled.".format(block_id))
 
             self.ready_queue_cv.notify()  # in either case, unblock next()
@@ -271,7 +292,7 @@ class DependencyGraph():
                 self.dependencies[dep].remove(block_id)
                 if len(self.dependencies[dep]) == 0:
                     # ready to run
-                    self.ready_queue.append(dep)
+                    self.ready_queues[dep[0]].append(dep)
 
             # Unblock next() regardless. If we only unblock for new
             # elements in ready_queue, the program might lock up if
@@ -290,7 +311,7 @@ class DependencyGraph():
         blocks will be computed to cover the given ROI. This is achieved
         by simply recomputing the ready_queue as computed for the full
         graph.'''
-        self.ready_queue.clear()
+        self.ready_queues.clear()
 
         # get blocks of the leaf task that writes to the given ROI
         to_check = collections.deque()
@@ -310,7 +331,7 @@ class DependencyGraph():
                 processed.add(block)
 
             if len(self.dependencies[block]) == 0:
-                self.ready_queue.append(block)
+                self.ready_queues[block[0]].append(block)
             else:
                 to_check.extend(self.dependencies[block])
 
