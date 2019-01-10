@@ -77,10 +77,13 @@ def spawn_function(
         log_err,
         log_to_files,
         log_to_stdout):
-    """Helper function to spawn ``call_function`` in a simultaneous
-    process"""
-    Process(
+    """Helper function to spawn ``call_function`` in a separated
+    process. Returns started process so it can be terminated later"""
+
+    proc = Process(
         target=call_function,
         args=(function, args, env, log_out, log_err,
               log_to_files, log_to_stdout)
-    ).start()
+    )
+    proc.start()
+    return proc

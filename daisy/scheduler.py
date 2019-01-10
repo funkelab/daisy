@@ -59,6 +59,10 @@ class Scheduler():
         self.next_actor_id = 0
         self.finished_scheduling = False
 
+        # keeping track of spawned processes so we can force terminate
+        # them when finishing the block-wise scheduling
+        self.started_processes = set()
+
     def distribute(self, graph):
         self.graph = graph
         all_tasks = graph.get_tasks()
@@ -122,6 +126,9 @@ class Scheduler():
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
         self.close_all_actors()
+        for proc in self.started_processes:
+            # terminate possibly hanging processes
+            proc.terminate()
 
         succeeded = [t for t, r in self.results if r == ReturnCode.SUCCESS]
         skipped = [t for t, r in self.results if r == ReturnCode.SKIPPED]
@@ -203,11 +210,13 @@ class Scheduler():
 
         env = {'DAISY_CONTEXT': context.to_env()}
 
-        spawn_function(
+        proc = spawn_function(
             function, args, env,
             log_dir+"/actor.{}.out".format(context.actor_id),
             log_dir+"/actor.{}.err".format(context.actor_id),
             log_to_files, log_to_stdout)
+
+        self.started_processes.add(proc)
 
     def _construct_recruit_functions(self):
         '''Construct all actor recruit functions to be used later when
