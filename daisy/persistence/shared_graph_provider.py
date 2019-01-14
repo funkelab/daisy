@@ -5,6 +5,10 @@ from ..scheduler import run_blockwise
 from queue import Empty
 import multiprocessing
 import numpy as np
+import logging
+import time
+
+logger = logging.getLogger(__name__)
 
 
 class SharedGraphProvider(object):
@@ -70,17 +74,26 @@ class SharedGraphProvider(object):
         nodes = {}
         edges = {}
 
+        i = 0
         while True:
 
             last_round = blocks_done.is_set()
 
             try:
+                start = time.time()
                 block_nodes, block_edges = block_queue.get(timeout=0.1)
+                logger.debug(
+                    "Read graph data from block in %.3fs",
+                    time.time() - start)
             except Empty:
                 if last_round:
                     break
                 else:
                     continue
+
+            i += 1
+            if i % 100 == 0:
+                logger.debug("%d blocks read so far", i)
 
             for k, v in block_nodes.items():
                 if k not in nodes:
@@ -152,7 +165,9 @@ def read_blockwise_master(
 
 def read_blockwise_worker(graph_provider, block, block_queue):
 
+    start = time.time()
     graph = graph_provider[block.read_roi]
+    logger.debug("Read block graph in %.3fs", time.time() - start)
 
     nodes = {
         'id': []
@@ -162,6 +177,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         'v': []
     }
 
+    start = time.time()
     for node, data in graph.nodes(data=True):
 
         # skip over nodes that are not part of this block (they have been
@@ -198,5 +214,8 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         k: np.array(v)
         for k, v in edges.items()
     }
+    logger.debug("Parsed block graph in %.3fs", time.time() - start)
 
+    start = time.time()
     block_queue.put((nodes, edges))
+    logger.debug("Queued graph data in %.3fs", time.time() - start)
