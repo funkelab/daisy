@@ -56,7 +56,7 @@ class Scheduler():
         self.actor_recruit_fn = {}
 
         self.launched_tasks = set()
-        self.next_actor_id = 0
+        self.next_actor_id = collections.defaultdict(int)
         self.finished_scheduling = False
 
         # keeping track of spawned processes so we can force terminate
@@ -317,11 +317,11 @@ class Scheduler():
                     self.net_identity[0],
                     self.net_identity[1],
                     task_id,
-                    self.next_actor_id,
+                    self.next_actor_id[task_id],
                     num_workers)
                 self.actor_recruit_fn[task_id](context)
 
-                self.next_actor_id += 1
+                self.next_actor_id[task_id] += 1
 
             self.launched_tasks.add(task_id)
 
