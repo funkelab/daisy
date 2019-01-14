@@ -165,10 +165,14 @@ def read_blockwise_worker(graph_provider, block, block_queue):
     for node, data in graph.nodes(data=True):
 
         # skip over nodes that are not part of this block (they have been
-        # pulled in by edges leaving this block)
-        if 'position' not in data:
-            continue
-        if not block.read_roi.contains(data['position']):
+        # pulled in by edges leaving this block and don't have a position
+        # attribute)
+
+        if type(graph_provider.position_attribute) == list:
+            probe = graph_provider.position_attribute[0]
+        else:
+            probe = graph_provider.position_attribute
+        if probe not in data:
             continue
 
         nodes['id'].append(node)
