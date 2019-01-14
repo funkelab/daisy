@@ -242,6 +242,19 @@ class Scheduler():
 
         self.started_processes.add(proc)
 
+    def _make_spawn_function(
+            self,
+            function,
+            args,
+            log_dir,
+            log_to_files,
+            log_to_stdout):
+        '''This helper function is necessary to disambiguate parameters
+        of lambda expressions'''
+        return lambda context: self._recruit_actor(
+            function, args, context, log_dir,
+            log_to_files, log_to_stdout)
+
     def _construct_recruit_functions(self):
         '''Construct all actor recruit functions to be used later when
         needed'''
@@ -272,21 +285,18 @@ class Scheduler():
                         "will be disabled for task %s.", task_id)
                     log_to_files = False
 
-                def new_actor_fn(context):
-                    self._recruit_actor(
+                new_actor_fn = self._make_spawn_function(
                         process_function,
                         [],
-                        context,
                         log_dir,
                         log_to_files,
                         log_to_stdout)
+
             else:
 
-                def new_actor_fn(context):
-                    self._recruit_actor(
+                new_actor_fn = self._make_spawn_function(
                         _local_actor_wrapper,
                         [process_function, self.net_identity[1], task_id],
-                        context,
                         log_dir,
                         log_to_files,
                         log_to_stdout)
