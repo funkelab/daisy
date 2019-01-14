@@ -11,9 +11,9 @@ logger = logging.getLogger(__name__)
 class MongoDbGraphProvider(SharedGraphProvider):
     '''Provides shared graphs stored in a MongoDB.
 
-    Nodes are assumed to have at least an attribute ``id``. If the have an
-    array attribute ``position``, it will be used for geometric slicing (see
-    ``__getitem__``).
+    Nodes are assumed to have at least an attribute ``id``. If the have a
+    position attribute (set via argument ``position_attribute``, defaults to
+    ``position``), it will be used for geometric slicing (see ``__getitem__``).
 
     Edges are assumed to have at least attributes ``u``, ``v``.
 
@@ -37,6 +37,14 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             Names of the nodes and edges collections, should they differ from
             ``nodes`` and ``edges``.
+
+        position_attribute (``string`` or list of ``string``s, optional):
+
+            The node attribute(s) that contain position information. This will
+            be used for slicing subgraphs via ``__getitem__``. If a single
+            string, the attribute is assumed to be an array. If a list, each
+            entry denotes the position coordinates in order (e.g.,
+            `position_z`, `position_y`, `position_x`).
     '''
 
     def __init__(
@@ -45,7 +53,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
             host=None,
             mode='r+',
             nodes_collection='nodes',
-            edges_collection='edges'):
+            edges_collection='edges',
+            position_attribute='position'):
 
         self.db_name = db_name
         self.host = host
@@ -56,6 +65,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.database = None
         self.nodes = None
         self.edges = None
+        self.position_attribute = position_attribute
 
         try:
 
@@ -237,11 +247,19 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.__open_db()
         self.__open_collections()
 
-        self.nodes.create_index(
-            [
-                ('position', ASCENDING)
-            ],
-            name='position')
+        if type(self.position_attribute) == list:
+            self.nodes.create_index(
+                [
+                    (key, ASCENDING)
+                    for key in self.position_attribute
+                ],
+                name='position')
+        else:
+            self.nodes.create_index(
+                [
+                    ('position', ASCENDING)
+                ],
+                name='position')
 
         self.nodes.create_index(
             [
@@ -263,10 +281,16 @@ class MongoDbGraphProvider(SharedGraphProvider):
         begin = roi.get_begin()
         end = roi.get_end()
 
-        return {
-            'position.%d' % d: {'$gte': b, '$lt': e}
-            for d, (b, e) in enumerate(zip(begin, end))
-        }
+        if type(self.position_attribute) == list:
+            return {
+                key: {'$gte': b, '$lt': e}
+                for key, b, e in zip(self.position_attribute, begin, end)
+            }
+        else:
+            return {
+                'position.%d' % d: {'$gte': b, '$lt': e}
+                for d, (b, e) in enumerate(zip(begin, end))
+            }
 
 
 class MongoDbSubGraph(SharedSubGraph):
