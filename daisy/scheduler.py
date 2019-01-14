@@ -260,10 +260,7 @@ class Scheduler():
         needed'''
         for task_id in self.tasks:
             log_dir = '.daisy_logs_' + task_id
-            try:
-                os.mkdir(log_dir)
-            except OSError:
-                pass  # log dir exists
+            os.makedirs(log_dir, exist_ok=True)
 
             new_actor_fn = None
             process_function = self.tasks[task_id].process_function
