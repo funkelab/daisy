@@ -124,7 +124,7 @@ class Task():
         if check_function is not None:
             try:
                 self.pre_check, self.post_check = check_function
-            except ValueError:
+            except TypeError:
                 self.pre_check = check_function
                 self.post_check = check_function
 
