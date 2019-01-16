@@ -50,23 +50,13 @@ def call_function(function, args, env, log_out, log_err,
         _freopen(log_out, 'w', sys.stdout)
         _freopen(log_err, 'w', sys.stderr)
 
-    try:
+    if log_to_files and log_to_stdout:
+        # if logging to both files and stdout, add file logging
+        # option to logger
+        logger = logging.getLogger()
+        logger.addHandler(logging.FileHandler(log_out))
 
-        if log_to_files and log_to_stdout:
-            # if logging to both files and stdout, add file logging
-            # option to logger
-            logger = logging.getLogger()
-            logger.addHandler(logging.FileHandler(log_out))
-
-        function(*args)
-
-    except Exception as exc:
-        raise Exception(
-            "Function {} failed with return code {}, stderr in {}"
-            .format(function, exc.returncode, sys.stderr.name))
-
-    except KeyboardInterrupt:
-        raise Exception("Canceled by SIGINT")
+    function(*args)
 
 
 def spawn_function(
