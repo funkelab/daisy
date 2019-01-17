@@ -173,7 +173,9 @@ def prepare_ds(
 
     if chunk_size is not None and file_format == 'n5':
 
-        total_roi_grown = total_roi.snap_to_grid(chunk_size*voxel_size, mode='grow')
+        total_roi_grown = total_roi.snap_to_grid(
+            chunk_size*voxel_size,
+            mode='grow')
 
         if total_roi_grown != total_roi:
             logger.warning(
