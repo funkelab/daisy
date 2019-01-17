@@ -1,8 +1,9 @@
 from __future__ import absolute_import
 from ..coordinate import Coordinate
+from ..roi import Roi
 from .shared_graph_provider import SharedGraphProvider, SharedSubGraph
-from pymongo import MongoClient, ASCENDING, UpdateOne
-from pymongo.errors import BulkWriteError
+from pymongo import MongoClient, ASCENDING, ReplaceOne
+from pymongo.errors import BulkWriteError, WriteError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,16 @@ class MongoDbGraphProvider(SharedGraphProvider):
             One of ``r``, ``r+``, or ``w``. Defaults to ``r+``. ``w`` drops the
             node and edge collection.
 
+        directed (``bool``):
+
+            True if the graph is directed, false otherwise
+
         nodes_collection (``string``):
         edges_collection (``string``):
+        meta_collection (``string``):
 
-            Names of the nodes and edges collections, should they differ from
-            ``nodes`` and ``edges``.
+            Names of the nodes, edges. and meta collections, should they differ from
+            ``nodes``, ``edges``, and ``meta``.
 
         position_attribute (``string`` or list of ``string``s, optional):
 
@@ -52,19 +58,26 @@ class MongoDbGraphProvider(SharedGraphProvider):
             db_name,
             host=None,
             mode='r+',
+            directed=None,
+            total_roi=None,
             nodes_collection='nodes',
             edges_collection='edges',
+            meta_collection='meta',
             position_attribute='position'):
 
         self.db_name = db_name
         self.host = host
         self.mode = mode
+        self.directed = directed
+        self.total_roi = total_roi
         self.nodes_collection_name = nodes_collection
         self.edges_collection_name = edges_collection
+        self.meta_collection_name = meta_collection
         self.client = None
         self.database = None
         self.nodes = None
         self.edges = None
+        self.meta = None
         self.position_attribute = position_attribute
 
         try:
@@ -75,18 +88,27 @@ class MongoDbGraphProvider(SharedGraphProvider):
             if mode == 'w':
 
                 logger.info(
-                    "dropping collections %s and %s",
+                    "dropping collections %s, %s, and %s",
                     self.nodes_collection_name,
-                    self.edges_collection_name)
+                    self.edges_collection_name,
+                    self.meta_collection_name)
 
                 self.__open_collections()
                 self.nodes.drop()
                 self.edges.drop()
+                self.meta.drop()
 
             collection_names = self.database.list_collection_names()
+            
+            if meta_collection in collection_names:
+                self.__check_metadata()
+            else:
+                self.__set_metadata()
+
             if (
                     nodes_collection not in collection_names or
                     edges_collection not in collection_names):
+                
                 self.__create_collections()
 
         finally:
@@ -197,6 +219,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             roi,
             self.host,
             self.mode,
+            self.directed,
             self.nodes_collection_name,
             self.edges_collection_name)
         graph.add_nodes_from(node_list)
@@ -222,11 +245,17 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         self.nodes = self.database[self.nodes_collection_name]
         self.edges = self.database[self.edges_collection_name]
+        self.meta = self.database[self.meta_collection_name]
+
+    def __get_metadata(self):
+        metadata = self.meta.find_one({}, {"_id": False})
+        return metadata;
 
     def __disconnect(self):
 
         self.nodes = None
         self.edges = None
+        self.meta = None
         self.database = None
         self.client.close()
         self.client = None
@@ -264,6 +293,38 @@ class MongoDbGraphProvider(SharedGraphProvider):
             ],
             name='incident',
             unique=True)
+        
+    def __check_metadata(self):
+
+        self.__open_collections()
+        metadata = self.__get_metadata()
+        if self.directed and metadata['directed'] != self.directed:
+            raise ValueError("Input parameter directed={} does not match directed value {} already in stored metadata"\
+                    .format(self.directed, metadata['directed']))
+        if self.total_roi:
+            if self.total_roi.get_offset() != metadata['total_roi_offset']:
+                raise ValueError("Input total_roi offset {} does not match total_roi offset {} already stored in metadata"\
+                        .format(self.total_roi.get_offset(), metadata['total_roi_offset']))
+            if self.total_roi.get_shape() != metadata['total_roi_shape']:
+                raise ValueError("Input total_roi shape {} does not match total_roi shape {} already stored in metadata"\
+                        .format(self.total_roi.get_shape(), metadata['total_roi_shape']))
+
+
+    def __set_metadata(self):
+
+        if not self.directed:
+            #default is false
+            self.directed = False
+        if not self.total_roi:
+            #default is an unbounded roi
+            self.total_roi = Roi((0,0,0,0), (None, None, None, None))
+
+        meta_data = {
+                'directed': self.directed,
+                'total_roi_offset': self.total_roi.get_offset(),
+                'total_roi_shape': self.total_roi.get_shape()
+            }
+        self.meta.insert_one(meta_data)
 
     def __pos_query(self, roi):
 
@@ -290,15 +351,17 @@ class MongoDbSubGraph(SharedSubGraph):
             roi,
             host=None,
             mode='r+',
+            directed=False,
             nodes_collection='nodes',
             edges_collection='edges'):
 
-        super(SharedSubGraph, self).__init__()
+        super().__init__(directed)
 
         self.db_name = db_name
         self.roi = roi
         self.host = host
         self.mode = mode
+        self.directed = directed
 
         self.client = MongoClient(self.host)
         self.database = self.client[db_name]
@@ -325,8 +388,8 @@ class MongoDbSubGraph(SharedSubGraph):
 
         edges = []
         for u, v, data in self.edges(data=True):
-
-            u, v = min(u, v), max(u, v)
+            if not self.directed:
+                u, v = min(u, v), max(u, v)
             if not self.__contains(roi, u):
                 continue
 
@@ -351,8 +414,8 @@ class MongoDbSubGraph(SharedSubGraph):
             if fail_if_exists:
                 self.edges_collection.insert_many(edges)
             elif fail_if_not_exists:
-                self.edges.bulk_write([
-                    UpdateOne(
+                result = self.edges_collection.bulk_write([
+                    ReplaceOne(
                         {
                             'u': edge['u'],
                             'v': edge['v']
@@ -362,9 +425,11 @@ class MongoDbSubGraph(SharedSubGraph):
                     )
                     for edge in edges
                 ])
+                raise WriteError(details="{} nodes did not exist and were not written"\
+                        .format(len(edges) - result.matched_count))
             else:
-                self.edges.bulk_write([
-                    UpdateOne(
+                self.edges_collection.bulk_write([
+                    ReplaceOne(
                         {
                             'u': edge['u'],
                             'v': edge['v']
@@ -421,9 +486,9 @@ class MongoDbSubGraph(SharedSubGraph):
         try:
             if fail_if_exists:
                 self.nodes_collection.insert_many(nodes)
-            elif fail_if_not_exists:
-                self.nodes_collection.bulk_write([
-                    UpdateOne(
+            elif fail_if_not_exists: 
+                result = self.nodes_collection.bulk_write([
+                    ReplaceOne(
                         {
                             'id': node['id'],
                         },
@@ -432,9 +497,13 @@ class MongoDbSubGraph(SharedSubGraph):
                     )
                     for node in nodes
                 ])
+                if result.matched_count != len(nodes):
+                    raise WriteError(details="{} nodes did not exist and were not written"\
+                            .format(len(nodes) - result.matched_count))
+
             else:
                 self.nodes_collection.bulk_write([
-                    UpdateOne(
+                    ReplaceOne(
                         {
                             'id': node['id'],
                         },
@@ -451,7 +520,7 @@ class MongoDbSubGraph(SharedSubGraph):
 
     def __contains(self, roi, node):
 
-        node_data = self.node[node]
+        node_data = self.g.node[node]
 
         # Some nodes are outside of the originally requested ROI (they have
         # been pulled in by edges leaving the ROI). These nodes have no

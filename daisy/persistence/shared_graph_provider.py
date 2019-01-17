@@ -1,5 +1,5 @@
 from __future__ import absolute_import
-from ..graph import Graph
+from ..graph import Graph, DiGraph
 from ..roi import Roi
 from ..scheduler import run_blockwise
 from queue import Empty
@@ -125,7 +125,31 @@ class SharedGraphProvider(object):
         return type(self).__name__
 
 
-class SharedSubGraph(Graph):
+class SharedSubGraph():
+    def __init__(self, directed):
+        if directed:
+            self.g = DiGraph()
+        else:
+            self.g = Graph()
+    
+    def nodes(self, **kwargs):
+        return self.g.nodes(**kwargs)
+
+    def get_nodes_in_roi(self):
+        nodes = {}
+        for node, data in self.g.nodes(data=True):
+            if 'position' in data:
+                nodes[node] = data
+        return nodes
+
+    def edges(self, **kwargs):
+        return self.g.edges(**kwargs)
+
+    def add_nodes_from(self, nodes):
+        return self.g.add_nodes_from(nodes)
+
+    def add_edges_from(self, edges):
+        return self.g.add_edges_from(edges)
 
     def write_edges(self,
             roi=None,
@@ -168,10 +192,12 @@ class SharedSubGraph(Graph):
                 Only write the given attributes. If None, write all attributes.
             
             fail_if_exists:
-                If true, throw error if node with same id already exists in back end.
+                If true, throw error if node with same id already exists in back end,
+                while still performing all other valid writes.
 
             fail_if_not_exists: 
-                If true, throw error if node with same id does not already exist in back end.
+                If true, throw error if node with same id does not already exist in back end,
+                while still performing all other valid writes.
 
             delete:
                 If true, delete nodes in ROI in back end that do not exist in subgraph. 
