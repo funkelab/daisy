@@ -171,6 +171,17 @@ def prepare_ds(
     else:
         chunk_size = None
 
+    if chunk_size is not None and file_format == 'n5':
+
+        total_roi_grown = total_roi.snap_to_grid(chunk_size*voxel_size, mode='grow')
+
+        if total_roi_grown != total_roi:
+            logger.warning(
+                "Increased total ROI from %s to %s to accommodate complete "
+                "chunks for N5 format",
+                total_roi, total_roi_grown)
+            total_roi = total_roi_grown
+
     shape = total_roi.get_shape()/voxel_size
 
     if num_channels > 1:
