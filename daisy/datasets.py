@@ -127,15 +127,29 @@ def prepare_ds(
         voxel_size,
         dtype,
         write_roi=None,
+        write_size=None,
         num_channels=1,
         compressor='default'):
+
+    voxel_size = Coordinate(voxel_size)
+    if write_size is not None:
+        write_size = Coordinate(write_size)
 
     assert total_roi.get_shape().is_multiple_of(voxel_size), (
         "The provided ROI shape is not a multiple of voxel_size")
     assert total_roi.get_begin().is_multiple_of(voxel_size), (
         "The provided ROI offset is not a multiple of voxel_size")
+
     if write_roi is not None:
-        assert write_roi.get_shape().is_multiple_of(voxel_size), (
+
+        logger.warning(
+            "write_roi is deprecated, please use write_size instead")
+
+        if write_size is None:
+            write_size = write_roi.get_shape()
+
+    if write_size is not None:
+        assert write_size.is_multiple_of(voxel_size), (
             "The provided write ROI shape is not a multiple of voxel_size")
 
     if compressor == 'default':
@@ -152,17 +166,29 @@ def prepare_ds(
     else:
         raise RuntimeError("Unknown file format for %s" % filename)
 
-    shape = total_roi.get_shape()/voxel_size
-
-    if write_roi is not None:
-        chunk_size = get_chunk_size(write_roi.get_shape()/voxel_size)
+    if write_size is not None:
+        chunk_size = get_chunk_size(write_size/voxel_size)
     else:
         chunk_size = None
+
+    if chunk_size is not None and file_format == 'n5':
+
+        total_roi_grown = total_roi.snap_to_grid(chunk_size*voxel_size, mode='grow')
+
+        if total_roi_grown != total_roi:
+            logger.warning(
+                "Increased total ROI from %s to %s to accommodate complete "
+                "chunks for N5 format",
+                total_roi, total_roi_grown)
+            total_roi = total_roi_grown
+
+    shape = total_roi.get_shape()/voxel_size
 
     if num_channels > 1:
 
         shape = (num_channels,) + shape
-        chunk_size = (num_channels,) + chunk_size
+        if chunk_size is not None:
+            chunk_size = Coordinate((num_channels,) + chunk_size)
 
     if not os.path.isdir(filename):
 
@@ -217,7 +243,7 @@ def prepare_ds(
                 voxel_size)
             compatible = False
 
-        if write_roi is not None and ds.data.chunks != chunk_size:
+        if write_size is not None and ds.data.chunks != chunk_size:
             logger.info(
                 "Chunk sizes differ: %s vs %s",
                 ds.data.chunks,
@@ -230,14 +256,14 @@ def prepare_ds(
 
             shutil.rmtree(os.path.join(filename, ds_name))
             return prepare_ds(
-                filename,
-                ds_name,
-                total_roi,
-                voxel_size,
-                dtype,
-                write_roi,
-                num_channels,
-                compressor)
+                filename=filename,
+                ds_name=ds_name,
+                total_roi=total_roi,
+                voxel_size=voxel_size,
+                dtype=dtype,
+                write_size=write_size,
+                num_channels=num_channels,
+                compatible=compressor)
 
         else:
 
