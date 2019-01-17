@@ -132,15 +132,11 @@ class SharedSubGraph():
         else:
             self.g = Graph()
     
+    # Because we no longer inherit the Graph functions,
+    # the next 4 functions are recreating some of the functionality
+    # for ease of backwards compatibility.
     def nodes(self, **kwargs):
         return self.g.nodes(**kwargs)
-
-    def get_nodes_in_roi(self):
-        nodes = {}
-        for node, data in self.g.nodes(data=True):
-            if 'position' in data:
-                nodes[node] = data
-        return nodes
 
     def edges(self, **kwargs):
         return self.g.edges(**kwargs)
@@ -150,6 +146,16 @@ class SharedSubGraph():
 
     def add_edges_from(self, edges):
         return self.g.add_edges_from(edges)
+
+    def get_nodes_in_roi(self):
+        '''Only returns nodes in the roi, excluding "dangling" nodes
+        introduced by edges that cross the roi boundary'''
+
+        nodes = {}
+        for node, data in self.g.nodes(data=True):
+            if 'position' in data:
+                nodes[node] = data
+        return nodes
 
     def write_edges(self,
             roi=None,

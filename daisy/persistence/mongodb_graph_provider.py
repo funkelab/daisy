@@ -31,7 +31,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         mode (``string``, optional):
 
             One of ``r``, ``r+``, or ``w``. Defaults to ``r+``. ``w`` drops the
-            node and edge collection.
+            node, edge, and meta collections.
 
         directed (``bool``):
 
@@ -116,8 +116,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__disconnect()
 
     def read_nodes(self, roi):
-        '''Return a list of nodes within roi.
-        '''
+        '''Return a list of nodes within roi.'''
 
         logger.debug("Querying nodes in %s", roi)
 
@@ -136,6 +135,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         return nodes
 
     def num_nodes(self, roi):
+        '''Return the number of nodes in the roi.'''
 
         try:
 
@@ -152,6 +152,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         return num
 
     def has_edges(self, roi):
+        '''Returns true if there is at least one edge in the roi.'''
 
         try:
 
@@ -177,6 +178,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
         return edges.count() > 0
 
     def read_edges(self, roi):
+        '''Returns a list of edges within roi.'''
+
         nodes = self.read_nodes(roi)
         node_ids = list([ n['id'] for n in nodes])
         logger.debug("found %d nodes", len(node_ids))
@@ -228,30 +231,39 @@ class MongoDbGraphProvider(SharedGraphProvider):
         return graph
 
     def __remove_keys(self, dictionary, keys):
+        '''Removes given keys from dictionary.'''
 
         for key in keys:
             del dictionary[key]
         return dictionary
 
     def __connect(self):
+        '''Connects to Mongo client'''
 
         self.client = MongoClient(self.host)
 
     def __open_db(self):
+        '''Opens Mongo database'''
 
         self.database = self.client[self.db_name]
 
     def __open_collections(self):
+        '''Opens the node, edge, and meta collections'''
 
         self.nodes = self.database[self.nodes_collection_name]
         self.edges = self.database[self.edges_collection_name]
         self.meta = self.database[self.meta_collection_name]
 
     def __get_metadata(self):
+        '''Gets metadata out of the meta collection and returns it
+        as a dictionary.'''
+
         metadata = self.meta.find_one({}, {"_id": False})
         return metadata;
 
     def __disconnect(self):
+        '''Closes the mongo client and removes references
+        to all collections and databases'''
 
         self.nodes = None
         self.edges = None
@@ -261,7 +273,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.client = None
 
     def __create_collections(self):
-
+        '''Creates the node and edge collections, including indexes'''
         self.__open_db()
         self.__open_collections()
 
@@ -295,22 +307,28 @@ class MongoDbGraphProvider(SharedGraphProvider):
             unique=True)
         
     def __check_metadata(self):
+        '''Checks if the provided metadata matches the existing
+        metadata in the meta collection'''
 
         self.__open_collections()
         metadata = self.__get_metadata()
         if self.directed and metadata['directed'] != self.directed:
-            raise ValueError("Input parameter directed={} does not match directed value {} already in stored metadata"\
+            raise ValueError("Input parameter directed={} does not match"
+                    "directed value {} already in stored metadata"\
                     .format(self.directed, metadata['directed']))
         if self.total_roi:
             if self.total_roi.get_offset() != metadata['total_roi_offset']:
-                raise ValueError("Input total_roi offset {} does not match total_roi offset {} already stored in metadata"\
+                raise ValueError("Input total_roi offset {} does not match"
+                        "total_roi offset {} already stored in metadata"\
                         .format(self.total_roi.get_offset(), metadata['total_roi_offset']))
             if self.total_roi.get_shape() != metadata['total_roi_shape']:
-                raise ValueError("Input total_roi shape {} does not match total_roi shape {} already stored in metadata"\
+                raise ValueError("Input total_roi shape {} does not match"
+                        "total_roi shape {} already stored in metadata"\
                         .format(self.total_roi.get_shape(), metadata['total_roi_shape']))
 
 
     def __set_metadata(self):
+        '''Sets the metadata in the meta collection to the provided values'''
 
         if not self.directed:
             #default is false
@@ -327,6 +345,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.meta.insert_one(meta_data)
 
     def __pos_query(self, roi):
+        '''Generates a mongo query for position'''
 
         begin = roi.get_begin()
         end = roi.get_end()
@@ -519,7 +538,7 @@ class MongoDbSubGraph(SharedSubGraph):
             raise
 
     def __contains(self, roi, node):
-
+        '''Determines if the given node is inside the given roi'''
         node_data = self.g.node[node]
 
         # Some nodes are outside of the originally requested ROI (they have
