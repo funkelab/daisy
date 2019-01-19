@@ -66,7 +66,7 @@ class Scheduler():
     def distribute(self, graph):
 
         try:
-            self.__distribute(graph)
+            return self.__distribute(graph)
         except Exception as e:
             logger.error(e)
             os._exit(1)
