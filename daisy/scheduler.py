@@ -246,6 +246,14 @@ class Scheduler():
 
         env = {'DAISY_CONTEXT': context.to_env()}
 
+        logger.debug(
+            "Recruiting worker with:"
+            "\n\tenv           %s"
+            "\n\tfunction      %s"
+            "\n\targs          %s"
+            "\n\tlog_to_files  %s"
+            "\n\tlog_to_stdout %s",
+            env, function, args, log_to_files, log_to_stdout)
         proc = spawn_function(
             function, args, env,
             log_dir+"/worker.{}.out".format(context.worker_id),
