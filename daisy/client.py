@@ -86,7 +86,7 @@ class Client():
         self.send(
             SchedulerMessage(
                 SchedulerMessageType.WORKER_HANDSHAKE,
-                data=self.context.actor_id))
+                data=self.context.worker_id))
 
     async def _start(self):
         '''Start the TCP client.'''
@@ -146,8 +146,8 @@ class Client():
 
             except StreamClosedError:
                 logger.error(
-                    "Actor %s async_recv got StreamClosedError" %
-                    self.context.actor_id)
+                    "Worker %s async_recv got StreamClosedError" %
+                    self.context.worker_id)
                 break
 
         # all done, notify client code to exit
@@ -162,8 +162,8 @@ class Client():
             await self.stream.write(data)
         except StreamClosedError:
             logger.error(
-                "Actor %s async_send got StreamClosedError" %
-                self.context.actor_id)
+                "Worker %s async_send got StreamClosedError" %
+                self.context.worker_id)
 
     def send(self, data):
         '''Non-async wrapper for async_send()'''
@@ -185,8 +185,8 @@ class Client():
 
             ret = self.job_queue.popleft()
             logger.info(
-                "Actor %s received block %s" %
-                (self.context.actor_id, ret))
+                "Worker %s received block %s" %
+                (self.context.worker_id, ret))
             return ret
 
     def release_block(self, block, ret):
