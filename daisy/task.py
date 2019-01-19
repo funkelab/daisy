@@ -77,6 +77,10 @@ class Task():
             # default task ID is the class name
             self.task_id = type(self).__name__
 
+        self.__init_parameters(**kwargs)
+
+    def __init_parameters(self, **kwargs):
+
         self.__daisy_params__ = {}
         self.inheritParameters(self.__class__)
 
@@ -88,38 +92,6 @@ class Task():
                 raise RuntimeError(
                         "Key %s not found in "
                         "Parameter list for Task %s" %
-                        (key, self.task_id))
-
-    def init_from_config(self, global_config):
-        '''Daisy calls this function internally if a global config was
-        passed in.
-
-        These configurations have lower priority than the configs
-        given in the constructor.
-        '''
-
-        if global_config is None:
-            return
-        if self.task_id not in global_config:
-            return
-
-        config = global_config[self.task_id]
-
-        for key in config:
-
-            if key in self.__daisy_params__:
-
-                if not self.__daisy_params__[key].user_spec:
-                    self.__daisy_params__[key].val = config[key]
-                else:
-                    # do not override user input from __init__()
-                    print("Skip file setting %s to %s, user value %s" %
-                          (key, config[key], self.__daisy_params__[key].val))
-                    continue
-
-            else:
-                raise RuntimeError(
-                        "Key %s is not in the Parameter list for Task %s" %
                         (key, self.task_id))
 
         # finalize parameters
