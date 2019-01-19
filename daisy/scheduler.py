@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 
-from .client_scheduler import ClientScheduler
+from .client import Client
 from .context import Context
 from .dependency_graph import DependencyGraph
 from .processes import spawn_function
@@ -431,7 +431,7 @@ class Scheduler():
 def _local_actor_wrapper(received_fn, port, task_id):
     '''Simple wrapper for local process function'''
 
-    sched = ClientScheduler()
+    client = Client()
 
     try:
         user_fn, args = received_fn
@@ -442,11 +442,11 @@ def _local_actor_wrapper(received_fn, port, task_id):
     except Exception:
         fn = received_fn
     while True:
-        block = sched.acquire_block()
+        block = client.acquire_block()
         if block is None:
             break
         ret = fn(block)
-        sched.release_block(block, ret)
+        client.release_block(block, ret)
 
 
 def run_blockwise(

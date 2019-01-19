@@ -14,12 +14,12 @@ import time
 logger = logging.getLogger(__name__)
 
 
-class ClientScheduler():
+class Client():
     '''Client code that runs on a remote worker providing task management
     API for user code. It communicates with the scheduler through TCP/IP.
 
     Scheduler IP address, port, and other configurations are typically
-    passed to ``ClientScheduler`` through an environment variable named
+    passed to ``Client`` through an environment variable named
     'DAISY_CONTEXT'.
 
     Example usage:
@@ -28,13 +28,13 @@ class ClientScheduler():
             ...
 
         def main():
-            sched = ClientScheduler()
+            client = Client()
             while True:
-                block = sched.acquire_block()
+                block = client.acquire_block()
                 if block == None:
                     break;
                 ret = blockwise_process(block)
-                sched.release_block(block, ret)
+                client.release_block(block, ret)
     '''
 
     def __init__(
@@ -53,10 +53,10 @@ class ClientScheduler():
 
             ioloop(``tornado.IOLoop``, optional):
 
-                If not passed in, ClientScheduler will start an ioloop
-                in a concurrent thread
+                If not passed in, Clientwill start an ioloop in a concurrent
+                thread
         '''
-        logger.info("ClientScheduler init")
+        logger.info("Client init")
         self.context = context
         self.connected = False
         self.error_state = False
