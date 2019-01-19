@@ -52,7 +52,7 @@ class Task():
             if isinstance(current_class.__dict__[param], Parameter):
                 self.__daisy_params__[param] = current_class.__dict__[param]
 
-    def __init__(self, task_id=None, **kwargs):
+    def __init__(self, task_id=None, global_config=None, **kwargs):
         '''Constructor for ``Task``. Should not be overridden by
         subclasses.
 
@@ -63,6 +63,22 @@ class Task():
                 Unique identifier of the task. Tasks that have the
                 same ID are exactly the same task in the dependency
                 graph.
+
+            global_config (``dict``, optional):
+
+                If given, parameters of this task will be initialized with
+                values from the given dictionary. Named arguments will have
+                precedence. The dictionary should map task IDs to dictionaries
+                with the parameter names and values. Example::
+
+                    class FooTask(daisy.Task):
+                        a = daisy.Parameter()
+
+                    f = FooTask(global_config={'FooTask': { 'a': 42 } })
+
+                would be equivalent to::
+
+                    f = FooTask(a=42)
 
             kwargs:
 
@@ -77,12 +93,24 @@ class Task():
             # default task ID is the class name
             self.task_id = type(self).__name__
 
+        self.global_config = global_config
         self.__init_parameters(**kwargs)
 
     def __init_parameters(self, **kwargs):
 
         self.__daisy_params__ = {}
         self.inheritParameters(self.__class__)
+
+        # apply global configuration (if given)
+        if self.global_config and self.task_id in self.global_config:
+            config = self.global_config[self.task_id]
+            for key in config:
+                if key in self.__daisy_params__:
+                    self.__daisy_params__[key].set(config[key])
+                else:
+                    raise RuntimeError(
+                            "Key %s is not in the Parameter list for Task %s" %
+                            (key, self.task_id))
 
         # applying user input parameters
         for key in kwargs:
