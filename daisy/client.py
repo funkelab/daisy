@@ -159,6 +159,7 @@ class Client():
                 with self.job_queue_cv:
                     self.job_queue.append(e)
                     self.job_queue_cv.notify()
+                break
 
         # all done, notify client code to exit
         with self.job_queue_cv:
@@ -195,7 +196,11 @@ class Client():
 
             ret = self.job_queue.popleft()
 
-            if isinstance(ret, Exception):
+            if isinstance(ret, StreamClosedError):
+                # StreamClosedError can not be distinguished from proper
+                # teardown, just tell the client to stop
+                ret = None
+            elif isinstance(ret, Exception):
                 raise ret
 
             logger.info(
