@@ -6,11 +6,11 @@ logger = logging.getLogger(__name__)
 
 class Context():
 
-    def __init__(self, hostname, port, task_id, actor_id, num_workers):
+    def __init__(self, hostname, port, task_id, worker_id, num_workers):
         self.hostname = hostname
         self.port = port
         self.task_id = task_id
-        self.actor_id = actor_id
+        self.worker_id = worker_id
         self.num_workers = num_workers
 
     def to_env(self):
@@ -19,7 +19,7 @@ class Context():
             self.hostname,
             self.port,
             self.task_id,
-            self.actor_id,
+            self.worker_id,
             self.num_workers
         )
 

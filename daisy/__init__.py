@@ -2,7 +2,7 @@ from __future__ import absolute_import
 from . import persistence # noqa
 from .array import Array # noqa
 from .blocks import create_dependency_graph # noqa
-from .client_scheduler import ClientScheduler # noqa
+from .client import Client # noqa
 from .context import Context # noqa
 from .coordinate import Coordinate # noqa
 from .datasets import open_ds, prepare_ds # noqa

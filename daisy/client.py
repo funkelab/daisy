@@ -14,12 +14,12 @@ import time
 logger = logging.getLogger(__name__)
 
 
-class ClientScheduler():
+class Client():
     '''Client code that runs on a remote worker providing task management
     API for user code. It communicates with the scheduler through TCP/IP.
 
     Scheduler IP address, port, and other configurations are typically
-    passed to ``ClientScheduler`` through an environment variable named
+    passed to ``Client`` through an environment variable named
     'DAISY_CONTEXT'.
 
     Example usage:
@@ -28,13 +28,13 @@ class ClientScheduler():
             ...
 
         def main():
-            sched = ClientScheduler()
+            client = Client()
             while True:
-                block = sched.acquire_block()
+                block = client.acquire_block()
                 if block == None:
                     break;
                 ret = blockwise_process(block)
-                sched.release_block(block, ret)
+                client.release_block(block, ret)
     '''
 
     def __init__(
@@ -53,10 +53,10 @@ class ClientScheduler():
 
             ioloop(``tornado.IOLoop``, optional):
 
-                If not passed in, ClientScheduler will start an ioloop
-                in a concurrent thread
+                If not passed in, Clientwill start an ioloop in a concurrent
+                thread
         '''
-        logger.info("ClientScheduler init")
+        logger.info("Client init")
         self.context = context
         self.connected = False
         self.error_state = False
@@ -86,7 +86,7 @@ class ClientScheduler():
         self.send(
             SchedulerMessage(
                 SchedulerMessageType.WORKER_HANDSHAKE,
-                data=self.context.actor_id))
+                data=self.context.worker_id))
 
     async def _start(self):
         '''Start the TCP client.'''
@@ -146,8 +146,8 @@ class ClientScheduler():
 
             except StreamClosedError:
                 logger.error(
-                    "Actor %s async_recv got StreamClosedError" %
-                    self.context.actor_id)
+                    "Worker %s async_recv got StreamClosedError" %
+                    self.context.worker_id)
                 break
 
         # all done, notify client code to exit
@@ -162,8 +162,8 @@ class ClientScheduler():
             await self.stream.write(data)
         except StreamClosedError:
             logger.error(
-                "Actor %s async_send got StreamClosedError" %
-                self.context.actor_id)
+                "Worker %s async_send got StreamClosedError" %
+                self.context.worker_id)
 
     def send(self, data):
         '''Non-async wrapper for async_send()'''
@@ -185,8 +185,8 @@ class ClientScheduler():
 
             ret = self.job_queue.popleft()
             logger.info(
-                "Actor %s received block %s" %
-                (self.context.actor_id, ret))
+                "Worker %s received block %s" %
+                (self.context.worker_id, ret))
             return ret
 
     def release_block(self, block, ret):
