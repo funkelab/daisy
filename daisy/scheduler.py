@@ -120,8 +120,8 @@ class Scheduler():
 
                 self.send_block(worker, block)
                 logger.info(
-                    "Pushed block %d of task %s to worker %s. \nBlock info: %s",
-                    block.block_id, task_id, worker, block)
+                    "Pushed block %s of task %s to worker %s.",
+                    block, task_id, worker)
 
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
@@ -276,7 +276,7 @@ class Scheduler():
 
             if spawn_workers:
                 if log_to_files and log_to_stdout:
-                    logger.warn(
+                    logger.warning(
                         "It is not possible to log to both files and stdout "
                         "for spawning workers at the moment. File logging "
                         "will be disabled for task %s.", task_id)
@@ -330,7 +330,7 @@ class Scheduler():
 
     def add_idle_worker_callback(self, worker, task):
         '''TCP server calls this to add an worker to the idle queue'''
-        if (worker not in self.worker_type) or (self.worker_type[worker] is None):
+        if self.worker_type.get(worker, None) is None:
             self.register_worker(worker, task)
 
         logger.debug(
