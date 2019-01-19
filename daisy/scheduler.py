@@ -64,6 +64,18 @@ class Scheduler():
         self.started_processes = set()
 
     def distribute(self, graph):
+
+        try:
+            return self.__distribute(graph)
+        except Exception as e:
+            logger.error(e)
+            os._exit(1)
+        except KeyboardInterrupt:
+            logger.error("Keyboard interrupt")
+            os._exit(1)
+
+    def __distribute(self, graph):
+
         self.graph = graph
         all_tasks = graph.get_tasks()
         for task in all_tasks:
@@ -234,6 +246,14 @@ class Scheduler():
 
         env = {'DAISY_CONTEXT': context.to_env()}
 
+        logger.debug(
+            "Recruiting worker with:"
+            "\n\tenv           %s"
+            "\n\tfunction      %s"
+            "\n\targs          %s"
+            "\n\tlog_to_files  %s"
+            "\n\tlog_to_stdout %s",
+            env, function, args, log_to_files, log_to_stdout)
         proc = spawn_function(
             function, args, env,
             log_dir+"/worker.{}.out".format(context.worker_id),

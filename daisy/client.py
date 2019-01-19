@@ -95,11 +95,11 @@ class Client():
             self.context.hostname,
             self.context.port)
 
-        self.stream = await self._connect_with_retry()
-        if self.stream is None:
+        try:
+            self.stream = await self._connect_with_retry()
+        except Exception:
             self.error_state = True
-            # raise
-            return
+            raise
 
         self.job_queue = deque()
         self.job_queue_cv = threading.Condition()
@@ -111,21 +111,29 @@ class Client():
     async def _connect_with_retry(self):
         '''Helper method that tries to connect to the scheduler within
         a number of retries.'''
+        num_retries = 10
         counter = 0
         while True:
             try:
+                logger.debug("calling TCPClient().connect() ...")
                 stream = await TCPClient().connect(
                     self.context.hostname,
                     self.context.port,
                     timeout=60)
                 return stream
+            except TimeoutError:
+                logger.error("call to TCPClient().connect() timed out")
+                raise
             except Exception:
                 logger.debug("TCP connect error, retry...")
-                counter = counter + 1
-                if (counter > 10):
+                counter += 1
+                if (counter > num_retries):
                     # retry for 10 seconds
-                    logger.debug("Timeout, quitting.")
-                    return None
+                    logger.error(
+                        "TCP connection failed %d times, giving up",
+                        num_retries)
+                    raise RuntimeError(
+                        "TCP connection could not be established")
                 await asyncio.sleep(1)
 
     async def async_recv(self):
@@ -144,10 +152,13 @@ class Client():
                 elif msg.type == SchedulerMessageType.TERMINATE_WORKER:
                     break
 
-            except StreamClosedError:
+            except Exception as e:
                 logger.error(
-                    "Worker %s async_recv got StreamClosedError" %
-                    self.context.worker_id)
+                    "Worker %s async_recv got Exception %s",
+                    self.context.worker_id, e)
+                with self.job_queue_cv:
+                    self.job_queue.append(e)
+                    self.job_queue_cv.notify()
                 break
 
         # all done, notify client code to exit
@@ -184,6 +195,14 @@ class Client():
                 self.job_queue_cv.wait()
 
             ret = self.job_queue.popleft()
+
+            if isinstance(ret, StreamClosedError):
+                # StreamClosedError can not be distinguished from proper
+                # teardown, just tell the client to stop
+                ret = None
+            elif isinstance(ret, Exception):
+                raise ret
+
             logger.info(
                 "Worker %s received block %s" %
                 (self.context.worker_id, ret))
