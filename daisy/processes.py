@@ -6,6 +6,7 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+
 def _freopen(filename, mode, fobj):
     """Redirect file descriptors
     Example usage: _freopen(log_out, 'w', sys.stdout)
