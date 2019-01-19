@@ -51,8 +51,6 @@ class DependencyGraph():
                 Task to be added to the graph. Its dependencies are
                 automatically and recursively added to the graph.
         '''
-        task.init_from_config(self.global_config)
-
         if self.leaf_task_id is None:
             self.leaf_task_id = task.task_id
         else:
@@ -66,7 +64,6 @@ class DependencyGraph():
     def add_task_dependency(self, task):
         '''Recursively add dependencies of a task to the graph.'''
         for dependency_task in task.requires():
-            dependency_task.init_from_config(self.global_config)
             self.tasks.add(dependency_task)
             # modify task dependency graph
             self.task_dependency[task.task_id].add(dependency_task.task_id)
