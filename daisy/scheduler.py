@@ -135,6 +135,9 @@ class Scheduler():
                     "Pushed block %s of task %s to worker %s.",
                     block, task_id, worker)
 
+        # stop tornado
+        self.ioloop.add_callback(self.ioloop.stop)
+
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
         self.close_all_workers()
