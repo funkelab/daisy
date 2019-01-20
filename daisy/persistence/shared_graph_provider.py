@@ -56,9 +56,8 @@ class SharedGraphProvider(object):
             node/edge attribute to a ``ndarray`` with the corresponding values.
         '''
 
-        manager = multiprocessing.Manager()
-        block_queue = manager.Queue()
-        blocks_done = manager.Event()
+        block_queue = multiprocessing.Queue()
+        blocks_done = multiprocessing.Event()
 
         master = multiprocessing.Process(
             target=read_blockwise_master,
@@ -83,7 +82,7 @@ class SharedGraphProvider(object):
                 start = time.time()
                 block_nodes, block_edges = block_queue.get(timeout=0.1)
                 logger.debug(
-                    "Read graph data from block in %.3fs",
+                    "Read graph data from queue in %.3fs",
                     time.time() - start)
             except Empty:
                 if last_round:
@@ -166,8 +165,9 @@ def read_blockwise_master(
 def read_blockwise_worker(graph_provider, block, block_queue):
 
     start = time.time()
+    logger.debug("Reading graph in block %s", block)
     graph = graph_provider[block.read_roi]
-    logger.debug("Read block graph in %.3fs", time.time() - start)
+    logger.debug("Read graph from graph provider in %.3fs", time.time() - start)
 
     nodes = {
         'id': []
@@ -191,7 +191,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         if probe not in data:
             continue
 
-        nodes['id'].append(node)
+        nodes['id'].append(np.uint64(node))
         for k, v in data.items():
             if k not in nodes:
                 nodes[k] = []
@@ -199,8 +199,8 @@ def read_blockwise_worker(graph_provider, block, block_queue):
 
     for u, v, data in graph.edges(data=True):
 
-        edges['u'].append(u)
-        edges['v'].append(v)
+        edges['u'].append(np.uint64(u))
+        edges['v'].append(np.uint64(v))
         for k, v in data.items():
             if k not in edges:
                 edges[k] = []
@@ -214,7 +214,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         k: np.array(v)
         for k, v in edges.items()
     }
-    logger.debug("Parsed block graph in %.3fs", time.time() - start)
+    logger.debug("Parsed graph in %.3fs", time.time() - start)
 
     start = time.time()
     block_queue.put((nodes, edges))
