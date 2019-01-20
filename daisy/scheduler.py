@@ -87,9 +87,9 @@ class Scheduler():
 
         self.results = []
 
-        logger.info("Server running at %s", self.net_identity)
+        logger.debug("Server running at %s", self.net_identity)
         logger.info("Scheduling %d tasks to completion.", graph.size())
-        logger.info("Max parallelism seems to be %d.", graph.ready_size())
+        logger.debug("Max parallelism seems to be %d.", graph.ready_size())
 
         while not graph.empty():
 
@@ -109,7 +109,7 @@ class Scheduler():
                 pre_check_ret = False
 
             if pre_check_ret:
-                logger.info(
+                logger.debug(
                     "Skipping %s block %d; already processed.",
                     task_id, block.block_id)
                 ret = ReturnCode.SKIPPED
@@ -131,7 +131,7 @@ class Scheduler():
                             continue
 
                 self.send_block(worker, block)
-                logger.info(
+                logger.debug(
                     "Pushed block %s of task %s to worker %s.",
                     block, task_id, worker)
 
@@ -396,7 +396,7 @@ class Scheduler():
     def register_worker(self, worker, task_id):
         '''Register new worker with bookkeeping variables. If scheduler loop
         had finished it will not, instead terminating this new worker.'''
-        logger.info("Registering new worker %s", worker)
+        logger.debug("Registering new worker %s", worker)
         if self.finished_scheduling:
             self.send_terminate(worker)
             return

@@ -56,7 +56,7 @@ class Client():
                 If not passed in, Clientwill start an ioloop in a concurrent
                 thread
         '''
-        logger.info("Client init")
+        logger.debug("Client init")
         self.context = context
         self.connected = False
         self.error_state = False
@@ -76,7 +76,7 @@ class Client():
 
         self.ioloop.add_callback(self._start)
 
-        logger.info("Waiting for connection to Daisy scheduler...")
+        logger.debug("Waiting for connection to Daisy scheduler...")
         while not self.connected:
             time.sleep(.1)
             if self.error_state:
@@ -90,7 +90,7 @@ class Client():
 
     async def _start(self):
         '''Start the TCP client.'''
-        logger.info(
+        logger.debug(
             "Connecting to scheduler at %s:%d",
             self.context.hostname,
             self.context.port)
@@ -203,7 +203,7 @@ class Client():
             elif isinstance(ret, Exception):
                 raise ret
 
-            logger.info(
+            logger.debug(
                 "Worker %s received block %s" %
                 (self.context.worker_id, ret))
             return ret
