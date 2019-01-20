@@ -183,18 +183,35 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("read nodes: %s", node_list)
 
             # get all edges that have their u in the selected nodes
+            edge_list = []
             node_ids = list([node[0] for node in node_list])
             logger.debug("looking for edges with u in %s", node_ids)
-            edges = self.edges.find(
-                {
-                    'u': {'$in': node_ids}
-                })
 
-            # create a list of edges and their attributes
-            edge_list = [
-                (e['u'], e['v'], self.__remove_keys(e, ['u', 'v']))
-                for e in edges
-            ]
+            # limit query to 1M node IDs (otherwise we might exceed the 16MB
+            # BSON document size limit)
+            length = len(node_ids)
+            query_size = 1000000
+            num_chunks = (length - 1)//query_size + 1
+            for i in range(num_chunks):
+
+                i_b = i*query_size
+                i_e = min((i + 1)*query_size, len(node_ids))
+                assert i_b < len(node_ids)
+
+                edges = self.edges.find(
+                    {
+                        'u': {'$in': node_ids[i_b:i_e]}
+                    })
+
+                # create a list of edges and their attributes
+                edge_list += [
+                    (e['u'], e['v'], self.__remove_keys(e, ['u', 'v']))
+                    for e in edges
+                ]
+
+            if num_chunks > 0:
+                assert i_e == len(node_ids)
+
             logger.debug("found %d edges", len(edge_list))
             logger.debug("read edges: %s", edge_list)
 
