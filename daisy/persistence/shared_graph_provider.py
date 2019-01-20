@@ -167,7 +167,9 @@ def read_blockwise_worker(graph_provider, block, block_queue):
     start = time.time()
     logger.debug("Reading graph in block %s", block)
     graph = graph_provider[block.read_roi]
-    logger.debug("Read graph from graph provider in %.3fs", time.time() - start)
+    logger.debug(
+        "Read graph from graph provider in %.3fs",
+        time.time() - start)
 
     nodes = {
         'id': []
