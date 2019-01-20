@@ -192,7 +192,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         if probe not in data:
             continue
 
-        nodes['id'].append(node)
+        nodes['id'].append(np.uint64(node))
         for k, v in data.items():
             if k not in nodes:
                 nodes[k] = []
@@ -200,8 +200,8 @@ def read_blockwise_worker(graph_provider, block, block_queue):
 
     for u, v, data in graph.edges(data=True):
 
-        edges['u'].append(u)
-        edges['v'].append(v)
+        edges['u'].append(np.uint64(u))
+        edges['v'].append(np.uint64(v))
         for k, v in data.items():
             if k not in edges:
                 edges[k] = []
