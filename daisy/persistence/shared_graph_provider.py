@@ -83,7 +83,7 @@ class SharedGraphProvider(object):
                 start = time.time()
                 block_nodes, block_edges = block_queue.get(timeout=0.1)
                 logger.debug(
-                    "Read graph data from block in %.3fs",
+                    "Read graph data from queue in %.3fs",
                     time.time() - start)
             except Empty:
                 if last_round:
@@ -166,8 +166,9 @@ def read_blockwise_master(
 def read_blockwise_worker(graph_provider, block, block_queue):
 
     start = time.time()
+    logger.debug("Reading graph in block %s", block)
     graph = graph_provider[block.read_roi]
-    logger.debug("Read block graph in %.3fs", time.time() - start)
+    logger.debug("Read graph from graph provider in %.3fs", time.time() - start)
 
     nodes = {
         'id': []
@@ -214,7 +215,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         k: np.array(v)
         for k, v in edges.items()
     }
-    logger.debug("Parsed block graph in %.3fs", time.time() - start)
+    logger.debug("Parsed graph in %.3fs", time.time() - start)
 
     start = time.time()
     block_queue.put((nodes, edges))
