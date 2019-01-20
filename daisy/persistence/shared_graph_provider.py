@@ -56,9 +56,8 @@ class SharedGraphProvider(object):
             node/edge attribute to a ``ndarray`` with the corresponding values.
         '''
 
-        manager = multiprocessing.Manager()
-        block_queue = manager.Queue()
-        blocks_done = manager.Event()
+        block_queue = multiprocessing.Queue()
+        blocks_done = multiprocessing.Event()
 
         master = multiprocessing.Process(
             target=read_blockwise_master,
