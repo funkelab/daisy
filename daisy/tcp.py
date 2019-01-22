@@ -151,18 +151,14 @@ class SchedulerMessage():
 
 
 async def get_and_unpack_message(stream):
-    logger.debug("reading message from %s", stream)
     try:
         size = await stream.read_bytes(4)
     except StreamClosedError:
         logger.debug("stream %s was closed", stream)
         raise
-    logger.debug("got first 4 bytes")
     size = struct.unpack('I', size)[0]
     assert(size < 65535)  # TODO: parameterize max message size
-    logger.debug("Receiving {} bytes".format(size))
     pickled_data = await stream.read_bytes(size)
-    logger.debug("got next %d bytes", size)
     msg = pickle.loads(pickled_data)
     return msg
 

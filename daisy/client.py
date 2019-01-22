@@ -88,6 +88,14 @@ class Client():
                 SchedulerMessageType.WORKER_HANDSHAKE,
                 data=self.context.worker_id))
 
+    def __del__(self):
+        '''Stop spawn ioloop when client is done'''
+        try:
+            self.ioloop.add_callback(self.ioloop.stop)
+        except Exception:
+            # self.ioloop is None
+            pass
+
     async def _start(self):
         '''Start the TCP client.'''
         logger.debug(
