@@ -66,17 +66,6 @@ class Scheduler():
 
     def distribute(self, graph):
 
-        try:
-            return self.__distribute(graph)
-        except Exception as e:
-            logger.error(e)
-            os._exit(1)
-        except KeyboardInterrupt:
-            logger.error("Keyboard interrupt")
-            os._exit(1)
-
-    def __distribute(self, graph):
-
         self.graph = graph
         all_tasks = graph.get_tasks()
         for task in all_tasks:
