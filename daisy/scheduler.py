@@ -15,6 +15,7 @@ import logging
 import os
 import queue
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -64,17 +65,6 @@ class Scheduler():
         self.started_processes = set()
 
     def distribute(self, graph):
-
-        try:
-            return self.__distribute(graph)
-        except Exception as e:
-            logger.error(e)
-            os._exit(1)
-        except KeyboardInterrupt:
-            logger.error("Keyboard interrupt")
-            os._exit(1)
-
-    def __distribute(self, graph):
 
         self.graph = graph
         all_tasks = graph.get_tasks()
@@ -136,15 +126,11 @@ class Scheduler():
                     block, task_id, worker)
 
         self.finished_scheduling = True
+        self.tcpserver.daisy_close()
+        self.close_all_workers()
 
         # stop tornado
         self.ioloop.add_callback(self.ioloop.stop)
-
-        self.tcpserver.daisy_close()
-        self.close_all_workers()
-        for proc in self.started_processes:
-            # terminate possibly hanging processes
-            proc.terminate()
 
         succeeded = [t for t, r in self.results if r == ReturnCode.SUCCESS]
         skipped = [t for t, r in self.results if r == ReturnCode.SKIPPED]
@@ -372,6 +358,18 @@ class Scheduler():
 
         for task in self.tasks:
             self.tasks[task].cleanup()
+
+        # 10 minutes from now
+        timeout = time.time() + 60*10
+
+        # join worker processes
+        for proc in self.started_processes:
+            # give workers time to finish
+            proc.join(timeout=max(1, timeout - time.time()))
+
+        # terminate possibly hanging processes
+        for proc in self.started_processes:
+            proc.terminate()
 
     def finish_task(self, task_id):
         '''Called when a task is completely finished. Currently this function
