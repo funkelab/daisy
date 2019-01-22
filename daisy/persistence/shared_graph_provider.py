@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from ..client import Client
 from ..graph import Graph
 from ..roi import Roi
 from ..scheduler import run_blockwise
@@ -57,7 +58,6 @@ class SharedGraphProvider(object):
         '''
 
         block_queue = multiprocessing.Queue()
-        blocks_done = multiprocessing.Event()
 
         master = multiprocessing.Process(
             target=read_blockwise_master,
@@ -66,8 +66,7 @@ class SharedGraphProvider(object):
                 roi,
                 block_size,
                 num_workers,
-                block_queue,
-                blocks_done))
+                block_queue))
         master.start()
 
         nodes = {}
@@ -76,19 +75,23 @@ class SharedGraphProvider(object):
         i = 0
         while True:
 
-            last_round = blocks_done.is_set()
-
             try:
                 start = time.time()
-                block_nodes, block_edges = block_queue.get(timeout=0.1)
+                block = block_queue.get(timeout=0.1)
+
+                if block is None:
+                    logger.debug(
+                        "Found None in queue, returning")
+                    break
+
+                block_nodes, block_edges = block
+
                 logger.debug(
                     "Read graph data from queue in %.3fs",
                     time.time() - start)
+
             except Empty:
-                if last_round:
-                    break
-                else:
-                    continue
+                continue
 
             i += 1
             if i % 100 == 0:
@@ -145,24 +148,48 @@ def read_blockwise_master(
         roi,
         block_size,
         num_workers,
-        block_queue,
-        blocks_done):
+        block_queue):
 
     run_blockwise(
         roi,
         read_roi=Roi((0,)*len(block_size), block_size),
         write_roi=Roi((0,)*len(block_size), block_size),
-        process_function=lambda b: read_blockwise_worker(
+        process_function=lambda: read_blockwise_worker(
             graph_provider,
-            b,
             block_queue),
         fit='shrink',
         num_workers=num_workers)
 
-    blocks_done.set()
+    # indicate that there are no more blocks to come
+    block_queue.put(None)
+
+    logger.debug("Read block-wise master exiting")
 
 
-def read_blockwise_worker(graph_provider, block, block_queue):
+def read_blockwise_worker(graph_provider, block_queue):
+
+    client = Client()
+
+    while True:
+
+        block = client.acquire_block()
+        if block is None:
+            break
+
+        read_block(graph_provider, block, block_queue)
+
+        client.release_block(block, 0)
+
+    # make sure all changes are flushed before we exit
+    block_queue.close()
+    block_queue.join_thread()
+
+    logger.debug(
+        "Read block-wise worker %d done, all data written to queue",
+        client.context.worker_id)
+
+
+def read_block(graph_provider, block, block_queue):
 
     start = time.time()
     logger.debug("Reading graph in block %s", block)
