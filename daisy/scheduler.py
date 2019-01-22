@@ -135,10 +135,11 @@ class Scheduler():
                     "Pushed block %s of task %s to worker %s.",
                     block, task_id, worker)
 
+        self.finished_scheduling = True
+
         # stop tornado
         self.ioloop.add_callback(self.ioloop.stop)
 
-        self.finished_scheduling = True
         self.tcpserver.daisy_close()
         self.close_all_workers()
         for proc in self.started_processes:
@@ -217,7 +218,8 @@ class Scheduler():
             self.workers.remove(worker)
             self.worker_type[worker] = None
 
-        if task_id not in self.finished_tasks:
+        if ((not self.finished_scheduling) and
+                (task_id not in self.finished_tasks)):
             # task is unfinished--keep respawning to finish task
 
             num_workers = self.tasks[task_id].num_workers
