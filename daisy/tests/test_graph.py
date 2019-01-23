@@ -23,13 +23,13 @@ class TestGraph(unittest.TestCase):
                 (10, 10, 10))
         ]
 
-        graph.g.add_node(2, comment="without position")
-        graph.g.add_node(42, position=(1, 1, 1))
-        graph.g.add_node(23, position=(5, 5, 5), swip='swap')
-        graph.g.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
-        graph.g.add_edge(42, 23)
-        graph.g.add_edge(57, 23)
-        graph.g.add_edge(2, 42)
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(42, 23)
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
 
         graph.write_nodes()
         graph.write_edges()
@@ -69,13 +69,13 @@ class TestGraph(unittest.TestCase):
                 (10, 10, 10))
         ]
 
-        graph.g.add_node(2, comment="without position")
-        graph.g.add_node(42, position=(1, 1, 1))
-        graph.g.add_node(23, position=(5, 5, 5), swip='swap')
-        graph.g.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
-        graph.g.add_edge(42, 23)
-        graph.g.add_edge(57, 23)
-        graph.g.add_edge(2, 42)
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(42, 23)
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
 
         graph.write_nodes()
         graph.write_edges()
@@ -97,13 +97,13 @@ class TestGraph(unittest.TestCase):
                 (10, 10, 10))
         ]
 
-        graph.g.add_node(2, comment="without position")
-        graph.g.add_node(42, position=(1, 1, 1))
-        graph.g.add_node(23, position=(5, 5, 5), swip='swap')
-        graph.g.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
-        graph.g.add_edge(42, 23)
-        graph.g.add_edge(57, 23)
-        graph.g.add_edge(2, 42)
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(42, 23)
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
 
         with self.assertRaises(Exception):
             graph.write_nodes(fail_if_not_exists=True)
@@ -121,13 +121,13 @@ class TestGraph(unittest.TestCase):
                 (10, 10, 10))
         ]
 
-        graph.g.add_node(2, comment="without position")
-        graph.g.add_node(42, position=(1, 1, 1))
-        graph.g.add_node(23, position=(5, 5, 5), swip='swap')
-        graph.g.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
-        graph.g.add_edge(42, 23)
-        graph.g.add_edge(57, 23)
-        graph.g.add_edge(2, 42)
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(42, 23)
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
         
         graph.write_nodes(attributes=['position', 'swip'])
         graph.write_edges()
@@ -165,14 +165,14 @@ class TestGraph(unittest.TestCase):
                 (10, 10, 10))
         ]
 
-        graph.g.add_node(2, comment="without position")
-        graph.g.add_node(42, position=(1, 1, 1))
-        graph.g.add_node(23, position=(5, 5, 5), swip='swap')
-        graph.g.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
-        graph.g.add_edge(42, 23)
-        graph.g.add_edge(57, 23)
-        graph.g.add_edge(2, 42)
-        
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(42, 23)
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
+      
         write_roi = daisy.Roi((0,0,0), (6, 6, 6))
         graph.write_nodes(roi=write_roi)
         graph.write_edges(roi=write_roi)
