@@ -2,7 +2,8 @@ from __future__ import absolute_import
 from ..coordinate import Coordinate
 from ..roi import Roi
 from .shared_graph_provider import\
-    SharedGraphProvider, SharedSubGraph, SharedSubDiGraph
+    SharedGraphProvider, SharedSubGraph
+from ..graph import Graph, DiGraph
 from pymongo import MongoClient, ASCENDING, ReplaceOne
 from pymongo.errors import BulkWriteError, WriteError
 import logging
@@ -221,7 +222,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 for e in edges]
 
         if self.directed:
-            graph = MongoDbSubDiGraph(
+            graph = MongoDbDiSubGraph(
                 self.db_name,
                 roi,
                 self.host,
@@ -383,7 +384,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
             }
 
 
-class MongoDbSubDiGraph(SharedSubDiGraph):
+class MongoDbSharedSubGraph(SharedSubGraph):
+
     def __init__(
             self,
             db_name,
@@ -426,6 +428,8 @@ class MongoDbSubDiGraph(SharedSubDiGraph):
 
         edges = []
         for u, v, data in self.edges(data=True):
+            if not self.is_directed():
+                u, v = min(u, v), max(u, v)
             if not self.__contains(roi, u):
                 continue
 
@@ -571,9 +575,11 @@ class MongoDbSubDiGraph(SharedSubDiGraph):
 
         return roi.contains(Coordinate(node_data['position']))
 
+    def is_directed(self):
+        raise RuntimeError("not implemented in %s" % self.name())
 
-class MongoDbSubGraph(SharedSubGraph):
 
+class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
     def __init__(
             self,
             db_name,
@@ -582,182 +588,38 @@ class MongoDbSubGraph(SharedSubGraph):
             mode='r+',
             nodes_collection='nodes',
             edges_collection='edges'):
+        # this calls the init function of the MongoDbSharedSubGraph,
+        # because left parents come before right parents
+        super().__init__(
+                db_name,
+                roi,
+                host=host,
+                mode=mode,
+                nodes_collection=nodes_collection,
+                edges_collection=edges_collection)
 
-        super().__init__()
+    
+    def is_directed(self):
+        return False
 
-        self.db_name = db_name
-        self.roi = roi
-        self.host = host
-        self.mode = mode
-
-        self.client = MongoClient(self.host)
-        self.database = self.client[db_name]
-        self.nodes_collection = self.database[nodes_collection]
-        self.edges_collection = self.database[edges_collection]
-
-    def write_edges(
+class MongoDbDiSubGraph(MongoDbSharedSubGraph, DiGraph):
+    def __init__(
             self,
-            roi=None,
-            attributes=None,
-            fail_if_exists=False,
-            fail_if_not_exists=False,
-            delete=False):
-        assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
-            "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
-
-        if self.mode == 'r':
-            raise RuntimeError("Trying to write to read-only DB")
-
-        if roi is None:
-            roi = self.roi
-
-        logger.debug("Writing edges in %s", roi)
-
-        edges = []
-        for u, v, data in self.edges(data=True):
-            u, v = min(u, v), max(u, v)
-            if not self.__contains(roi, u):
-                continue
-
-            edge = {
-                'u': int(u),
-                'v': int(v),
-            }
-            if not attributes:
-                edge.update(data)
-            else:
-                for key in data:
-                    if key in attributes:
-                        edge[key] = data[key]
-
-            edges.append(edge)
-
-        if len(edges) == 0:
-            logger.debug("No edges to insert in %s", roi)
-            return
-
-        try:
-            if fail_if_exists:
-                self.edges_collection.insert_many(edges)
-            elif fail_if_not_exists:
-                result = self.edges_collection.bulk_write([
-                    ReplaceOne(
-                        {
-                            'u': edge['u'],
-                            'v': edge['v']
-                        },
-                        edge,
-                        upsert=False
-                    )
-                    for edge in edges
-                ])
-                raise WriteError(
-                        details="{} nodes did not exist and were not written"
-                        .format(len(edges) - result.matched_count))
-            else:
-                self.edges_collection.bulk_write([
-                    ReplaceOne(
-                        {
-                            'u': edge['u'],
-                            'v': edge['v']
-                        },
-                        edge,
-                        upsert=True
-                    )
-                    for edge in edges
-                ])
-
-        except BulkWriteError as e:
-
-            logger.error(e.details)
-            raise
-
-    def write_nodes(
-            self,
-            roi=None,
-            attributes=None,
-            fail_if_exists=False,
-            fail_if_not_exists=False,
-            delete=False):
-        assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
-            "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
-
-        if self.mode == 'r':
-            raise RuntimeError("Trying to write to read-only DB")
-
-        if roi is None:
-            roi = self.roi
-
-        logger.debug("Writing all nodes")
-
-        nodes = []
-        for node_id, data in self.nodes(data=True):
-
-            if not self.__contains(roi, node_id):
-                continue
-
-            node = {
-                'id': int(node_id)
-            }
-            if not attributes:
-                node.update(data)
-            else:
-                for key in data:
-                    if key in attributes:
-                        node[key] = data[key]
-            nodes.append(node)
-
-        if len(nodes) == 0:
-            return
-
-        try:
-            if fail_if_exists:
-                self.nodes_collection.insert_many(nodes)
-            elif fail_if_not_exists:
-                result = self.nodes_collection.bulk_write([
-                    ReplaceOne(
-                        {
-                            'id': node['id'],
-                        },
-                        node,
-                        upsert=False
-                    )
-                    for node in nodes
-                ])
-                if result.matched_count != len(nodes):
-                    raise WriteError(
-                            details="{} nodes didn't exist and weren't written"
-                            .format(len(nodes) - result.matched_count))
-
-            else:
-                self.nodes_collection.bulk_write([
-                    ReplaceOne(
-                        {
-                            'id': node['id'],
-                        },
-                        node,
-                        upsert=True
-                    )
-                    for node in nodes
-                ])
-
-        except BulkWriteError as e:
-
-            logger.error(e.details)
-            raise
-
-    def __contains(self, roi, node):
-        '''Determines if the given node is inside the given roi'''
-        node_data = self.node[node]
-
-        # Some nodes are outside of the originally requested ROI (they have
-        # been pulled in by edges leaving the ROI). These nodes have no
-        # attributes, so we can't perform an inclusion test. However, we
-        # know they are outside of the subgraph ROI, and therefore also
-        # outside of 'roi', whatever it is.
-        if 'position' not in node_data:
-            return False
-
-        return roi.contains(Coordinate(node_data['position']))
+            db_name,
+            roi,
+            host=None,
+            mode='r+',
+            nodes_collection='nodes',
+            edges_collection='edges'):
+        # this calls the init function of the MongoDbSharedSubGraph,
+        # because left parents come before right parents
+        super().__init__(
+                db_name,
+                roi,
+                host=host,
+                mode=mode,
+                nodes_collection=nodes_collection,
+                edges_collection=edges_collection)
+    
+    def is_directed(self):
+        return True
