@@ -57,7 +57,7 @@ class SharedGraphProvider(object):
             node/edge attribute to a ``ndarray`` with the corresponding values.
         '''
 
-        block_queue = multiprocessing.Queue()
+        block_queue = multiprocessing.Queue(maxsize=1)
 
         master = multiprocessing.Process(
             target=read_blockwise_master,
@@ -162,6 +162,8 @@ def read_blockwise_master(
 
     # indicate that there are no more blocks to come
     block_queue.put(None)
+    block_queue.close()
+    block_queue.join_thread()
 
     logger.debug("Read block-wise master exiting")
 
