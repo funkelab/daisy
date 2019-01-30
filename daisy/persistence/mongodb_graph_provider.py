@@ -251,7 +251,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.host,
                 self.mode,
                 self.nodes_collection_name,
-                self.edges_collection_name)
+                self.edges_collection_name,
+                self.position_attribute)
         else:
             # create the subgraph
             graph = MongoDbSubGraph(
@@ -260,7 +261,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.host,
                 self.mode,
                 self.nodes_collection_name,
-                self.edges_collection_name)
+                self.edges_collection_name,
+                self.position_attribute)
         graph.add_nodes_from(node_list)
         graph.add_edges_from(edge_list)
 
@@ -354,14 +356,15 @@ class MongoDbGraphProvider(SharedGraphProvider):
                     "directed value {} already in stored metadata")
                     .format(self.directed, metadata['directed']))
         if self.total_roi:
-            if self.total_roi.get_offset() != metadata['total_roi_offset']:
+            offset = self.total_roi.get_offset()
+            if list(offset) != metadata['total_roi_offset']:
                 raise ValueError((
                     "Input total_roi offset {} does not match"
                     "total_roi offset {} already stored in metadata")
                     .format(
                         self.total_roi.get_offset(),
                         metadata['total_roi_offset']))
-            if self.total_roi.get_shape() != metadata['total_roi_shape']:
+            if list(self.total_roi.get_shape()) != metadata['total_roi_shape']:
                 raise ValueError((
                     "Input total_roi shape {} does not match"
                     "total_roi shape {} already stored in metadata")
@@ -416,7 +419,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             host=None,
             mode='r+',
             nodes_collection='nodes',
-            edges_collection='edges'):
+            edges_collection='edges',
+            position_attribute='position'):
 
         super().__init__()
 
@@ -429,6 +433,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         self.database = self.client[db_name]
         self.nodes_collection = self.database[nodes_collection]
         self.edges_collection = self.database[edges_collection]
+        self.position_attribute = position_attribute
 
     def write_edges(
             self,
@@ -454,6 +459,10 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             if not self.is_directed():
                 u, v = min(u, v), max(u, v)
             if not self.__contains(roi, u):
+                logger.debug(
+                        ("Skipping edge with u {}, v {}," +
+                         "and data {} because u not in roi {}")
+                        .format(u, v, data, roi))
                 continue
 
             edge = {
@@ -489,7 +498,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                     for edge in edges
                 ])
                 raise WriteError(
-                        details="{} nodes did not exist and were not written"
+                        details="{} edges did not exist and were not written"
                         .format(len(edges) - result.matched_count))
             else:
                 self.edges_collection.bulk_write([
@@ -532,6 +541,9 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         for node_id, data in self.nodes(data=True):
 
             if not self.__contains(roi, node_id):
+                logger.debug(
+                        "Skipping node {} with data {} because not in roi {}"
+                        .format(node_id, data, roi))
                 continue
 
             node = {
@@ -593,10 +605,19 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         # attributes, so we can't perform an inclusion test. However, we
         # know they are outside of the subgraph ROI, and therefore also
         # outside of 'roi', whatever it is.
-        if 'position' not in node_data:
-            return False
-
-        return roi.contains(Coordinate(node_data['position']))
+        coordinate = []
+        if type(self.position_attribute) == list:
+            for pos_attr in self.position_attribute:
+                if pos_attr not in node_data:
+                    return False
+                coordinate.append(node_data[pos_attr])
+        else:
+            if self.position_attribute not in node_data:
+                return False
+            coordinate = node_data[self.position_attribute]
+        logger.debug("Checking if coordinate {} is inside roi {}"
+                     .format(coordinate, roi))
+        return roi.contains(Coordinate(coordinate))
 
     def is_directed(self):
         raise RuntimeError("not implemented in %s" % self.name())
@@ -610,7 +631,8 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
             host=None,
             mode='r+',
             nodes_collection='nodes',
-            edges_collection='edges'):
+            edges_collection='edges',
+            position_attribute='position'):
         # this calls the init function of the MongoDbSharedSubGraph,
         # because left parents come before right parents
         super().__init__(
@@ -619,7 +641,8 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
                 host=host,
                 mode=mode,
                 nodes_collection=nodes_collection,
-                edges_collection=edges_collection)
+                edges_collection=edges_collection,
+                position_attribute=position_attribute)
 
     def is_directed(self):
         return False
@@ -633,7 +656,8 @@ class MongoDbSubDiGraph(MongoDbSharedSubGraph, DiGraph):
             host=None,
             mode='r+',
             nodes_collection='nodes',
-            edges_collection='edges'):
+            edges_collection='edges',
+            position_attribute='position'):
         # this calls the init function of the MongoDbSharedSubGraph,
         # because left parents come before right parents
         super().__init__(
@@ -642,7 +666,8 @@ class MongoDbSubDiGraph(MongoDbSharedSubGraph, DiGraph):
                 host=host,
                 mode=mode,
                 nodes_collection=nodes_collection,
-                edges_collection=edges_collection)
+                edges_collection=edges_collection,
+                position_attribute=position_attribute)
 
     def is_directed(self):
         return True
