@@ -237,6 +237,15 @@ def read_block(graph_provider, block, block_queue):
                 edges[k] = []
             edges[k].append(v)
 
+    if len(nodes['id']) == 0:
+        logger.debug("Graph is empty")
+        return
+
+    if len(edges['u']) == 0:
+        # no edges in graph, make sure empty np array has correct dtype
+        edges['u'] = np.array(edges['u'], dtype=np.uint64)
+        edges['v'] = np.array(edges['v'], dtype=np.uint64)
+
     nodes = {
         k: np.array(v)
         for k, v in nodes.items()
