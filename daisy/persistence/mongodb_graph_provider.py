@@ -222,7 +222,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 for e in edges]
 
         if self.directed:
-            graph = MongoDbDiSubGraph(
+            graph = MongoDbSubDiGraph(
                 self.db_name,
                 roi,
                 self.host,
@@ -602,7 +602,7 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
         return False
 
 
-class MongoDbDiSubGraph(MongoDbSharedSubGraph, DiGraph):
+class MongoDbSubDiGraph(MongoDbSharedSubGraph, DiGraph):
     def __init__(
             self,
             db_name,
