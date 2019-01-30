@@ -1,4 +1,4 @@
-from .actor import Actor
+from .worker import Worker
 from enum import Enum
 from tornado.ioloop import IOLoop
 from tornado.iostream import StreamClosedError
@@ -17,7 +17,7 @@ class DaisyTCPServer(TCPServer):
         super().__init__()
         self.scheduler = None
         self.scheduler_closed = False
-        self.connected_actors = set()
+        self.connected_workers = set()
 
     async def handle_stream(self, stream, address):
 
@@ -27,7 +27,7 @@ class DaisyTCPServer(TCPServer):
             msg = await get_and_unpack_message(stream)
         except StreamClosedError:
             logger.error(
-                "Lost connection to %s before getting actor ID",
+                "Lost connection to %s before getting worker ID",
                 address)
             return
 
@@ -35,8 +35,8 @@ class DaisyTCPServer(TCPServer):
             logger.error("Unexpected message %s received", msg.type)
             return
 
-        actor_id = msg.data
-        actor = Actor(actor_id, address, stream)
+        worker_id = msg.data
+        worker = Worker(worker_id, address, stream)
 
         if self.scheduler_closed:
             logger.debug(
@@ -45,7 +45,7 @@ class DaisyTCPServer(TCPServer):
             stream.close()
             return
 
-        self.connected_actors.add(actor)
+        self.connected_workers.add(worker)
 
         # one IO loop scheduler per worker
         while True:
@@ -53,35 +53,35 @@ class DaisyTCPServer(TCPServer):
                 msg = await get_and_unpack_message(stream)
 
                 if msg.type == SchedulerMessageType.WORKER_GET_BLOCK:
-                    self.scheduler.add_idle_actor_callback(
-                        actor, task=msg.data)
+                    self.scheduler.add_idle_worker_callback(
+                        worker, task=msg.data)
 
                 elif msg.type == SchedulerMessageType.WORKER_RET_BLOCK:
                     jobid, ret = msg.data
-                    self.scheduler.block_return(actor, jobid, ret)
+                    self.scheduler.block_return(worker, jobid, ret)
 
                 else:
                     logger.error(
-                        "Unknown message from actor %d: %s",
-                        actor.actor_id,
+                        "Unknown message from worker %d: %s",
+                        worker.worker_id,
                         msg)
                     logger.error(
                         "Closing connection to %s:%d",
-                        *actor.address)
+                        *worker.address)
                     break
 
             except StreamClosedError:
                 # note: may not be an actual error--workers exits and closes
                 # TCP connection without explicitly notifying the scheduler
                 logger.debug(
-                    "Losing connection to actor %s",
-                    actor)
+                    "Losing connection to worker %s",
+                    worker)
                 break
 
         # done, removing worker from list
         stream.close()
-        self.scheduler.remove_worker_callback(actor)
-        self.connected_actors.remove(actor)
+        self.scheduler.remove_worker_callback(worker)
+        self.connected_workers.remove(worker)
 
     async def async_send(self, stream, data):
 
@@ -91,14 +91,14 @@ class DaisyTCPServer(TCPServer):
             # might actually be okay if worker exits normally
             logger.debug("Scheduler lost connection while sending data.")
 
-    def send(self, actor, data):
+    def send(self, worker, data):
 
-        if actor not in self.connected_actors:
-            logger.warning("actor %d is no longer alive", actor.actor_id)
+        if worker not in self.connected_workers:
+            logger.warning("worker %d is no longer alive", worker.worker_id)
             return
 
         IOLoop.current().spawn_callback(
-            self.async_send, actor.stream, pack_message(data))
+            self.async_send, worker.stream, pack_message(data))
 
     def add_handler(self, scheduler):
         self.scheduler = scheduler
@@ -151,10 +151,13 @@ class SchedulerMessage():
 
 
 async def get_and_unpack_message(stream):
-    size = await stream.read_bytes(4)
+    try:
+        size = await stream.read_bytes(4)
+    except StreamClosedError:
+        logger.debug("stream %s was closed", stream)
+        raise
     size = struct.unpack('I', size)[0]
     assert(size < 65535)  # TODO: parameterize max message size
-    logger.debug("Receiving {} bytes".format(size))
     pickled_data = await stream.read_bytes(size)
     msg = pickle.loads(pickled_data)
     return msg

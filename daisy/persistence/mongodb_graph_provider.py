@@ -195,11 +195,25 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_db()
             self.__open_collections()
 
-            query_size = 128
-            for i in range(0, len(node_ids), query_size):
-                edges += list(self.edges.find({
-                    'u': {'$in': node_ids[i:i+query_size]}
-                }))
+            # limit query to 1M node IDs (otherwise we might exceed the 16MB
+            # BSON document size limit)
+            length = len(node_ids)
+            query_size = 1000000
+            num_chunks = (length - 1)//query_size + 1
+            for i in range(num_chunks):
+
+                i_b = i*query_size
+                i_e = min((i + 1)*query_size, len(node_ids))
+                assert i_b < len(node_ids)
+
+                edges += self.edges.find(
+                    {
+                        'u': {'$in': node_ids[i_b:i_e]}
+                    })
+
+            if num_chunks > 0:
+                assert i_e == len(node_ids)
+
             logger.debug("found %d edges", len(edges))
             logger.debug("read edges: %s", edges)
 

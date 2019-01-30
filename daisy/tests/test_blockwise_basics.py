@@ -124,14 +124,14 @@ class TestBlockwiseBasics(TmpDirTestCase):
 
     def worker(self, outdir, fail=None):
 
-        scheduler = daisy.ClientScheduler()
+        client = daisy.Client()
 
         while True:
 
-            block = scheduler.acquire_block()
+            block = client.acquire_block()
             if block is None:
                 break
 
             self.process_block(outdir, block, fail)
 
-            scheduler.release_block(block, 0)
+            client.release_block(block, 0)

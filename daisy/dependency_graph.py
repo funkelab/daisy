@@ -51,8 +51,6 @@ class DependencyGraph():
                 Task to be added to the graph. Its dependencies are
                 automatically and recursively added to the graph.
         '''
-        task.init_from_config(self.global_config)
-
         if self.leaf_task_id is None:
             self.leaf_task_id = task.task_id
         else:
@@ -66,7 +64,6 @@ class DependencyGraph():
     def add_task_dependency(self, task):
         '''Recursively add dependencies of a task to the graph.'''
         for dependency_task in task.requires():
-            dependency_task.init_from_config(self.global_config)
             self.tasks.add(dependency_task)
             # modify task dependency graph
             self.task_dependency[task.task_id].add(dependency_task.task_id)
@@ -147,7 +144,7 @@ class DependencyGraph():
 
         self.task_map[task].prepare()
 
-    def next(self, available_actors={}):
+    def next(self, available_workers={}):
         '''Called by the ``scheduler`` to get the next available block.
         Current implementation blocks and waits for outstanding (issued)
         blocks if there is none ready. After an outstanding block
@@ -165,14 +162,14 @@ class DependencyGraph():
             # Block release is conducted in 2 phases
 
             # First, return a block of a task queue if there is
-            # available actors.
+            # available workers.
             for task_type in self.ready_queues:
 
                 if len(self.ready_queues[task_type]) == 0:
                     continue
 
-                if task_type in available_actors:
-                    if available_actors[task_type].qsize() == 0:
+                if task_type in available_workers:
+                    if available_workers[task_type].qsize() == 0:
                         continue
 
                 block_id = self.ready_queues[task_type].popleft()
@@ -180,7 +177,7 @@ class DependencyGraph():
                 return (block_id[0], self.blocks[block_id])
 
             # Otherwise, return any other block. The scheduler will then
-            # spawn necessary actors for this block.
+            # spawn necessary workers for this block.
             while not self.empty() and self.ready_size() == 0:
                 self.ready_queue_cv.wait()
 

@@ -1,4 +1,4 @@
-from .parameter import Parameter
+from .parameter import Parameter, UNDEFINED_DAISY_PARAMETER
 
 
 class Task():
@@ -33,14 +33,26 @@ class Task():
             return a list of ``Task``s that this one depends on.
     '''
 
-    # Unique identifier for this task. By default it is set to the
-    # (sub)class name, but can be overridden in the constructor
-    task_id = Parameter()
-
     log_to_files = Parameter(default=False)
     log_to_stdout = Parameter(default=True)
 
-    def __init__(self, task_id=None, **kwargs):
+    def inheritParameters(self, current_class):
+        '''Recursively query and inherit `Parameter`s from base `Task`s.
+        Parameters are copied to self.__daisy_params__ to be processed
+        downstream.
+
+        If duplicated, `Parameter`s of derived `Task`s will override ones
+        from base `Task`s, even if it clears any default. This lets
+        inherited `Task` to unset defaults and force user to input new
+        values.'''
+        for b in current_class.__bases__:
+            self.inheritParameters(b)
+
+        for param in current_class.__dict__:
+            if isinstance(current_class.__dict__[param], Parameter):
+                self.__daisy_params__[param] = current_class.__dict__[param]
+
+    def __init__(self, task_id=None, global_config=None, **kwargs):
         '''Constructor for ``Task``. Should not be overridden by
         subclasses.
 
@@ -51,6 +63,22 @@ class Task():
                 Unique identifier of the task. Tasks that have the
                 same ID are exactly the same task in the dependency
                 graph.
+
+            global_config (``dict``, optional):
+
+                If given, parameters of this task will be initialized with
+                values from the given dictionary. Named arguments will have
+                precedence. The dictionary should map task IDs to dictionaries
+                with the parameter names and values. Example::
+
+                    class FooTask(daisy.Task):
+                        a = daisy.Parameter()
+
+                    f = FooTask(global_config={'FooTask': { 'a': 42 } })
+
+                would be equivalent to::
+
+                    f = FooTask(a=42)
 
             kwargs:
 
@@ -65,32 +93,44 @@ class Task():
             # default task ID is the class name
             self.task_id = type(self).__name__
 
+        self.global_config = global_config
+        self.__init_parameters(**kwargs)
+
+    def __init_parameters(self, **kwargs):
+
+        self.__daisy_params__ = {}
+        self.inheritParameters(self.__class__)
+
+        # apply global configuration (if given)
+        if self.global_config and self.task_id in self.global_config:
+            config = self.global_config[self.task_id]
+            for key in config:
+                if key in self.__daisy_params__:
+                    self.__daisy_params__[key].set(config[key])
+                else:
+                    raise RuntimeError(
+                            "Key %s is not in the Parameter list for Task %s" %
+                            (key, self.task_id))
+
+        # applying user input parameters
         for key in kwargs:
-            # TODO: we might want to check whether the class actually
-            # specified these Parameters and not blindly setting them
-            value = kwargs[key]
-            setattr(self, key, value)
+            if key in self.__daisy_params__:
+                self.__daisy_params__[key].set(kwargs[key])
+            else:
+                raise RuntimeError(
+                        "Key %s not found in "
+                        "Parameter list for Task %s" %
+                        (key, self.task_id))
 
-    def init_from_config(self, global_config):
-        '''Daisy calls this function internally if a global config was
-        passed in.
-
-        These configurations have lower priority than the configs
-        given in the constructor.
-        '''
-
-        if global_config is None:
-            return
-        if self.task_id not in global_config:
-            return
-
-        config = global_config[self.task_id]
-        for key in config:
-            if hasattr(self, key) and getattr(self, key) is not None:
-                # do not override config from __init__()
-                continue
-            value = config[key]
-            setattr(self, key, value)
+        # finalize parameters
+        for param in self.__daisy_params__:
+            val = self.__daisy_params__[param].val
+            if val is UNDEFINED_DAISY_PARAMETER:
+                raise RuntimeError(
+                    "Parameter %s of %s is unassigned! You can probably fix "
+                    "this by passing in `default` such as `None`" %
+                    (param, self.task_id))
+            setattr(self, param, val)
 
     def prepare(self):
         '''Subclasses override this to perform setup actions'''
@@ -124,7 +164,7 @@ class Task():
         if check_function is not None:
             try:
                 self.pre_check, self.post_check = check_function
-            except ValueError:
+            except TypeError:
                 self.pre_check = check_function
                 self.post_check = check_function
 

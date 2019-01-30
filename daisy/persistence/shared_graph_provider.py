@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from ..client import Client
 from ..roi import Roi
 from ..scheduler import run_blockwise
 from queue import Empty
@@ -56,9 +57,7 @@ class SharedGraphProvider(object):
             node/edge attribute to a ``ndarray`` with the corresponding values.
         '''
 
-        manager = multiprocessing.Manager()
-        block_queue = manager.Queue()
-        blocks_done = manager.Event()
+        block_queue = multiprocessing.Queue(maxsize=1)
 
         master = multiprocessing.Process(
             target=read_blockwise_master,
@@ -67,8 +66,7 @@ class SharedGraphProvider(object):
                 roi,
                 block_size,
                 num_workers,
-                block_queue,
-                blocks_done))
+                block_queue))
         master.start()
 
         nodes = {}
@@ -77,19 +75,23 @@ class SharedGraphProvider(object):
         i = 0
         while True:
 
-            last_round = blocks_done.is_set()
-
             try:
                 start = time.time()
-                block_nodes, block_edges = block_queue.get(timeout=0.1)
-                logger.debug(
-                    "Read graph data from block in %.3fs",
-                    time.time() - start)
-            except Empty:
-                if last_round:
+                block = block_queue.get(timeout=0.1)
+
+                if block is None:
+                    logger.debug(
+                        "Found None in queue, returning")
                     break
-                else:
-                    continue
+
+                block_nodes, block_edges = block
+
+                logger.debug(
+                    "Read graph data from queue in %.3fs",
+                    time.time() - start)
+
+            except Empty:
+                continue
 
             i += 1
             if i % 100 == 0:
@@ -206,28 +208,57 @@ def read_blockwise_master(
         roi,
         block_size,
         num_workers,
-        block_queue,
-        blocks_done):
+        block_queue):
 
     run_blockwise(
         roi,
         read_roi=Roi((0,)*len(block_size), block_size),
         write_roi=Roi((0,)*len(block_size), block_size),
-        process_function=lambda b: read_blockwise_worker(
+        process_function=lambda: read_blockwise_worker(
             graph_provider,
-            b,
             block_queue),
         fit='shrink',
         num_workers=num_workers)
 
-    blocks_done.set()
+    # indicate that there are no more blocks to come
+    block_queue.put(None)
+    block_queue.close()
+    block_queue.join_thread()
+
+    logger.debug("Read block-wise master exiting")
 
 
-def read_blockwise_worker(graph_provider, block, block_queue):
+def read_blockwise_worker(graph_provider, block_queue):
+
+    client = Client()
+
+    while True:
+
+        block = client.acquire_block()
+        if block is None:
+            break
+
+        read_block(graph_provider, block, block_queue)
+
+        client.release_block(block, 0)
+
+    # make sure all changes are flushed before we exit
+    block_queue.close()
+    block_queue.join_thread()
+
+    logger.debug(
+        "Read block-wise worker %d done, all data written to queue",
+        client.context.worker_id)
+
+
+def read_block(graph_provider, block, block_queue):
 
     start = time.time()
+    logger.debug("Reading graph in block %s", block)
     graph = graph_provider[block.read_roi]
-    logger.debug("Read block graph in %.3fs", time.time() - start)
+    logger.debug(
+        "Read graph from graph provider in %.3fs",
+        time.time() - start)
 
     nodes = {
         'id': []
@@ -251,7 +282,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         if probe not in data:
             continue
 
-        nodes['id'].append(node)
+        nodes['id'].append(np.uint64(node))
         for k, v in data.items():
             if k not in nodes:
                 nodes[k] = []
@@ -259,8 +290,8 @@ def read_blockwise_worker(graph_provider, block, block_queue):
 
     for u, v, data in graph.edges(data=True):
 
-        edges['u'].append(u)
-        edges['v'].append(v)
+        edges['u'].append(np.uint64(u))
+        edges['v'].append(np.uint64(v))
         for k, v in data.items():
             if k not in edges:
                 edges[k] = []
@@ -274,7 +305,7 @@ def read_blockwise_worker(graph_provider, block, block_queue):
         k: np.array(v)
         for k, v in edges.items()
     }
-    logger.debug("Parsed block graph in %.3fs", time.time() - start)
+    logger.debug("Parsed graph in %.3fs", time.time() - start)
 
     start = time.time()
     block_queue.put((nodes, edges))

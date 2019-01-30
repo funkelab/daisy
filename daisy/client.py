@@ -14,12 +14,12 @@ import time
 logger = logging.getLogger(__name__)
 
 
-class ClientScheduler():
+class Client():
     '''Client code that runs on a remote worker providing task management
     API for user code. It communicates with the scheduler through TCP/IP.
 
     Scheduler IP address, port, and other configurations are typically
-    passed to ``ClientScheduler`` through an environment variable named
+    passed to ``Client`` through an environment variable named
     'DAISY_CONTEXT'.
 
     Example usage:
@@ -28,13 +28,13 @@ class ClientScheduler():
             ...
 
         def main():
-            sched = ClientScheduler()
+            client = Client()
             while True:
-                block = sched.acquire_block()
+                block = client.acquire_block()
                 if block == None:
                     break;
                 ret = blockwise_process(block)
-                sched.release_block(block, ret)
+                client.release_block(block, ret)
     '''
 
     def __init__(
@@ -53,10 +53,10 @@ class ClientScheduler():
 
             ioloop(``tornado.IOLoop``, optional):
 
-                If not passed in, ClientScheduler will start an ioloop
-                in a concurrent thread
+                If not passed in, Clientwill start an ioloop in a concurrent
+                thread
         '''
-        logger.info("ClientScheduler init")
+        logger.debug("Client init")
         self.context = context
         self.connected = False
         self.error_state = False
@@ -76,7 +76,7 @@ class ClientScheduler():
 
         self.ioloop.add_callback(self._start)
 
-        logger.info("Waiting for connection to Daisy scheduler...")
+        logger.debug("Waiting for connection to Daisy scheduler...")
         while not self.connected:
             time.sleep(.1)
             if self.error_state:
@@ -86,20 +86,28 @@ class ClientScheduler():
         self.send(
             SchedulerMessage(
                 SchedulerMessageType.WORKER_HANDSHAKE,
-                data=self.context.actor_id))
+                data=self.context.worker_id))
+
+    def __del__(self):
+        '''Stop spawn ioloop when client is done'''
+        try:
+            self.ioloop.add_callback(self.ioloop.stop)
+        except Exception:
+            # self.ioloop is None
+            pass
 
     async def _start(self):
         '''Start the TCP client.'''
-        logger.info(
+        logger.debug(
             "Connecting to scheduler at %s:%d",
             self.context.hostname,
             self.context.port)
 
-        self.stream = await self._connect_with_retry()
-        if self.stream is None:
+        try:
+            self.stream = await self._connect_with_retry()
+        except Exception:
             self.error_state = True
-            # raise
-            return
+            raise
 
         self.job_queue = deque()
         self.job_queue_cv = threading.Condition()
@@ -111,21 +119,29 @@ class ClientScheduler():
     async def _connect_with_retry(self):
         '''Helper method that tries to connect to the scheduler within
         a number of retries.'''
+        num_retries = 10
         counter = 0
         while True:
             try:
+                logger.debug("calling TCPClient().connect() ...")
                 stream = await TCPClient().connect(
                     self.context.hostname,
                     self.context.port,
                     timeout=60)
                 return stream
+            except TimeoutError:
+                logger.error("call to TCPClient().connect() timed out")
+                raise
             except Exception:
                 logger.debug("TCP connect error, retry...")
-                counter = counter + 1
-                if (counter > 10):
+                counter += 1
+                if (counter > num_retries):
                     # retry for 10 seconds
-                    logger.debug("Timeout, quitting.")
-                    return None
+                    logger.error(
+                        "TCP connection failed %d times, giving up",
+                        num_retries)
+                    raise RuntimeError(
+                        "TCP connection could not be established")
                 await asyncio.sleep(1)
 
     async def async_recv(self):
@@ -144,10 +160,13 @@ class ClientScheduler():
                 elif msg.type == SchedulerMessageType.TERMINATE_WORKER:
                     break
 
-            except StreamClosedError:
+            except Exception as e:
                 logger.error(
-                    "Actor %s async_recv got StreamClosedError" %
-                    self.context.actor_id)
+                    "Worker %s async_recv got Exception %s",
+                    self.context.worker_id, e)
+                with self.job_queue_cv:
+                    self.job_queue.append(e)
+                    self.job_queue_cv.notify()
                 break
 
         # all done, notify client code to exit
@@ -162,8 +181,8 @@ class ClientScheduler():
             await self.stream.write(data)
         except StreamClosedError:
             logger.error(
-                "Actor %s async_send got StreamClosedError" %
-                self.context.actor_id)
+                "Worker %s async_send got StreamClosedError" %
+                self.context.worker_id)
 
     def send(self, data):
         '''Non-async wrapper for async_send()'''
@@ -184,9 +203,17 @@ class ClientScheduler():
                 self.job_queue_cv.wait()
 
             ret = self.job_queue.popleft()
-            logger.info(
-                "Actor %s received block %s" %
-                (self.context.actor_id, ret))
+
+            if isinstance(ret, StreamClosedError):
+                # StreamClosedError can not be distinguished from proper
+                # teardown, just tell the client to stop
+                ret = None
+            elif isinstance(ret, Exception):
+                raise ret
+
+            logger.debug(
+                "Worker %s received block %s" %
+                (self.context.worker_id, ret))
             return ret
 
     def release_block(self, block, ret):

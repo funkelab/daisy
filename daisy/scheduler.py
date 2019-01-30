@@ -1,6 +1,6 @@
 from __future__ import absolute_import
 
-from .client_scheduler import ClientScheduler
+from .client import Client
 from .context import Context
 from .dependency_graph import DependencyGraph
 from .processes import spawn_function
@@ -15,12 +15,13 @@ import logging
 import os
 import queue
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
 
 class Scheduler():
-    '''This is the main scheduler that tracks states of tasks and actors.
+    '''This is the main scheduler that tracks states of tasks and workers.
 
     Given a dependency graph of block-wise tasks, the scheduler executes
     tasks and their dependency to completion.
@@ -42,21 +43,21 @@ class Scheduler():
         # a copy of tasks from the DependencyGraph
         self.tasks = {}
 
-        # set of currently connected actors
-        self.actors = set()
+        # set of currently connected workers
+        self.workers = set()
 
-        # actor states
-        self.actor_states_lock = threading.Lock()
-        self.idle_actors = collections.defaultdict(queue.Queue)
-        self.actor_type = {}
-        self.dead_actors = set()
-        self.actor_outstanding_blocks = collections.defaultdict(set)
+        # worker states
+        self.worker_states_lock = threading.Lock()
+        self.idle_workers = collections.defaultdict(queue.Queue)
+        self.worker_type = {}
+        self.dead_workers = set()
+        self.worker_outstanding_blocks = collections.defaultdict(set)
 
         # precomputed recruit functions
-        self.actor_recruit_fn = {}
+        self.worker_recruit_fn = {}
 
         self.launched_tasks = set()
-        self.next_actor_id = collections.defaultdict(int)
+        self.next_worker_id = collections.defaultdict(int)
         self.finished_scheduling = False
 
         # keeping track of spawned processes so we can force terminate
@@ -64,6 +65,7 @@ class Scheduler():
         self.started_processes = set()
 
     def distribute(self, graph):
+
         self.graph = graph
         all_tasks = graph.get_tasks()
         for task in all_tasks:
@@ -75,13 +77,13 @@ class Scheduler():
 
         self.results = []
 
-        logger.info("Server running at %s", self.net_identity)
+        logger.debug("Server running at %s", self.net_identity)
         logger.info("Scheduling %d tasks to completion.", graph.size())
-        logger.info("Max parallelism seems to be %d.", graph.ready_size())
+        logger.debug("Max parallelism seems to be %d.", graph.ready_size())
 
         while not graph.empty():
 
-            block = graph.next(available_actors=self.idle_actors)
+            block = graph.next(available_workers=self.idle_workers)
             if block is None:
                 continue
 
@@ -97,7 +99,7 @@ class Scheduler():
                 pre_check_ret = False
 
             if pre_check_ret:
-                logger.info(
+                logger.debug(
                     "Skipping %s block %d; already processed.",
                     task_id, block.block_id)
                 ret = ReturnCode.SKIPPED
@@ -106,29 +108,29 @@ class Scheduler():
             else:
                 scheduled = False
                 while not scheduled:
-                    actor = self.get_idle_actor(task_id)
-                    with self.actor_states_lock:
-                        if actor not in self.dead_actors:
-                            self.actor_outstanding_blocks[actor].add(
+                    worker = self.get_idle_worker(task_id)
+                    with self.worker_states_lock:
+                        if worker not in self.dead_workers:
+                            self.worker_outstanding_blocks[worker].add(
                                 (task_id, block.block_id))
                             scheduled = True
                         else:
                             logger.debug(
-                                "Actor %s was found dead or disconnected "
-                                "Getting new actor.", actor)
+                                "Worker %s was found dead or disconnected "
+                                "Getting new worker.", worker)
                             continue
 
-                self.send_block(actor, block)
-                logger.info(
-                    "Pushed block %d of task %s to actor %s. \nBlock info: %s",
-                    block.block_id, task_id, actor, block)
+                self.send_block(worker, block)
+                logger.debug(
+                    "Pushed block %s of task %s to worker %s.",
+                    block, task_id, worker)
 
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
-        self.close_all_actors()
-        for proc in self.started_processes:
-            # terminate possibly hanging processes
-            proc.terminate()
+        self.close_all_workers()
+
+        # stop tornado
+        self.ioloop.add_callback(self.ioloop.stop)
 
         succeeded = [t for t, r in self.results if r == ReturnCode.SUCCESS]
         skipped = [t for t, r in self.results if r == ReturnCode.SKIPPED]
@@ -154,7 +156,7 @@ class Scheduler():
         return graph.size() == (len(succeeded) + len(skipped))
 
     def _start_tcp_server(self, ioloop=None):
-        '''Start TCP server to handle remote actor requests.
+        '''Start TCP server to handle remote worker requests.
 
         Args:
 
@@ -176,54 +178,55 @@ class Scheduler():
         self.tcpserver.listen(0)  # 0 == random port
         self.net_identity = self.tcpserver.get_identity()
 
-    def remove_worker_callback(self, actor):
+    def remove_worker_callback(self, worker):
         """ Called by TCP server when connection is lost or otherwise
         exited. This happens for both when the worker unexpected
         exits (eg., error, network error) or when it exists normally.
         """
-        logger.debug("Actor %s disconnected", actor)
+        logger.debug("Worker %s disconnected", worker)
 
-        if actor not in self.actor_type:
+        if worker not in self.worker_type:
             logger.error(
-                "Actor %s closed before finished initializing. ",
+                "Worker %s closed before finished initializing. ",
                 "It will not be respawned.",
-                actor
+                worker
             )
             return
 
-        task_id = self.actor_type[actor]
+        task_id = self.worker_type[worker]
 
-        # update actor bookkeeping
-        with self.actor_states_lock:
+        # update worker bookkeeping
+        with self.worker_states_lock:
             # Be careful with this code + lock in conjunction with the loop
             # in distribute(). It can lead to dead locks or forgotten
             # blocks if not thought about carefully
-            self.dead_actors.add(actor)
-            self.actors.remove(actor)
-            self.actor_type[actor] = None
+            self.dead_workers.add(worker)
+            self.workers.remove(worker)
+            self.worker_type[worker] = None
 
-        if task_id not in self.finished_tasks:
+        if ((not self.finished_scheduling) and
+                (task_id not in self.finished_tasks)):
             # task is unfinished--keep respawning to finish task
 
             num_workers = self.tasks[task_id].num_workers
 
-            logger.info("Respawning actor %s due to disconnection", actor)
+            logger.info("Respawning worker %s due to disconnection", worker)
             context = Context(
                 self.net_identity[0],
                 self.net_identity[1],
                 task_id,
-                actor.actor_id,
+                worker.worker_id,
                 num_workers)
-            self.actor_recruit_fn[task_id](context)
+            self.worker_recruit_fn[task_id](context)
 
             # reschedule block if necessary
-            with self.actor_states_lock:
-                outstanding_blocks = (self.actor_outstanding_blocks[actor]
+            with self.worker_states_lock:
+                outstanding_blocks = (self.worker_outstanding_blocks[worker]
                                       .copy())
             for block_id in outstanding_blocks:
-                self.block_return(actor, block_id, ReturnCode.NETWORK_ERROR)
+                self.block_return(worker, block_id, ReturnCode.NETWORK_ERROR)
 
-    def _recruit_actor(
+    def _recruit_worker(
             self,
             function,
             args,
@@ -234,10 +237,18 @@ class Scheduler():
 
         env = {'DAISY_CONTEXT': context.to_env()}
 
+        logger.debug(
+            "Recruiting worker with:"
+            "\n\tenv           %s"
+            "\n\tfunction      %s"
+            "\n\targs          %s"
+            "\n\tlog_to_files  %s"
+            "\n\tlog_to_stdout %s",
+            env, function, args, log_to_files, log_to_stdout)
         proc = spawn_function(
             function, args, env,
-            log_dir+"/actor.{}.out".format(context.actor_id),
-            log_dir+"/actor.{}.err".format(context.actor_id),
+            log_dir+"/worker.{}.out".format(context.worker_id),
+            log_dir+"/worker.{}.err".format(context.worker_id),
             log_to_files, log_to_stdout)
 
         self.started_processes.add(proc)
@@ -251,38 +262,38 @@ class Scheduler():
             log_to_stdout):
         '''This helper function is necessary to disambiguate parameters
         of lambda expressions'''
-        return lambda context: self._recruit_actor(
+        return lambda context: self._recruit_worker(
             function, args, context, log_dir,
             log_to_files, log_to_stdout)
 
     def _construct_recruit_functions(self):
-        '''Construct all actor recruit functions to be used later when
+        '''Construct all worker recruit functions to be used later when
         needed'''
         for task_id in self.tasks:
             log_dir = '.daisy_logs_' + task_id
             os.makedirs(log_dir, exist_ok=True)
 
-            new_actor_fn = None
+            new_worker_fn = None
             process_function = self.tasks[task_id].process_function
             log_to_files = self.tasks[task_id].log_to_files
             log_to_stdout = self.tasks[task_id].log_to_stdout
 
-            spawn_actors = False
+            spawn_workers = False
             try:
                 if len(signature(process_function).parameters) == 0:
-                    spawn_actors = True
+                    spawn_workers = True
             except Exception:
-                spawn_actors = False
+                spawn_workers = False
 
-            if spawn_actors:
+            if spawn_workers:
                 if log_to_files and log_to_stdout:
-                    logger.warn(
+                    logger.warning(
                         "It is not possible to log to both files and stdout "
-                        "for spawning actors at the moment. File logging "
+                        "for spawning workers at the moment. File logging "
                         "will be disabled for task %s.", task_id)
                     log_to_files = False
 
-                new_actor_fn = self._make_spawn_function(
+                new_worker_fn = self._make_spawn_function(
                         process_function,
                         [],
                         log_dir,
@@ -291,24 +302,24 @@ class Scheduler():
 
             else:
 
-                new_actor_fn = self._make_spawn_function(
-                        _local_actor_wrapper,
+                new_worker_fn = self._make_spawn_function(
+                        _local_worker_wrapper,
                         [process_function, self.net_identity[1], task_id],
                         log_dir,
                         log_to_files,
                         log_to_stdout)
 
-            self.actor_recruit_fn[task_id] = new_actor_fn
+            self.worker_recruit_fn[task_id] = new_worker_fn
 
-    def get_idle_actor(self, task_id):
-        '''Scheduler loop calls this to get an idle actor ready to accept
-        jobs. This function blocks until an actor submits itself into the
+    def get_idle_worker(self, task_id):
+        '''Scheduler loop calls this to get an idle worker ready to accept
+        jobs. This function blocks until an worker submits itself into the
         idle queue through TCP. It will also launch ``num_workers`` of
-        actors if have not already '''
+        workers if have not already '''
 
         if task_id not in self.launched_tasks:
 
-            logger.info("Launching actors for task %s", task_id)
+            logger.info("Launching workers for task %s", task_id)
             num_workers = self.tasks[task_id].num_workers
 
             for i in range(num_workers):
@@ -317,75 +328,87 @@ class Scheduler():
                     self.net_identity[0],
                     self.net_identity[1],
                     task_id,
-                    self.next_actor_id[task_id],
+                    self.next_worker_id[task_id],
                     num_workers)
-                self.actor_recruit_fn[task_id](context)
+                self.worker_recruit_fn[task_id](context)
 
-                self.next_actor_id[task_id] += 1
+                self.next_worker_id[task_id] += 1
 
             self.launched_tasks.add(task_id)
 
-        actor = self.idle_actors[task_id].get()
-        return actor
+        worker = self.idle_workers[task_id].get()
+        return worker
 
-    def add_idle_actor_callback(self, actor, task):
-        '''TCP server calls this to add an actor to the idle queue'''
-        if (actor not in self.actor_type) or (self.actor_type[actor] is None):
-            self.register_actor(actor, task)
+    def add_idle_worker_callback(self, worker, task):
+        '''TCP server calls this to add an worker to the idle queue'''
+        if self.worker_type.get(worker, None) is None:
+            self.register_worker(worker, task)
 
         logger.debug(
-            "Add actor {} to idle queue of task {}".format(actor, task))
+            "Add worker {} to idle queue of task {}".format(worker, task))
 
-        self.idle_actors[task].put(actor)
+        self.idle_workers[task].put(worker)
 
-    def close_all_actors(self):
-        '''Send termination message to all available actor. This is called
+    def close_all_workers(self):
+        '''Send termination message to all available worker. This is called
         when the scheduler loop exits'''
-        with self.actor_states_lock:
-            for actor in self.actors:
-                self.send_terminate(actor)
+        with self.worker_states_lock:
+            for worker in self.workers:
+                self.send_terminate(worker)
 
         for task in self.tasks:
             self.tasks[task].cleanup()
 
+        # 10 minutes from now
+        timeout = time.time() + 60*10
+
+        # join worker processes
+        for proc in self.started_processes:
+            # give workers time to finish
+            proc.join(timeout=max(1, timeout - time.time()))
+
+        # terminate possibly hanging processes
+        for proc in self.started_processes:
+            proc.terminate()
+
     def finish_task(self, task_id):
         '''Called when a task is completely finished. Currently this function
-        closes all actors of this task.'''
-        with self.actor_states_lock:
-            for actor in self.actors:
-                if self.actor_type[actor] == task_id:
-                    self.send_terminate(actor)
+        closes all workers of this task.'''
+        with self.worker_states_lock:
+            for worker in self.workers:
+                if self.worker_type[worker] == task_id:
+                    self.send_terminate(worker)
         self.finished_tasks.add(task_id)
         self.tasks[task_id].cleanup()
 
-    def send_terminate(self, actor):
-        '''Send TERMINATE_WORKER command to actor'''
+    def send_terminate(self, worker):
+        '''Send TERMINATE_WORKER command to worker'''
         self.tcpserver.send(
-            actor,
+            worker,
             SchedulerMessage(SchedulerMessageType.TERMINATE_WORKER))
 
-    def send_block(self, actor, block):
-        '''Send NEW_BLOCK command to actor'''
+    def send_block(self, worker, block):
+        '''Send NEW_BLOCK command to worker'''
         self.tcpserver.send(
-            actor,
+            worker,
             SchedulerMessage(SchedulerMessageType.NEW_BLOCK, data=block))
 
-    def register_actor(self, actor, task_id):
-        '''Register new actor with bookkeeping variables. If scheduler loop
-        had finished it will not, instead terminating this new actor.'''
-        logger.info("Registering new actor %s", actor)
+    def register_worker(self, worker, task_id):
+        '''Register new worker with bookkeeping variables. If scheduler loop
+        had finished it will not, instead terminating this new worker.'''
+        logger.debug("Registering new worker %s", worker)
         if self.finished_scheduling:
-            self.send_terminate(actor)
+            self.send_terminate(worker)
             return
 
-        with self.actor_states_lock:
-            self.actors.add(actor)
-            self.actor_type[actor] = task_id
-            if actor in self.dead_actors:
-                # handle aliasing of previous actors
-                self.dead_actors.remove(actor)
+        with self.worker_states_lock:
+            self.workers.add(worker)
+            self.worker_type[worker] = task_id
+            if worker in self.dead_workers:
+                # handle aliasing of previous workers
+                self.dead_workers.remove(worker)
 
-    def block_return(self, actor, block_id, ret):
+    def block_return(self, worker, block_id, ret):
         '''Called when a block is returned, whether successfully or not'''
         block = self.graph.get_block(block_id)
         task_id = block_id[0]
@@ -406,9 +429,9 @@ class Scheduler():
                     "Completion check failed for task for block %s.", block)
                 ret = ReturnCode.FAILED_POST_CHECK
 
-        if actor is not None:
-            with self.actor_states_lock:
-                self.actor_outstanding_blocks[actor].remove(block_id)
+        if worker is not None:
+            with self.worker_states_lock:
+                self.worker_outstanding_blocks[worker].remove(block_id)
 
         if ret in [ReturnCode.ERROR, ReturnCode.NETWORK_ERROR,
                    ReturnCode.FAILED_POST_CHECK]:
@@ -428,10 +451,10 @@ class Scheduler():
         self.results.append((block, ret))
 
 
-def _local_actor_wrapper(received_fn, port, task_id):
+def _local_worker_wrapper(received_fn, port, task_id):
     '''Simple wrapper for local process function'''
 
-    sched = ClientScheduler()
+    client = Client()
 
     try:
         user_fn, args = received_fn
@@ -442,11 +465,11 @@ def _local_actor_wrapper(received_fn, port, task_id):
     except Exception:
         fn = received_fn
     while True:
-        block = sched.acquire_block()
+        block = client.acquire_block()
         if block is None:
             break
         ret = fn(block)
-        sched.release_block(block, ret)
+        client.release_block(block, ret)
 
 
 def run_blockwise(
