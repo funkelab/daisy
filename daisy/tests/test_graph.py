@@ -4,6 +4,7 @@ import daisy
 import logging
 import unittest
 import random
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -70,35 +71,43 @@ class TestGraph(unittest.TestCase):
                 (10, 10, 10))
         ]
 
-        num_nodes = 1000
+        nodes_to_write = list(range(1000))
         num_edges = 10000
 
         random.seed(42)
 
-        for i in range(num_nodes):
+        for n in nodes_to_write:
             graph.add_node(
-                i,
+                n,
                 position=(
                     random.randint(0, 9),
                     random.randint(0, 9),
                     random.randint(0, 9)))
         for i in range(num_edges):
+            ui = random.randint(0, len(nodes_to_write) - 1)
+            vi = random.randint(0, len(nodes_to_write) - 1)
+            u = nodes_to_write[ui]
+            v = nodes_to_write[vi]
             graph.add_edge(
-                random.randint(0, num_nodes - 1),
-                random.randint(0, num_nodes - 1),
+                u, v,
                 score=random.random())
 
         graph.write_nodes()
         graph.write_edges()
 
         nodes, edges = graph_provider.read_blockwise(
+            # read in larger ROI to test handling of empty blocks
             daisy.Roi(
                 (0, 0, 0),
-                (10, 10, 10)),
+                (20, 10, 10)),
             daisy.Coordinate((1, 1, 1)),
             num_workers=40)
 
-        written_nodes = list(range(num_nodes))
+        assert nodes['id'].dtype == np.uint64
+        assert edges['u'].dtype == np.uint64
+        assert edges['v'].dtype == np.uint64
+
+        written_nodes = list(nodes_to_write)
         read_nodes = sorted(nodes['id'])
 
         self.assertEqual(written_nodes, read_nodes)
