@@ -14,6 +14,7 @@ class Graph(nx.Graph):
 
         return copy.deepcopy(self)
 
+
 class DiGraph(nx.DiGraph):
     def __init__(self, graph_data=None):
         super(DiGraph, self).__init__(incoming_graph_data=graph_data)

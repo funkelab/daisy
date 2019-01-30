@@ -325,7 +325,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         self.__open_collections()
         metadata = self.__get_metadata()
-        if self.directed and metadata['directed'] != self.directed:
+        if self.directed is not None and metadata['directed'] != self.directed:
             raise ValueError((
                     "Input parameter directed={} does not match"
                     "directed value {} already in stored metadata")
@@ -598,9 +598,9 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
                 nodes_collection=nodes_collection,
                 edges_collection=edges_collection)
 
-    
     def is_directed(self):
         return False
+
 
 class MongoDbDiSubGraph(MongoDbSharedSubGraph, DiGraph):
     def __init__(
@@ -620,6 +620,6 @@ class MongoDbDiSubGraph(MongoDbSharedSubGraph, DiGraph):
                 mode=mode,
                 nodes_collection=nodes_collection,
                 edges_collection=edges_collection)
-    
+
     def is_directed(self):
         return True
