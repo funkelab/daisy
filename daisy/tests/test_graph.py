@@ -213,6 +213,7 @@ class TestGraph(unittest.TestCase):
         ]
 
         nodes_to_write = list(range(1000))
+        nodes_to_write += [np.uint64(-10), np.uint64(-1)]
         num_edges = 10000
 
         random.seed(42)
