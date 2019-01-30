@@ -1,6 +1,5 @@
 from __future__ import absolute_import
 from ..client import Client
-from ..graph import Graph
 from ..roi import Roi
 from ..scheduler import run_blockwise
 from queue import Empty
@@ -23,7 +22,8 @@ class SharedGraphProvider(object):
         # slicing with ROI to extract a subgraph
         sub_graph = provider[daisy.Roi((0, 0, 0), (10, 10, 10))]
 
-        # sub_graph should inherit from SharedSubGraph
+        # sub_graph should inherit from an implementation of
+        SharedSubGraph, and either Graph or DiGraph
 
         # write nodes
         sub_graph.write_nodes()
@@ -127,16 +127,76 @@ class SharedGraphProvider(object):
         return type(self).__name__
 
 
-class SharedSubGraph(Graph):
+class SharedSubGraph():
+    def get_nodes_in_roi(self):
+        '''Only returns nodes in the roi, excluding "dangling" nodes
+        introduced by edges that cross the roi boundary'''
 
-    def write_edges(self, roi=None):
-        '''Write edges and their attributes. Restrict the write to the given
-        ROI, if given.'''
+        nodes = {}
+        for node, data in self.nodes(data=True):
+            if 'position' in data:
+                nodes[node] = data
+        return nodes
+
+    def write_edges(
+            self,
+            roi=None,
+            attributes=None,
+            fail_if_exists=False,
+            fail_if_not_exists=False,
+            delete=False):
+        '''Write edges and their attributes.
+        Args:
+            roi(`class:Roi`):
+                Restrict the write to the given ROI
+
+            attributes(`class:list`):
+                Only write the given attributes. If None, write all attributes.
+
+            fail_if_exists:
+                If true, throw error if edge with same u,v already exists
+                in back end.
+
+            fail_if_not_exists:
+                If true, throw error if edge with same u,v does not already
+                exist in back end.
+
+            delete:
+                If true, delete edges in ROI in back end that do not exist
+                in subgraph.
+
+        '''
         raise RuntimeError("not implemented in %s" % self.name())
 
-    def write_nodes(self, roi=None):
-        '''Write nodes and their attributes. Restrict the write to the given
-        ROI, if given.'''
+    def write_nodes(
+            self,
+            roi=None,
+            attributes=None,
+            fail_if_exists=False,
+            fail_if_not_exists=False,
+            delete=False):
+        '''Write nodes and their attributes.
+        Args:
+            roi(`class:Roi`):
+                Restrict the write to the given ROI
+
+            attributes(`class:list`):
+                Only write the given attributes. If None, write all attributes.
+
+            fail_if_exists:
+                If true, throw error if node with same id already exists in
+                back end, while still performing all other valid writes.
+
+            fail_if_not_exists:
+                If true, throw error if node with same id does not already
+                exist in back end, while still performing all other
+                valid writes.
+
+            delete:
+                If true, delete nodes in ROI in back end that do not exist
+                in subgraph.
+
+        '''
         raise RuntimeError("not implemented in %s" % self.name())
 
     def name(self):
