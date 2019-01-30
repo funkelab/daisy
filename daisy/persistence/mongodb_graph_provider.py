@@ -7,6 +7,7 @@ from ..graph import Graph, DiGraph
 from pymongo import MongoClient, ASCENDING, ReplaceOne
 from pymongo.errors import BulkWriteError, WriteError
 import logging
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -129,10 +130,14 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_collections()
 
             nodes = self.nodes.find(self.__pos_query(roi), {'_id': False})
+            nodes = list(nodes)
 
         finally:
 
             self.__disconnect()
+
+        for node in nodes:
+            node['id'] = np.uint64(node['id'])
 
         return nodes
 
@@ -170,7 +175,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             edges = self.edges.find(
                 {
-                    'u': node['id']
+                    'u': int(np.int64(node['id']))
                 })
 
         finally:
@@ -183,7 +188,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         '''Returns a list of edges within roi.'''
 
         nodes = self.read_nodes(roi)
-        node_ids = list([n['id'] for n in nodes])
+        node_ids = list([int(np.int64(n['id'])) for n in nodes])
         logger.debug("found %d nodes", len(node_ids))
         logger.debug("looking for edges with u in %s", node_ids)
 
@@ -220,6 +225,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
         finally:
 
             self.__disconnect()
+
+        for edge in edges:
+            edge['u'] = np.uint64(edge['u'])
+            edge['v'] = np.uint64(edge['v'])
 
         return edges
 
@@ -448,8 +457,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 continue
 
             edge = {
-                'u': int(u),
-                'v': int(v),
+                'u': int(np.int64(u)),
+                'v': int(np.int64(v)),
             }
             if not attributes:
                 edge.update(data)
@@ -471,8 +480,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 result = self.edges_collection.bulk_write([
                     ReplaceOne(
                         {
-                            'u': edge['u'],
-                            'v': edge['v']
+                            'u': int(np.int64(edge['u'])),
+                            'v': int(np.int64(edge['v']))
                         },
                         edge,
                         upsert=False
@@ -486,8 +495,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 self.edges_collection.bulk_write([
                     ReplaceOne(
                         {
-                            'u': edge['u'],
-                            'v': edge['v']
+                            'u': int(np.int64(edge['u'])),
+                            'v': int(np.int64(edge['v']))
                         },
                         edge,
                         upsert=True
@@ -526,7 +535,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 continue
 
             node = {
-                'id': int(node_id)
+                'id': int(np.int64(node_id))
             }
             if not attributes:
                 node.update(data)
@@ -546,7 +555,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 result = self.nodes_collection.bulk_write([
                     ReplaceOne(
                         {
-                            'id': node['id'],
+                            'id': int(np.int64(node['id'])),
                         },
                         node,
                         upsert=False
@@ -562,7 +571,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 self.nodes_collection.bulk_write([
                     ReplaceOne(
                         {
-                            'id': node['id'],
+                            'id': int(np.int64(node['id'])),
                         },
                         node,
                         upsert=True
