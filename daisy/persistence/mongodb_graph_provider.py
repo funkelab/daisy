@@ -65,6 +65,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             total_roi=None,
             nodes_collection='nodes',
             edges_collection='edges',
+            endpoint_names=['u', 'v'],
             meta_collection='meta',
             position_attribute='position'):
 
@@ -75,6 +76,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.total_roi = total_roi
         self.nodes_collection_name = nodes_collection
         self.edges_collection_name = edges_collection
+        self.endpoint_names = endpoint_names
         self.meta_collection_name = meta_collection
         self.client = None
         self.database = None
@@ -175,7 +177,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             edges = self.edges.find(
                 {
-                    'u': int(np.int64(node['id']))
+                    self.endpoint_names[0]: int(np.int64(node['id']))
                 })
 
         finally:
@@ -213,7 +215,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
                 edges += self.edges.find(
                     {
-                        'u': {'$in': node_ids[i_b:i_e]}
+                        self.endpoint_names[0]: {'$in': node_ids[i_b:i_e]}
                     })
 
             if num_chunks > 0:
@@ -227,8 +229,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__disconnect()
 
         for edge in edges:
-            edge['u'] = np.uint64(edge['u'])
-            edge['v'] = np.uint64(edge['v'])
+            u, v = self.endpoint_names
+            edge[u] = np.uint64(edge[u])
+            edge[v] = np.uint64(edge[v])
 
         return edges
 
@@ -240,8 +243,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 (n['id'], self.__remove_keys(n, ['id']))
                 for n in nodes]
         edges = self.read_edges(roi)
+        u, v = self.endpoint_names
         edge_list = [
-                (e['u'], e['v'], self.__remove_keys(e, ['u', 'v']))
+                (e[u], e[v], self.__remove_keys(e, [u, v]))
                 for e in edges]
 
         if self.directed:
@@ -252,6 +256,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.mode,
                 self.nodes_collection_name,
                 self.edges_collection_name,
+                self.endpoint_names,
                 self.position_attribute)
         else:
             # create the subgraph
@@ -262,6 +267,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.mode,
                 self.nodes_collection_name,
                 self.edges_collection_name,
+                self.endpoint_names,
                 self.position_attribute)
         graph.add_nodes_from(node_list)
         graph.add_edges_from(edge_list)
@@ -335,11 +341,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
             ],
             name='id',
             unique=True)
-
+        u, v = self.endpoint_names
         self.edges.create_index(
             [
-                ('u', ASCENDING),
-                ('v', ASCENDING)
+                (u, ASCENDING),
+                (v, ASCENDING)
             ],
             name='incident',
             unique=True)
@@ -420,6 +426,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             mode='r+',
             nodes_collection='nodes',
             edges_collection='edges',
+            endpoint_names=['u', 'v'],
             position_attribute='position'):
 
         super().__init__()
@@ -433,6 +440,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         self.database = self.client[db_name]
         self.nodes_collection = self.database[nodes_collection]
         self.edges_collection = self.database[edges_collection]
+        self.endpoint_names = endpoint_names
         self.position_attribute = position_attribute
 
     def write_edges(
@@ -455,6 +463,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         logger.debug("Writing edges in %s", roi)
 
         edges = []
+        u_name, v_name = self.endpoint_names
         for u, v, data in self.edges(data=True):
             if not self.is_directed():
                 u, v = min(u, v), max(u, v)
@@ -466,8 +475,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 continue
 
             edge = {
-                'u': int(np.int64(u)),
-                'v': int(np.int64(v)),
+                u_name: int(np.int64(u)),
+                v_name: int(np.int64(v)),
             }
             if not attributes:
                 edge.update(data)
@@ -489,8 +498,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 result = self.edges_collection.bulk_write([
                     ReplaceOne(
                         {
-                            'u': int(np.int64(edge['u'])),
-                            'v': int(np.int64(edge['v']))
+                            u_name: int(np.int64(edge[u_name])),
+                            v_name: int(np.int64(edge[v_name]))
                         },
                         edge,
                         upsert=False
@@ -504,8 +513,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 self.edges_collection.bulk_write([
                     ReplaceOne(
                         {
-                            'u': int(np.int64(edge['u'])),
-                            'v': int(np.int64(edge['v']))
+                            u_name: int(np.int64(edge[u_name])),
+                            v_name: int(np.int64(edge[v_name]))
                         },
                         edge,
                         upsert=True
@@ -632,6 +641,7 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
             mode='r+',
             nodes_collection='nodes',
             edges_collection='edges',
+            endpoint_names=['u', 'v'],
             position_attribute='position'):
         # this calls the init function of the MongoDbSharedSubGraph,
         # because left parents come before right parents
@@ -642,6 +652,7 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
                 mode=mode,
                 nodes_collection=nodes_collection,
                 edges_collection=edges_collection,
+                endpoint_names=endpoint_names,
                 position_attribute=position_attribute)
 
     def is_directed(self):
@@ -657,6 +668,7 @@ class MongoDbSubDiGraph(MongoDbSharedSubGraph, DiGraph):
             mode='r+',
             nodes_collection='nodes',
             edges_collection='edges',
+            endpoint_names=['u', 'v'],
             position_attribute='position'):
         # this calls the init function of the MongoDbSharedSubGraph,
         # because left parents come before right parents
@@ -667,6 +679,7 @@ class MongoDbSubDiGraph(MongoDbSharedSubGraph, DiGraph):
                 mode=mode,
                 nodes_collection=nodes_collection,
                 edges_collection=edges_collection,
+                endpoint_names=endpoint_names,
                 position_attribute=position_attribute)
 
     def is_directed(self):
