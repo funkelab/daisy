@@ -186,10 +186,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return edges.count() > 0
 
-    def read_edges(self, roi):
+    def read_edges(self, roi, nodes=None):
         '''Returns a list of edges within roi.'''
 
-        nodes = self.read_nodes(roi)
+        if nodes is None:
+            nodes = self.read_nodes(roi)
         node_ids = list([int(np.int64(n['id'])) for n in nodes])
         logger.debug("found %d nodes", len(node_ids))
         logger.debug("looking for edges with u in %s", node_ids)
@@ -237,13 +238,13 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def __getitem__(self, roi):
 
-        # get all nodes within roi
         nodes = self.read_nodes(roi)
+        edges = self.read_edges(roi, nodes)
+
+        u, v = self.endpoint_names
         node_list = [
                 (n['id'], self.__remove_keys(n, ['id']))
                 for n in nodes]
-        edges = self.read_edges(roi)
-        u, v = self.endpoint_names
         edge_list = [
                 (e[u], e[v], self.__remove_keys(e, [u, v]))
                 for e in edges]
