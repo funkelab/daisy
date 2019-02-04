@@ -11,13 +11,33 @@ logger = logging.getLogger(__name__)
 
 class TestGraph(unittest.TestCase):
 
-    def test_graph_io(self):
+    def test_graph_io_mongo(self):
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            mode='w')
+        def provider_factory(mode):
+            return daisy.persistence.MongoDbGraphProvider(
+                'test_daisy_graph',
+                nodes_collection='nodes',
+                edges_collection='edges',
+                mode=mode)
+
+        self.run_test_graph_io(provider_factory)
+
+    def test_graph_io_file(self):
+
+        def provider_factory(mode):
+            return daisy.persistence.FileGraphProvider(
+                'test_daisy_graph',
+                chunk_size=(10, 10, 10),
+                nodes_collection='nodes',
+                edges_collection='edges',
+                mode=mode)
+
+        self.run_test_graph_io(provider_factory)
+
+    def run_test_graph_io(self, provider_factory):
+
+        graph_provider = provider_factory('w')
+
         graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
@@ -35,11 +55,7 @@ class TestGraph(unittest.TestCase):
         graph.write_nodes()
         graph.write_edges()
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            mode='r')
+        graph_provider = provider_factory('r')
         compare_graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
