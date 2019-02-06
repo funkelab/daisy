@@ -336,7 +336,7 @@ class FileGraphProvider(SharedGraphProvider):
                     {
                         k: v[i]
                         for k, v in nodes.items()
-                        if k is not 'id'
+                        if k != 'id'
                     }
                 )
                 for i in range(len(nodes['id']))
@@ -351,7 +351,7 @@ class FileGraphProvider(SharedGraphProvider):
                     {
                         k: v[i]
                         for k, v in edges.items()
-                        if k is not 'u' and k is not 'v'
+                        if k != 'u' and k != 'v'
                     }
                 )
                 for i in range(len(edges['u']))
