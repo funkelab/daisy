@@ -168,7 +168,7 @@ class FileGraphProvider(SharedGraphProvider):
                 nodes[k] = nodes[k][roi_filter]
 
         for k, v in nodes.items():
-            np.save(os.path.join(path, k), nodes[k])
+            np.savez_compressed(os.path.join(path, k), nodes=nodes[k])
 
     def _write_edges_to_chunk(
             self,
@@ -199,7 +199,7 @@ class FileGraphProvider(SharedGraphProvider):
                 edges[k] = edges[k][roi_filter]
 
         for k, v in edges.items():
-            np.save(os.path.join(path, k), edges[k])
+            np.savez_compressed(os.path.join(path, k), edges=edges[k])
 
     def _read_nodes_from_chunk(self, chunk_index, roi=None):
 
@@ -215,9 +215,9 @@ class FileGraphProvider(SharedGraphProvider):
 
         nodes = {}
         for attribute in meta['attributes']:
-            file_path = os.path.join(path, attribute + '.npy')
+            file_path = os.path.join(path, attribute + '.npz')
             if os.path.exists(file_path):
-                nodes[attribute] = np.load(file_path)
+                nodes[attribute] = np.load(file_path)['nodes']
 
         if roi is None or roi.contains(chunk_roi):
             return nodes
@@ -242,9 +242,9 @@ class FileGraphProvider(SharedGraphProvider):
 
         edges = {}
         for attribute in meta['attributes']:
-            file_path = os.path.join(path, attribute + '.npy')
+            file_path = os.path.join(path, attribute + '.npz')
             if os.path.exists(file_path):
-                edges[attribute] = np.load(file_path)
+                edges[attribute] = np.load(file_path)['edges']
 
         # we assume that if the chunk is contained in ROI, there is no need to
         # filter for node_ids any more
