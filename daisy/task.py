@@ -152,25 +152,31 @@ class Task():
         task. The arguments are the same as those in
         ```scheduler.run_blockwise()```'''
 
-        self.total_roi = total_roi
-        self.read_roi = read_roi
-        self.write_roi = write_roi
-        self.process_function = process_function
-        self.read_write_conflict = read_write_conflict
-        self.fit = fit
-        self.num_workers = num_workers
-        self.max_retries = max_retries
+        class Object(object):
+            pass
+
+        # avoid naming conflict with user
+        self._daisy = Object()
+        self._daisy.total_roi = total_roi
+        self._daisy.orig_total_roi = total_roi
+        self._daisy.read_roi = read_roi
+        self._daisy.write_roi = write_roi
+        self._daisy.process_function = process_function
+        self._daisy.read_write_conflict = read_write_conflict
+        self._daisy.fit = fit
+        self._daisy.num_workers = num_workers
+        self._daisy.max_retries = max_retries
 
         if check_function is not None:
             try:
-                self.pre_check, self.post_check = check_function
+                self._daisy.pre_check, self._daisy.post_check = check_function
             except TypeError:
-                self.pre_check = check_function
-                self.post_check = check_function
+                self._daisy.pre_check = check_function
+                self._daisy.post_check = check_function
 
         else:
-            self.pre_check = lambda _: False
-            self.post_check = lambda _: True
+            self._daisy.pre_check = lambda _: False
+            self._daisy.post_check = lambda _: True
 
     def cleanup(self):
         ''' Override this to perform any post-task cleanup action '''

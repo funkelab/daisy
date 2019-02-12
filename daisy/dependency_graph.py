@@ -4,7 +4,8 @@ import collections
 import copy
 import logging
 import threading
-from .blocks import create_dependency_graph, get_subgraph_blocks
+from .blocks import create_dependency_graph, get_subgraph_blocks, \
+    expand_roi_to_grid
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class DependencyGraph():
     def __init__(self, global_config):
         self.global_config = global_config
 
-        self.leaf_task_id = None
+        # self.leaf_task_id = None
         self.tasks = set()
         self.task_map = {}
         self.prepared_tasks = set()
@@ -41,7 +42,7 @@ class DependencyGraph():
         self.orphaned_blocks = set()
 
         self.task_done_count = collections.defaultdict(int)
-        self.task_total_block_count = {}
+        self.task_total_block_count = collections.defaultdict(int)
 
     def add(self, task):
         '''Add a ``Task`` to the graph.
@@ -51,34 +52,34 @@ class DependencyGraph():
                 Task to be added to the graph. Its dependencies are
                 automatically and recursively added to the graph.
         '''
-        if self.leaf_task_id is None:
-            self.leaf_task_id = task.task_id
-        else:
-            logger.error("Daisy can only have one leaf task currently.")
-            raise
-
-        self.tasks.add(task)
-        self.task_map[task.task_id] = task
-        self.add_task_dependency(task)
+        if task.task_id not in self.task_map:
+            self.tasks.add(task)
+            self.task_map[task.task_id] = task
+            self.add_task_dependency(task)
 
     def add_task_dependency(self, task):
         '''Recursively add dependencies of a task to the graph.'''
         for dependency_task in task.requires():
-            self.tasks.add(dependency_task)
+
+            if dependency_task.task_id not in self.task_map:
+                self.tasks.add(dependency_task)
+                self.task_map[dependency_task.task_id] = dependency_task
+                # recursively add dependency
+                self.add_task_dependency(dependency_task)
+
             # modify task dependency graph
             self.task_dependency[task.task_id].add(dependency_task.task_id)
-            self.task_map[dependency_task.task_id] = dependency_task
-            # recursively add dependency
-            self.add_task_dependency(dependency_task)
 
-    def init(self):
+    def init(self, task_id, request_roi=None):
         '''Called by the ``scheduler`` after all tasks have been added.
         Call the prepare() of each task, and create the entire
         block-wise graph.'''
-        self.__recursively_prepare(self.leaf_task_id)
-        self.__recursively_create_dependency_graph(self.leaf_task_id)
+        assert(task_id in self.task_map)
+        self.created_tasks = set()
+        self.__recursively_prepare(task_id)
+        self.__recursively_create_dependency_graph(task_id, request_roi)
 
-    def __recursively_create_dependency_graph(self, task_id):
+    def __recursively_create_dependency_graph(self, task_id, request_roi):
         '''Create dependency graph for its dependencies first before
         its own'''
         if task_id in self.created_tasks:
@@ -86,30 +87,65 @@ class DependencyGraph():
         else:
             self.created_tasks.add(task_id)
 
+        task = self.task_map[task_id]
+        dependency_request_roi = None
+
+        # restore original total_roi before modification
+        # (second time this task is processed)
+        task._daisy.total_roi = task._daisy.orig_total_roi
+
+        if request_roi:
+            if not task._daisy.orig_total_roi.contains(request_roi):
+                raise RuntimeError(
+                    "Unsatisfiable request %s given total_roi %s for Task %s"
+                    % (request_roi, task._daisy.orig_total_roi, task_id))
+            # reduce total_roi to match request_roi
+            # and calculate request_roi for its dependencies
+            total_roi = expand_roi_to_grid(
+                request_roi,
+                task._daisy.orig_total_roi,
+                task._daisy.read_roi,
+                task._daisy.write_roi)
+
+            logger.info(
+                "Reducing total_roi for Task %s from %s to %s because of "
+                "request %s",
+                task_id, task._daisy.orig_total_roi, total_roi, request_roi)
+
+            # TODO: check whether this reduction + fit policy to the original
+            # total_roi cause dependent tasks to fail
+
+            task._daisy.total_roi = total_roi
+            dependency_request_roi = total_roi
+
         for dependency_task in self.task_dependency[task_id]:
-            self.__recursively_create_dependency_graph(dependency_task)
+            self.__recursively_create_dependency_graph(dependency_task,
+                                                       dependency_request_roi)
 
         # finally create graph for this task
         # first create the self-contained dependency graph
-        task = self.task_map[task_id]
         blocks = create_dependency_graph(
-            task.total_roi,
-            task.read_roi,
-            task.write_roi,
-            task.read_write_conflict,
-            task.fit)
+            task._daisy.total_roi,
+            task._daisy.read_roi,
+            task._daisy.write_roi,
+            task._daisy.read_write_conflict,
+            task._daisy.fit)
 
-        self.task_total_block_count[task_id] = len(blocks)
+        self.task_total_block_count[task_id] += len(blocks)
         self.task_done_count[task_id] = 0
 
         # some sanity checks
-        assert(task.max_retries >= 0)
+        assert(task._daisy.max_retries >= 0)
 
         # add tasks to block-wise graph, while accounting for intra-task
         # and inter-task dependencies
         for block, block_dependencies in blocks:
 
             block_id = (task_id, block.block_id)
+
+            if block_id in self.blocks:
+                continue
+
             self.blocks[block_id] = block
 
             dependencies = [(task_id, b.block_id) for b in block_dependencies]
@@ -244,7 +280,7 @@ class DependencyGraph():
 
             if (
                     self.retry_count[block_id] >
-                    self.task_map[task_id].max_retries):
+                    self.task_map[task_id]._daisy.max_retries):
 
                 self.failed_blocks.add(block_id)
                 logger.error(
@@ -299,6 +335,7 @@ class DependencyGraph():
     def get_subgraph(self, roi):
         '''Create a subgraph given a ROI, assuming this ROI is that
         of the leaf task.'''
+        raise RuntimeError("Deprecated function.")  # deprecated function
         subgraph = copy.deepcopy(self)
         subgraph.__create_subgraph(roi)
         return subgraph
@@ -308,6 +345,8 @@ class DependencyGraph():
         blocks will be computed to cover the given ROI. This is achieved
         by simply recomputing the ready_queue as computed for the full
         graph.'''
+        raise RuntimeError("Deprecated function.")  # deprecated function
+
         self.ready_queues.clear()
 
         # get blocks of the leaf task that writes to the given ROI
@@ -337,10 +376,10 @@ class DependencyGraph():
         task = self.task_map[task_id]
         return get_subgraph_blocks(
             roi,
-            task.total_roi,
-            task.read_roi,
-            task.write_roi,
-            task.fit)
+            task._daisy.total_roi,
+            task._daisy.read_roi,
+            task._daisy.write_roi,
+            task._daisy.fit)
 
     def is_task_done(self, task_id):
         '''Return ``True`` if all blocks of a task have completed.'''
