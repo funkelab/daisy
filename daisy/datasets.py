@@ -2,6 +2,7 @@ from __future__ import absolute_import, division
 from .array import Array
 from .coordinate import Coordinate
 from .ext import zarr, h5py
+from .klb_adaptor import KlbAdaptor
 from .roi import Roi
 import json
 import logging
@@ -113,6 +114,17 @@ def open_ds(filename, ds_name, mode='r'):
             Roi(spec['offset'], spec['size']),
             array.voxel_size,
             array.roi.get_begin())
+
+    elif filename.endswith('.klb'):
+
+        logger.debug("opening KLB dataset %s", filename)
+        adaptor = KlbAdaptor(filename)
+
+        return Array(
+            adaptor,
+            adaptor.roi,
+            adaptor.voxel_size,
+            adaptor.roi.get_begin())
 
     else:
 
