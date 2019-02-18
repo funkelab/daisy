@@ -110,11 +110,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             else:
                 self.__set_metadata()
 
-            if (
-                    nodes_collection not in collection_names or
-                    edges_collection not in collection_names):
-
-                self.__create_collections()
+            if nodes_collection not in collection_names:
+                self.__create_node_collection()
+            if edges_collection not in collection_names:
+                self.__create_edge_collection()
 
         finally:
 
@@ -317,8 +316,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.client.close()
         self.client = None
 
-    def __create_collections(self):
-        '''Creates the node and edge collections, including indexes'''
+    def __create_node_collection(self):
+        '''Creates the node collection, including indexes'''
         self.__open_db()
         self.__open_collections()
 
@@ -342,6 +341,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
             ],
             name='id',
             unique=True)
+
+    def __create_edge_collection(self):
+        '''Creates the edge collection, including indexes'''
+        self.__open_db()
+        self.__open_collections()
+
         u, v = self.endpoint_names
         self.edges.create_index(
             [
