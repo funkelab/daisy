@@ -30,3 +30,8 @@ try:
     import zarr
 except ImportError:
     zarr = NoSuchModule('zarr')
+
+try:
+    import pyklb
+except ImportError:
+    pyklb = NoSuchModule('pyklb')
