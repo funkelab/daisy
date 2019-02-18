@@ -40,15 +40,24 @@ class Block(Freezable):
         write_roi (`class:Roi`):
 
             The region of interest (ROI) to write to.
+
+        block_id (``int``, optional):
+
+            The ID to assign to this block. The ID is normally computed from
+            the write ROI and the total ROI, such that each block has a unique
+            ID.
     '''
 
-    def __init__(self, total_roi, read_roi, write_roi):
+    def __init__(self, total_roi, read_roi, write_roi, block_id=None):
 
         self.read_roi = read_roi
         self.write_roi = write_roi
         self.requested_write_roi = write_roi.copy()
 
-        self.block_id = self.compute_block_id(total_roi, write_roi)
+        if block_id is None:
+            self.block_id = self.compute_block_id(total_roi, write_roi)
+        else:
+            self.block_id = block_id
         self.freeze()
 
     def compute_block_id(self, total_roi, write_roi):
