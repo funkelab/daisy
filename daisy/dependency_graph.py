@@ -35,11 +35,13 @@ class DependencyGraph():
         self.ready_queues = collections.defaultdict(collections.deque)
         self.ready_queue_cv = threading.Condition()
         self.processing_blocks = set()
+        self.task_processing_blocks = collections.defaultdict(set)
         self.blocks = {}
 
         self.retry_count = collections.defaultdict(int)
         self.failed_blocks = set()
         self.orphaned_blocks = set()
+        self.task_failed_count = collections.defaultdict(int)
 
         self.task_done_count = collections.defaultdict(int)
         self.task_total_block_count = collections.defaultdict(int)
@@ -210,6 +212,7 @@ class DependencyGraph():
 
                 block_id = self.ready_queues[task_type].popleft()
                 self.processing_blocks.add(block_id)
+                self.task_processing_blocks[block_id[0]].add(block_id[1])
                 return (block_id[0], self.blocks[block_id])
 
             # Otherwise, return any other block. The scheduler will then
@@ -224,6 +227,7 @@ class DependencyGraph():
                 if len(self.ready_queues[task_type]):
                     block_id = self.ready_queues[task_type].popleft()
                     self.processing_blocks.add(block_id)
+                    self.task_processing_blocks[block_id[0]].add(block_id[1])
                     return (block_id[0], self.blocks[block_id])
 
     def get_tasks(self):
@@ -276,6 +280,7 @@ class DependencyGraph():
         with self.ready_queue_cv:
 
             self.processing_blocks.remove(block_id)
+            self.task_processing_blocks[block_id[0]].remove(block_id[1])
             task_id = block_id[0]
 
             if (
@@ -283,6 +288,7 @@ class DependencyGraph():
                     self.task_map[task_id]._daisy.max_retries):
 
                 self.failed_blocks.add(block_id)
+                self.task_failed_count[block_id[0]] += 1
                 logger.error(
                     "Block {} is canceled and will not be rescheduled."
                     .format(block_id))
@@ -319,6 +325,7 @@ class DependencyGraph():
 
             self.task_done_count[block_id[0]] += 1
             self.processing_blocks.remove(block_id)
+            self.task_processing_blocks[block_id[0]].remove(block_id[1])
 
             dependents = self.dependents[block_id]
             for dep in dependents:
@@ -385,3 +392,15 @@ class DependencyGraph():
         '''Return ``True`` if all blocks of a task have completed.'''
         return (self.task_done_count[task_id]
                 == self.task_total_block_count[task_id])
+
+    def get_task_size(self, task_id):
+        return self.task_total_block_count[task_id]
+
+    def get_task_done_count(self, task_id):
+        return self.task_done_count[task_id]
+
+    def get_task_failed_count(self, task_id):
+        return self.task_failed_count[task_id]
+
+    def get_task_processing_blocks(self, task_id):
+        return self.task_processing_blocks[task_id]

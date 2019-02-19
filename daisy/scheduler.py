@@ -11,6 +11,7 @@ from inspect import signature
 from tornado.ioloop import IOLoop
 import asyncio
 import collections
+from datetime import timedelta
 import logging
 import os
 import queue
@@ -52,11 +53,13 @@ class Scheduler():
         self.worker_type = {}
         self.dead_workers = set()
         self.worker_outstanding_blocks = collections.defaultdict(set)
+        self.registered_workers = collections.defaultdict(set)
 
         # precomputed recruit functions
         self.worker_recruit_fn = {}
 
         self.launched_tasks = set()
+        self.skipped_count = collections.defaultdict(int)
         self.next_worker_id = collections.defaultdict(int)
         self.finished_scheduling = False
 
@@ -64,7 +67,23 @@ class Scheduler():
         # them when finishing the block-wise scheduling
         self.started_processes = set()
 
+        self.status_thread = None
+        self.periodic_interval = 10
+        self.completion_rate = collections.defaultdict(int)
+
     def distribute(self, graph):
+        try:
+            return self.__distribute(graph)
+        finally:
+            # always run clean up
+            for task in self.tasks:
+                try:
+                    self.tasks[task].cleanup()
+                except Exception as e:
+                    logger.error(e)
+                    pass
+
+    def __distribute(self, graph):
 
         self.graph = graph
         all_tasks = graph.get_tasks()
@@ -80,6 +99,8 @@ class Scheduler():
         logger.debug("Server running at %s", self.net_identity)
         logger.info("Scheduling %d tasks to completion.", graph.size())
         logger.debug("Max parallelism seems to be %d.", graph.ready_size())
+
+        self._start_status_thread()
 
         while not graph.empty():
 
@@ -99,10 +120,11 @@ class Scheduler():
                 pre_check_ret = False
 
             if pre_check_ret:
-                logger.info(
+                logger.debug(
                     "Skipping %s block %d; already processed.",
                     task_id, block.block_id)
                 ret = ReturnCode.SKIPPED
+                self.skipped_count[task_id] += 1
                 self.block_return(None, (task_id, block.block_id), ret)
 
             else:
@@ -121,16 +143,15 @@ class Scheduler():
                             continue
 
                 self.send_block(worker, block)
-                logger.info(
+                logger.debug(
                     "Pushed block %s of task %s to worker %s.",
                     block, task_id, worker)
 
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
         self.close_all_workers()
-
-        # stop tornado
-        self.ioloop.add_callback(self.ioloop.stop)
+        self.ioloop.add_callback(self.ioloop.stop)  # stop Tornado IOLoop
+        self._stop_status_thread()
 
         succeeded = [t for t, r in self.results if r == ReturnCode.SUCCESS]
         skipped = [t for t, r in self.results if r == ReturnCode.SKIPPED]
@@ -178,6 +199,79 @@ class Scheduler():
         self.tcpserver.listen(0)  # 0 == random port
         self.net_identity = self.tcpserver.get_identity()
 
+    def _start_status_thread(self):
+        self.status_thread = threading.Thread(target=self.status_loop)
+        self.status_thread.start()
+
+    def _stop_status_thread(self):
+        if self.status_thread is not None:
+            self.status_thread.join(timeout=10)
+            if self.status_thread.is_alive():
+                raise RuntimeError("Time out waiting to stop status thread..")
+
+    def status_loop(self):
+
+        last_time = time.time()
+        last_completion_rate = self.completion_rate
+        SAMPLING_INTERVAL = 120
+
+        while not self.finished_scheduling:
+
+            # collecting ETA based on the last 5 minutes
+            current_time = time.time()
+
+            if (current_time - last_time) > SAMPLING_INTERVAL:
+                last_time = current_time
+                last_completion_rate = self.completion_rate
+                # reset periodic stats
+                self.completion_rate = collections.defaultdict(int)
+
+            for task_id in self.tasks:
+
+                pending_count = (
+                    self.graph.get_task_size(task_id) -
+                    self.graph.get_task_done_count(task_id) -
+                    self.graph.get_task_failed_count(task_id) -
+                    len(self.graph.get_task_processing_blocks(task_id)))
+
+                # calculate ETA
+                blocks_per_sec = 0
+                if task_id in last_completion_rate:
+                    blocks_per_sec = (float(last_completion_rate[task_id]) /
+                                      SAMPLING_INTERVAL)
+
+                eta = "unknown"
+                if blocks_per_sec > 0:
+                    eta = str(timedelta(
+                        seconds=(pending_count / blocks_per_sec)))
+
+                logger.info(
+                    "\n\t%s processing %d blocks "
+                    "with %d workers (%d online)"
+                    "\n\t\t%d finished (%d skipped, %d succeeded, %d failed), "
+                    "%d processing, %d pending"
+                    "\n\t\tETA: %s",
+                    task_id, self.graph.get_task_size(task_id),
+
+                    self.tasks[task_id]._daisy.num_workers,
+                    len(self.registered_workers[task_id]),
+
+                    self.graph.get_task_done_count(task_id),
+                    self.skipped_count[task_id],
+                    (self.graph.get_task_done_count(task_id) -
+                        self.skipped_count[task_id]),
+                    self.graph.get_task_failed_count(task_id),
+
+                    len(self.graph.get_task_processing_blocks(task_id)),
+                    pending_count,
+
+                    eta)
+
+                self.tasks[task_id]._periodic_callback()
+
+            time.sleep(self.periodic_interval)
+            logger.info("\n")  # separator
+
     def remove_worker_callback(self, worker):
         """ Called by TCP server when connection is lost or otherwise
         exited. This happens for both when the worker unexpected
@@ -202,6 +296,8 @@ class Scheduler():
             # blocks if not thought about carefully
             self.dead_workers.add(worker)
             self.workers.remove(worker)
+            if self.worker_type[worker] is not None:
+                self.registered_workers[task_id].remove(worker)
             self.worker_type[worker] = None
 
         if ((not self.finished_scheduling) and
@@ -404,6 +500,7 @@ class Scheduler():
         with self.worker_states_lock:
             self.workers.add(worker)
             self.worker_type[worker] = task_id
+            self.registered_workers[task_id].add(worker)
             if worker in self.dead_workers:
                 # handle aliasing of previous workers
                 self.dead_workers.remove(worker)
@@ -424,6 +521,8 @@ class Scheduler():
                     "block %s. Exception: %s",
                     block, e)
                 post_check_success = False
+
+            self.completion_rate[task_id] += 1
 
             if not post_check_success:
                 logger.error(
