@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from .block import Block
 from .coordinate import Coordinate
+from .roi import Roi
 from itertools import product
 import logging
 
@@ -366,3 +367,39 @@ def get_subgraph_blocks(
         block_offsets=block_offsets,
         fit=fit)
     return [block.block_id for block, _ in blocks]
+
+
+def expand_roi_to_grid(
+        sub_roi,
+        total_roi,
+        read_roi,
+        write_roi):
+    '''Expands given roi so that its write region is aligned to write_roi
+    '''
+    offset = (
+        write_roi.get_begin() +
+        total_roi.get_begin() -
+        read_roi.get_begin())
+
+    begin = sub_roi.get_begin() - offset
+    end = sub_roi.get_end() - offset
+    begin = begin // write_roi.get_shape()  # `floordiv`
+    end = -(-end // write_roi.get_shape())  # `ceildiv`
+    begin = begin * write_roi.get_shape() + offset
+    end = end * write_roi.get_shape() + offset
+
+    return Roi(begin, end - begin)
+
+
+def expand_write_roi_to_grid(
+        roi,
+        write_roi):
+    '''Expands given roi so that its write region is aligned to write_roi
+    '''
+
+    roi = (roi.get_begin() // write_roi.get_shape(),  # `floordiv`
+           -(-roi.get_end() // write_roi.get_shape()))  # `ceildiv`
+
+    roi = Roi(roi[0] * write_roi.get_shape(),
+              (roi[1]-roi[0]) * write_roi.get_shape())
+    return roi

@@ -91,7 +91,7 @@ class Scheduler():
             try:
                 # pre_check can intermittently fail
                 # so we wrap it in a try block
-                pre_check_ret = self.tasks[task_id].pre_check(block)
+                pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
             except Exception as e:
                 logger.error(
                     "pre_check() exception for block %s. Exception: %s",
@@ -99,7 +99,7 @@ class Scheduler():
                 pre_check_ret = False
 
             if pre_check_ret:
-                logger.debug(
+                logger.info(
                     "Skipping %s block %d; already processed.",
                     task_id, block.block_id)
                 ret = ReturnCode.SKIPPED
@@ -121,7 +121,7 @@ class Scheduler():
                             continue
 
                 self.send_block(worker, block)
-                logger.debug(
+                logger.info(
                     "Pushed block %s of task %s to worker %s.",
                     block, task_id, worker)
 
@@ -208,7 +208,7 @@ class Scheduler():
                 (task_id not in self.finished_tasks)):
             # task is unfinished--keep respawning to finish task
 
-            num_workers = self.tasks[task_id].num_workers
+            num_workers = self.tasks[task_id]._daisy.num_workers
 
             logger.info("Respawning worker %s due to disconnection", worker)
             context = Context(
@@ -274,7 +274,7 @@ class Scheduler():
             os.makedirs(log_dir, exist_ok=True)
 
             new_worker_fn = None
-            process_function = self.tasks[task_id].process_function
+            process_function = self.tasks[task_id]._daisy.process_function
             log_to_files = self.tasks[task_id].log_to_files
             log_to_stdout = self.tasks[task_id].log_to_stdout
 
@@ -320,7 +320,7 @@ class Scheduler():
         if task_id not in self.launched_tasks:
 
             logger.info("Launching workers for task %s", task_id)
-            num_workers = self.tasks[task_id].num_workers
+            num_workers = self.tasks[task_id]._daisy.num_workers
 
             for i in range(num_workers):
 
@@ -416,7 +416,8 @@ class Scheduler():
         # run post_check for finishing blocks
         if ret == ReturnCode.SUCCESS:
             try:
-                post_check_success = self.tasks[task_id].post_check(block)
+                post_check_success = (
+                    self.tasks[task_id]._daisy.post_check(block))
             except Exception as e:
                 logger.error(
                     "Encountered exception while running post_check for "
@@ -625,16 +626,28 @@ def distribute(tasks, global_config=None):
     '''
     dependency_graph = DependencyGraph(global_config=global_config)
 
-    if len(tasks) > 1:
-        raise NotImplementedError(
-            "Daisy does not support distribute() multiple tasks yet.")
+    # if len(tasks) > 1:
+    #     raise NotImplementedError(
+    #         "Daisy does not support distribute() multiple tasks yet.")
+    # task = tasks[0]
 
-    task = tasks[0]
-    dependency_graph.add(task['task'])
-    dependency_graph.init()
+    for task in tasks:
+        dependency_graph.add(task['task'])
 
-    if 'request' in task and task['request'] is not None:
-        subgraph = dependency_graph.get_subgraph(task['request'])
-        dependency_graph = subgraph
+        if 'request' not in task or task['request'] is None:
+            dependency_graph.init(task['task'].task_id,
+                                  request_roi=[])
+
+        else:
+            if len(task['request']) > 1:
+                raise NotImplementedError(
+                  "Sorry Daisy does not handle more than one request_roi yet.")
+
+            dependency_graph.init(task['task'].task_id,
+                                  request_roi=task['request'][0])
+
+    # if 'request' in task and task['request'] is not None:
+    #     subgraph = dependency_graph.get_subgraph(task['request'])
+    #     dependency_graph = subgraph
 
     return Scheduler().distribute(dependency_graph)
