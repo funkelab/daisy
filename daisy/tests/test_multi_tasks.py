@@ -318,6 +318,169 @@ class TestMultipleTasks(TmpDirTestCase):
         self.assertTrue(ret)
         self.assertEqual(block_ids, expected_block_ids)
 
+    def test_task_request_alignment(self):
+        '''Tests multiple tasks with the same dependency and with request'''
+        outdir = self.path_to('')
+
+        # this task generates 0-5
+        task0 = self.TaskWriteRoi2(outdir=outdir)
+        task0_spec = {'task': task0}
+        expected_block_ids = list(range(0, 5))
+
+        ret = daisy.distribute([task0_spec])
+
+        outfiles = glob.glob(os.path.join(outdir, '*.block'))
+        block_ids = sorted([
+            int(path.split('/')[-1].split('.')[0])
+            for path in outfiles
+        ])
+
+        self.assertTrue(ret)
+        self.assertEqual(block_ids, expected_block_ids)
+
+    def test_task_request_alignment_with_req(self):
+        '''Tests multiple tasks with the same dependency and with request'''
+        outdir = self.path_to('')
+
+        # this task generates 0-10
+        task0 = self.TaskWriteRoi2(outdir=outdir)
+        task0_spec = {'task': task0, 'request': [daisy.Roi((2,), (2,))]}
+        # request lies in block 1
+        expected_block_ids = list(range(1, 2))
+
+        ret = daisy.distribute([task0_spec])
+
+        outfiles = glob.glob(os.path.join(outdir, '*.block'))
+        block_ids = sorted([
+            int(path.split('/')[-1].split('.')[0])
+            for path in outfiles
+        ])
+
+        self.assertTrue(ret)
+        self.assertEqual(block_ids, expected_block_ids)
+
+    def test_task_request_alignment_with_req2(self):
+        '''Tests multiple tasks with the same dependency and with request'''
+        outdir = self.path_to('')
+
+        # this task generates 0-10
+        task0 = self.TaskWriteRoi2(outdir=outdir)
+        task0_spec = {'task': task0, 'request': [daisy.Roi((1,), (2,))]}
+        # request lies between block 0 and block 1
+        expected_block_ids = list(range(0, 2))
+
+        ret = daisy.distribute([task0_spec])
+
+        outfiles = glob.glob(os.path.join(outdir, '*.block'))
+        block_ids = sorted([
+            int(path.split('/')[-1].split('.')[0])
+            for path in outfiles
+        ])
+
+        self.assertTrue(ret)
+        self.assertEqual(block_ids, expected_block_ids)
+
+    def test_task_request_alignment_with_req3(self):
+        '''Tests multiple tasks with the same dependency and with request'''
+        outdir = self.path_to('')
+
+        # this task generates 0-10
+        task0 = self.TaskWriteRoi3(outdir=outdir)
+        task0_spec = {'task': task0}
+        # request lies between block 0 and block 1
+        expected_write_begins = list(range(1, 11, 2))
+
+        ret = daisy.distribute([task0_spec])
+
+        outfiles = glob.glob(os.path.join(outdir, '*.write_roi'))
+        block_ids = sorted([
+            int(path.split('/')[-1].split('.')[0])
+            for path in outfiles
+        ])
+
+        self.assertTrue(ret)
+        self.assertEqual(block_ids, expected_write_begins)
+
+    def test_task_request_alignment_with_req4(self):
+        '''Tests multiple tasks with the same dependency and with request'''
+        outdir = self.path_to('')
+
+        # this task generates 0-10
+        task0 = self.TaskWriteRoi3(outdir=outdir)
+        task0_spec = {'task': task0, 'request': [daisy.Roi((1,), (2,))]}
+        expected_write_begins = [1]
+
+        ret = daisy.distribute([task0_spec])
+
+        outfiles = glob.glob(os.path.join(outdir, '*.write_roi'))
+        block_ids = sorted([
+            int(path.split('/')[-1].split('.')[0])
+            for path in outfiles
+        ])
+
+        self.assertTrue(ret)
+        self.assertEqual(block_ids, expected_write_begins)
+
+    def test_task_request_alignment_with_req5(self):
+        '''Tests multiple tasks with the same dependency and with request'''
+        outdir = self.path_to('')
+
+        # this task generates 0-10
+        task0 = self.TaskWriteRoi3(outdir=outdir)
+        task0_spec = {'task': task0, 'request': [daisy.Roi((1,), (6,))]}
+        # requesting 1, 2, 3, 4, 5, 6
+        # is satisfied with 3 write blocks
+        expected_write_begins = [1, 3, 5]
+
+        ret = daisy.distribute([task0_spec])
+
+        outfiles = glob.glob(os.path.join(outdir, '*.write_roi'))
+        block_ids = sorted([
+            int(path.split('/')[-1].split('.')[0])
+            for path in outfiles
+        ])
+
+        self.assertTrue(ret)
+        self.assertEqual(block_ids, expected_write_begins)
+
+    class TaskWriteRoi3(daisy.Task):
+
+        outdir = daisy.Parameter()
+
+        def prepare(self):
+
+            total_roi = daisy.Roi((1,), (10,))
+            read_roi = daisy.Roi((0,), (2,))
+            write_roi = daisy.Roi((0,), (2,))
+
+            self.schedule(
+                total_roi,
+                read_roi,
+                write_roi,
+                # process_function=TestMultipleTasks.process_block,
+                process_function=lambda: TestMultipleTasks.worker(self.outdir),
+                max_retries=0,
+                fit='shrink')
+
+    class TaskWriteRoi2(daisy.Task):
+
+        outdir = daisy.Parameter()
+
+        def prepare(self):
+
+            total_roi = daisy.Roi((0,), (10,))
+            read_roi = daisy.Roi((0,), (2,))
+            write_roi = daisy.Roi((0,), (2,))
+
+            self.schedule(
+                total_roi,
+                read_roi,
+                write_roi,
+                # process_function=TestMultipleTasks.process_block,
+                process_function=lambda: TestMultipleTasks.worker(self.outdir),
+                max_retries=0,
+                fit='shrink')
+
     class LeafTask(daisy.Task):
 
         outdir = daisy.Parameter()
@@ -408,6 +571,13 @@ class TestMultipleTasks(TmpDirTestCase):
         with open(path, 'w') as f:
             f.write(str(block.block_id))
 
+        # print(block.read_roi.get_begin())
+        # print(block.write_roi.get_begin()[0])
+        path = os.path.join(
+            outdir, '%d.write_roi' % block.write_roi.get_begin()[0])
+        with open(path, 'w') as f:
+            f.write(str(block.write_roi))
+
     def process_block_null(block):
         return 0
 
@@ -424,28 +594,3 @@ class TestMultipleTasks(TmpDirTestCase):
             TestMultipleTasks.process_block(outdir, block, fail)
 
             client.release_block(block, 0)
-        
-    # def test_basic_multiple_tasks(self):
-
-    #     class TestTask(daisy.Task):
-    #         a = daisy.Parameter(default=True)
-    #         b = daisy.Parameter(default=False)
-    #         c = daisy.Parameter()
-
-    #     with self.assertRaises(RuntimeError):
-    #         t = TestTask()
-
-    #     with self.assertRaises(RuntimeError):
-    #         t = TestTask(d=42)
-
-    #     t = TestTask(c=42)
-
-    #     assert t.a is True
-    #     assert t.b is False
-    #     assert t.c == 42
-
-    #     t = TestTask(global_config={'TestTask': {'a': 23, 'b': 42, 'c': 3.14}})
-
-    #     assert t.a == 23
-    #     assert t.b == 42
-    #     assert t.c == 3.14
