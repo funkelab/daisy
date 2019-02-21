@@ -187,7 +187,7 @@ class Scheduler():
 
         if worker not in self.worker_type:
             logger.error(
-                "Worker %s closed before finished initializing. ",
+                "Worker %s closed before finished initializing. " \
                 "It will not be respawned.",
                 worker
             )
