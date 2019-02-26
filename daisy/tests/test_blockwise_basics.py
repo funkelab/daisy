@@ -7,6 +7,7 @@ import os
 import logging
 
 logger = logging.getLogger(__name__)
+daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
 
 
 class TestBlockwiseBasics(TmpDirTestCase):
