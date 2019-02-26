@@ -55,9 +55,11 @@ class Block(Freezable):
         self.requested_write_roi = write_roi.copy()
 
         if block_id is None:
-            self.block_id = self.compute_block_id(total_roi, write_roi)
+            self.block_id, self.z_order_id = self.compute_block_id(total_roi,
+                                                                   write_roi)
         else:
             self.block_id = block_id
+            self.z_order_id = block_id  # for compatibility
         self.freeze()
 
     def compute_block_id(self, total_roi, write_roi):
@@ -76,7 +78,24 @@ class Block(Freezable):
         for d in range(total_roi.dims())[::-1]:
             block_id += block_index[d]*f
             f *= num_blocks[d]
-        return block_id
+
+        bit32_constant = 1 << 31
+        # for i in range(total_roi.dims()):
+        #     indices.append(block_index[i])
+        indices = [block_index[i] for i in range(total_roi.dims())]
+        n = 0
+        z_order_id = 0
+        while n < 32:
+            for i in range(total_roi.dims()):
+                z_order_id = z_order_id >> 1
+                if indices[i] & 1:
+                    z_order_id += bit32_constant
+                indices[i] = indices[i] >> 1
+                n += 1
+
+        # print("Z-order ID for block %d (%s) is %d" % (block_id, block_index, z_order_id))
+
+        return block_id, z_order_id
 
     def __repr__(self):
 
