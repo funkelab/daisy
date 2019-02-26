@@ -80,8 +80,6 @@ class Block(Freezable):
             f *= num_blocks[d]
 
         bit32_constant = 1 << 31
-        # for i in range(total_roi.dims()):
-        #     indices.append(block_index[i])
         indices = [block_index[i] for i in range(total_roi.dims())]
         n = 0
         z_order_id = 0
@@ -92,8 +90,6 @@ class Block(Freezable):
                     z_order_id += bit32_constant
                 indices[i] = indices[i] >> 1
                 n += 1
-
-        # print("Z-order ID for block %d (%s) is %d" % (block_id, block_index, z_order_id))
 
         return block_id, z_order_id
 
