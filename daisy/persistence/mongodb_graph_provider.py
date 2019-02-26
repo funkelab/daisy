@@ -613,13 +613,25 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             raise
 
     def get_connected_components(self):
-        '''Returns a list of connected components in the subgraph'''
+        '''Returns a list of connected components as networkx (di)graphs'''
+        subgraphs = []
         if self.is_directed():
-            return [self.subgraph(g).copy()
-                    for g in nx.weakly_connected_components(self)]
+            node_set_generator = nx.weakly_connected_components(self)
         else:
-            return [self.subgraph(g).copy()
-                    for g in nx.connected_components(self)]
+            node_set_generator = nx.connected_components(self)
+
+        for node_set in node_set_generator:
+            edge_set = self.edges(node_set, data=True)
+            if self.is_directed():
+                g = nx.DiGraph()
+            else:
+                g = nx.Graph()
+
+            g.add_nodes_from([(node, self.nodes[node]) for node in node_set])
+            g.add_edges_from(edge_set)
+            subgraphs.append(g)
+
+        return subgraphs
 
     def __contains(self, roi, node):
         '''Determines if the given node is inside the given roi'''
