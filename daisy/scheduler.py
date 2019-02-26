@@ -100,8 +100,9 @@ class Scheduler():
         logger.info("Scheduling %d tasks to completion.", graph.size())
         logger.debug("Max parallelism seems to be %d.", graph.ready_size())
 
-        self._start_status_thread()
+        # self._start_status_thread()
         blocks = {}  # {task_id: block_id}
+        no_worker_delay = 0.01
         while not graph.empty():
 
             blocks = graph.next(waiting_blocks=blocks)
@@ -132,6 +133,7 @@ class Scheduler():
 
                 else:
                     worker = self.get_idle_worker(task_id)
+                    print(worker)
 
                     if worker is not None:
 
@@ -152,9 +154,14 @@ class Scheduler():
                             "Pushed block %s of task %s to worker %s.",
                             block, task_id, worker)
 
-            scheduled_any = (len(blocks) > 0) and (len(submitted_blocks) > 0)
-            if not scheduled_any:
-                time.sleep(1)  # wait for workers to come online
+            scheduled_any = (len(submitted_blocks) > 0)
+            if (len(blocks) > 0) and not scheduled_any:
+                time.sleep(no_worker_delay)  # wait for workers to come online
+                no_worker_delay *= 2
+                if (no_worker_delay > 1.0):
+                    no_worker_delay = 1.0
+            else:
+                no_worker_delay = 0.01
 
             for submitted_task in submitted_blocks:
                 blocks.pop(submitted_task)
@@ -445,10 +452,9 @@ class Scheduler():
 
             self.launched_tasks.add(task_id)
 
-        if self.idle_workers[task_id].qsize() > 1:
-            worker = self.idle_workers[task_id].get()
-            return worker
-        else:
+        try:
+            return self.idle_workers[task_id].get(block=False)
+        except queue.Empty:
             return None
 
     def add_idle_worker_callback(self, worker, task):
