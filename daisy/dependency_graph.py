@@ -2,6 +2,7 @@ from __future__ import absolute_import
 
 import collections
 import copy
+import heapq
 import logging
 import threading
 from .blocks import create_dependency_graph, get_subgraph_blocks, \
@@ -46,6 +47,10 @@ class DependencyGraph():
         self.task_done_count = collections.defaultdict(int)
         self.task_total_block_count = collections.defaultdict(int)
 
+        self.use_z_order_scheduling = True
+        if self.use_z_order_scheduling:
+            self.ready_queues = collections.defaultdict(list)
+
     def add(self, task):
         '''Add a ``Task`` to the graph.
 
@@ -80,6 +85,20 @@ class DependencyGraph():
         self.created_tasks = set()
         self.__recursively_prepare(task_id)
         self.__recursively_create_dependency_graph(task_id, request_roi)
+
+    def add_to_ready_queue(self, task_id, block_id):
+        if self.use_z_order_scheduling:
+            heapq.heappush(self.ready_queues[task_id],
+                           (self.blocks[block_id].z_order_id, block_id))
+        else:
+            self.ready_queues[task_id].append(block_id)
+
+    def get_from_ready_queue(self, task_id):
+        if self.use_z_order_scheduling:
+            item = heapq.heappop(self.ready_queues[task_id])
+            return item[1]
+        else:
+            return self.ready_queues[task_id].popleft()
 
     def __recursively_create_dependency_graph(self, task_id, request_roi):
         '''Create dependency graph for its dependencies first before
@@ -169,7 +188,7 @@ class DependencyGraph():
             if len(dependencies) == 0:
                 # if this block has no dependencies, add it to the ready
                 # queue immediately
-                self.ready_queues[task_id].append(block_id)
+                self.add_to_ready_queue(task_id, block_id)
 
     def __recursively_prepare(self, task):
 
@@ -212,7 +231,7 @@ class DependencyGraph():
                         pass
 
                     else:
-                        block_id = self.ready_queues[task_type].popleft()
+                        block_id = self.get_from_ready_queue(task_type)
                         self.processing_blocks.add(block_id)
                         self.task_processing_blocks[block_id[0]].add(
                             block_id[1])
@@ -298,7 +317,7 @@ class DependencyGraph():
 
             else:
 
-                self.ready_queues[task_id].appendleft(block_id)
+                self.add_to_ready_queue(task_id, block_id)
                 logger.info("Block {} will be rescheduled.".format(block_id))
 
             self.ready_queue_cv.notify()  # in either case, unblock next()
@@ -327,7 +346,7 @@ class DependencyGraph():
                 self.dependencies[dep].remove(block_id)
                 if len(self.dependencies[dep]) == 0:
                     # ready to run
-                    self.ready_queues[dep[0]].append(dep)
+                    self.add_to_ready_queue(dep[0], dep)
 
             # Unblock next() regardless. If we only unblock for new
             # elements in ready_queue, the program might lock up if

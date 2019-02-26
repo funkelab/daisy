@@ -102,7 +102,7 @@ class Scheduler():
 
         # self._start_status_thread()
         blocks = {}  # {task_id: block_id}
-        no_worker_delay = 0.01
+        no_worker_delay = 0.001
         while not graph.empty():
 
             blocks = graph.next(waiting_blocks=blocks)
@@ -133,7 +133,6 @@ class Scheduler():
 
                 else:
                     worker = self.get_idle_worker(task_id)
-                    print(worker)
 
                     if worker is not None:
 
@@ -161,7 +160,7 @@ class Scheduler():
                 if (no_worker_delay > 1.0):
                     no_worker_delay = 1.0
             else:
-                no_worker_delay = 0.01
+                no_worker_delay = 0.001
 
             for submitted_task in submitted_blocks:
                 blocks.pop(submitted_task)
