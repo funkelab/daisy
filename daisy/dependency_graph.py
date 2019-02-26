@@ -182,53 +182,48 @@ class DependencyGraph():
 
         self.task_map[task].prepare()
 
-    def next(self, available_workers={}):
-        '''Called by the ``scheduler`` to get the next available block.
-        Current implementation blocks and waits for outstanding (issued)
-        blocks if there is none ready. After an outstanding block
-        finished, a new block may become ready and will be returned.
+    def next(self, waiting_blocks):
+        '''Called by the ``scheduler`` to get a `dict` of ready blocks.
+        This function blocks when outstanding blocks are empty and
+        there is no further ready blocks to issue. This (only) happens
+        when there are outstanding, currently executing blocks.
 
         Return:
-            Tuple (task_id, block) if available, or ``None``.
-            Returning ``None`` does not necessarily mean that there is
+            `dict` {task_id: block} for ready task blocks.
+            Empty `dict` does not necessarily mean that there is
             no more blocks to be run (though it is the case currently).
             The scheduler should call empty() to really make sure that
             there is no more blocks to run.
         '''
 
-        with self.ready_queue_cv:
-            # Block release is conducted in 2 phases
+        return_blocks = waiting_blocks
+        while True:
+            with self.ready_queue_cv:
 
-            # First, return a block of a task queue if there is
-            # available workers.
-            for task_type in self.ready_queues:
+                if self.empty():
+                    return return_blocks
 
-                if len(self.ready_queues[task_type]) == 0:
-                    continue
+                for task_type in self.ready_queues:
 
-                if task_type in available_workers:
-                    if available_workers[task_type].qsize() == 0:
-                        continue
+                    if task_type in return_blocks:
+                        pass
 
-                block_id = self.ready_queues[task_type].popleft()
-                self.processing_blocks.add(block_id)
-                self.task_processing_blocks[block_id[0]].add(block_id[1])
-                return (block_id[0], self.blocks[block_id])
+                    elif len(self.ready_queues[task_type]) == 0:
+                        pass
 
-            # Otherwise, return any other block. The scheduler will then
-            # spawn necessary workers for this block.
-            while not self.empty() and self.ready_size() == 0:
-                self.ready_queue_cv.wait()
+                    else:
+                        block_id = self.ready_queues[task_type].popleft()
+                        self.processing_blocks.add(block_id)
+                        self.task_processing_blocks[block_id[0]].add(
+                            block_id[1])
+                        return_blocks[block_id[0]] = self.blocks[block_id]
 
-            if self.empty():
-                return None
+                if len(return_blocks):
+                    return return_blocks
 
-            for task_type in self.ready_queues:
-                if len(self.ready_queues[task_type]):
-                    block_id = self.ready_queues[task_type].popleft()
-                    self.processing_blocks.add(block_id)
-                    self.task_processing_blocks[block_id[0]].add(block_id[1])
-                    return (block_id[0], self.blocks[block_id])
+                # empty work list; blocks until more blocks are returned
+                while not self.empty() and self.ready_size() == 0:
+                    self.ready_queue_cv.wait()
 
     def get_tasks(self):
         '''Get all tasks in the graph.'''
