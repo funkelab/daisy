@@ -100,52 +100,71 @@ class Scheduler():
         logger.info("Scheduling %d tasks to completion.", graph.size())
         logger.debug("Max parallelism seems to be %d.", graph.ready_size())
 
-        self._start_status_thread()
-
+        # self._start_status_thread()
+        blocks = {}  # {task_id: block_id}
+        no_worker_delay = 0.01
         while not graph.empty():
 
-            block = graph.next(available_workers=self.idle_workers)
-            if block is None:
-                continue
+            blocks = graph.next(waiting_blocks=blocks)
 
-            task_id, block = block
-            try:
-                # pre_check can intermittently fail
-                # so we wrap it in a try block
-                pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
-            except Exception as e:
-                logger.error(
-                    "pre_check() exception for block %s. Exception: %s",
-                    block, e)
-                pre_check_ret = False
+            submitted_blocks = []
+            for task_id in blocks:
+                block = blocks[task_id]
 
-            if pre_check_ret:
-                logger.debug(
-                    "Skipping %s block %d; already processed.",
-                    task_id, block.block_id)
-                ret = ReturnCode.SKIPPED
-                self.skipped_count[task_id] += 1
-                self.block_return(None, (task_id, block.block_id), ret)
+                # pre-check and skip blocks if possible
+                try:
+                    # pre_check can intermittently fail
+                    # so we wrap it in a try block
+                    pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
+                except Exception as e:
+                    logger.error(
+                        "pre_check() exception for block %s. Exception: %s",
+                        block, e)
+                    pre_check_ret = False
 
-            else:
-                scheduled = False
-                while not scheduled:
+                if pre_check_ret:
+                    logger.debug(
+                        "Skipping %s block %d; already processed.",
+                        task_id, block.block_id)
+                    ret = ReturnCode.SKIPPED
+                    self.skipped_count[task_id] += 1
+                    self.block_return(None, (task_id, block.block_id), ret)
+                    submitted_blocks.append(task_id)
+
+                else:
                     worker = self.get_idle_worker(task_id)
-                    with self.worker_states_lock:
-                        if worker not in self.dead_workers:
-                            self.worker_outstanding_blocks[worker].add(
-                                (task_id, block.block_id))
-                            scheduled = True
-                        else:
-                            logger.debug(
-                                "Worker %s was found dead or disconnected "
-                                "Getting new worker.", worker)
-                            continue
+                    print(worker)
 
-                self.send_block(worker, block)
-                logger.debug(
-                    "Pushed block %s of task %s to worker %s.",
-                    block, task_id, worker)
+                    if worker is not None:
+
+                        with self.worker_states_lock:
+                            if worker not in self.dead_workers:
+                                self.worker_outstanding_blocks[worker].add(
+                                    (task_id, block.block_id))
+                            else:
+                                logger.debug(
+                                    "Worker %s is dead or disconnected. "
+                                    "Getting new worker.", worker)
+                                continue
+
+                        self.send_block(worker, block)
+                        submitted_blocks.append(task_id)
+
+                        logger.debug(
+                            "Pushed block %s of task %s to worker %s.",
+                            block, task_id, worker)
+
+            scheduled_any = (len(submitted_blocks) > 0)
+            if (len(blocks) > 0) and not scheduled_any:
+                time.sleep(no_worker_delay)  # wait for workers to come online
+                no_worker_delay *= 2
+                if (no_worker_delay > 1.0):
+                    no_worker_delay = 1.0
+            else:
+                no_worker_delay = 0.01
+
+            for submitted_task in submitted_blocks:
+                blocks.pop(submitted_task)
 
         self.finished_scheduling = True
         self.tcpserver.daisy_close()
@@ -409,9 +428,10 @@ class Scheduler():
 
     def get_idle_worker(self, task_id):
         '''Scheduler loop calls this to get an idle worker ready to accept
-        jobs. This function blocks until an worker submits itself into the
-        idle queue through TCP. It will also launch ``num_workers`` of
-        workers if have not already '''
+        jobs. This function returns `None` if there is no workers available,
+        otherwise the worker_id of this `task`.
+        It will also launch ``num_workers`` of workers if have not already
+        '''
 
         if task_id not in self.launched_tasks:
 
@@ -432,8 +452,10 @@ class Scheduler():
 
             self.launched_tasks.add(task_id)
 
-        worker = self.idle_workers[task_id].get()
-        return worker
+        try:
+            return self.idle_workers[task_id].get(block=False)
+        except queue.Empty:
+            return None
 
     def add_idle_worker_callback(self, worker, task):
         '''TCP server calls this to add an worker to the idle queue'''
