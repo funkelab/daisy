@@ -48,6 +48,10 @@ class TestGraph(unittest.TestCase):
         logging.basicConfig(level=logging.DEBUG)
         self.run_test_graph_write_roi(self.file_provider_factory)
 
+    # test connected components
+    def test_graph_connected_components_mongo(self):
+        self.run_test_graph_connected_components(self.mongo_provider_factory)
+
     # test read_blockwise function
     def test_graph_read_blockwise_mongo(self):
         self.run_test_graph_read_blockwise(self.mongo_provider_factory)
@@ -222,6 +226,39 @@ class TestGraph(unittest.TestCase):
 
         self.assertEqual(nodes, compare_nodes)
         self.assertEqual(edges, compare_edges)
+
+    def run_test_graph_connected_components(self, provider_factory):
+
+        graph_provider = provider_factory('w')
+        graph = graph_provider[
+            daisy.Roi(
+                (0, 0, 0),
+                (10, 10, 10))
+        ]
+
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
+
+        components = graph.get_connected_components()
+        self.assertEqual(len(components), 2)
+        c1, c2 = components
+        n1 = sorted(list(c1.nodes()))
+        n2 = sorted(list(c2.nodes()))
+
+        compare_n1 = [2, 42]
+        compare_n2 = [23, 57]
+
+        if 2 in n2:
+            temp = n2
+            n2 = n1
+            n1 = temp
+
+        self.assertCountEqual(n1, compare_n1)
+        self.assertCountEqual(n2, compare_n2)
 
     def run_test_graph_read_blockwise(self, provider_factory):
 

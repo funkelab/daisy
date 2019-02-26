@@ -8,6 +8,7 @@ from pymongo import MongoClient, ASCENDING, ReplaceOne
 from pymongo.errors import BulkWriteError, WriteError
 import logging
 import numpy as np
+import networkx as nx
 
 logger = logging.getLogger(__name__)
 
@@ -610,6 +611,15 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
             logger.error(e.details)
             raise
+
+    def get_connected_components(self):
+        '''Returns a list of connected components in the subgraph'''
+        if self.is_directed():
+            return [self.subgraph(g).copy()
+                    for g in nx.weakly_connected_components(self)]
+        else:
+            return [self.subgraph(g).copy()
+                    for g in nx.connected_components(self)]
 
     def __contains(self, roi, node):
         '''Determines if the given node is inside the given roi'''
