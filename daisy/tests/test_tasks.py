@@ -1,6 +1,8 @@
 import daisy
 from .tmpdir_test import TmpDirTestCase
 
+daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
+
 
 class TestBlockwiseBasics(TmpDirTestCase):
 

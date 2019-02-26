@@ -20,6 +20,10 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# used for automated testing to speed up tests as the status thread takes a
+# long time to shutdown
+_NO_SPAWN_STATUS_THREAD = False
+
 
 class Scheduler():
     '''This is the main scheduler that tracks states of tasks and workers.
@@ -100,7 +104,8 @@ class Scheduler():
         logger.info("Scheduling %d tasks to completion.", graph.size())
         logger.debug("Max parallelism seems to be %d.", graph.ready_size())
 
-        # self._start_status_thread()
+        if not _NO_SPAWN_STATUS_THREAD:
+            self._start_status_thread()
         blocks = {}  # {task_id: block_id}
         no_worker_delay = 0.001
         while not graph.empty():

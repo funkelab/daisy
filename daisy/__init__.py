@@ -16,4 +16,5 @@ from .roi import Roi # noqa
 from .scheduler import Scheduler # noqa
 from .scheduler import distribute # noqa
 from .scheduler import run_blockwise # noqa
+from .scheduler import _NO_SPAWN_STATUS_THREAD # noqa
 from .task import Task # noqa

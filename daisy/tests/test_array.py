@@ -2,6 +2,8 @@ import daisy
 import numpy as np
 import unittest
 
+daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
+
 
 class TestArray(unittest.TestCase):
 
