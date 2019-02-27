@@ -132,24 +132,25 @@ class FileGraphProvider(SharedGraphProvider):
     def __get_roi_filter(self, nodes, roi):
 
         if type(self.position_attribute) == list:
-
+            num_nodes = len(nodes[self.position_attribute[0]])
+            roi_filter = np.ones((num_nodes,), dtype=np.bool)
             for d in range(roi.dims()):
                 node_dim_values = nodes[self.position_attribute[d]]
                 ge = np.array([node_value >= roi.get_begin()[d]
                                for node_value in node_dim_values])
                 lt = np.array([node_value < roi.get_end()[d]
                                for node_value in node_dim_values])
-                roi_filter = np.ones((len(ge),), dtype=np.bool)
                 roi_filter &= (ge & lt)
 
         else:
             node_positions = nodes[self.position_attribute]
+            num_nodes = len(node_positions)
+            roi_filter = np.ones((num_nodes,), dtype=np.bool)
             for d in range(roi.dims()):
                 ge = np.array([pos[d] >= roi.get_begin()[d]
                                for pos in node_positions])
                 lt = np.array([pos[d] < roi.get_end()[d]
                                for pos in node_positions])
-                roi_filter = np.ones((len(ge),), dtype=np.bool)
                 roi_filter &= (ge & lt)
 
         return roi_filter
@@ -225,7 +226,6 @@ class FileGraphProvider(SharedGraphProvider):
 
         if roi is None or roi.contains(chunk_roi):
             return nodes
-
         roi_filter = self.__get_roi_filter(nodes, roi)
         for k, v in nodes.items():
             nodes[k] = nodes[k][roi_filter]
@@ -269,8 +269,8 @@ class FileGraphProvider(SharedGraphProvider):
             logger.debug("Reading nodes in chunk %s" % str(chunk_index))
             chunk_nodes = self._read_nodes_from_chunk(chunk_index, roi)
             if len(chunk_nodes) == 0 or len(chunk_nodes['id']) == 0:
-                logger.debug("Chunk %s did not contain any nodes"
-                             % str(chunk_index))
+                logger.debug("Chunk %s and roi %s did not contain any nodes"
+                             % (str(chunk_index), roi))
                 continue
             for k, v in chunk_nodes.items():
                 if k not in nodes:
