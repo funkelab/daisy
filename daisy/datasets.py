@@ -277,7 +277,7 @@ def prepare_ds(
                 dtype=dtype,
                 write_size=write_size,
                 num_channels=num_channels,
-                compatible=compressor)
+                compressor=compressor)
 
         else:
 
