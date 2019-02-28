@@ -219,7 +219,17 @@ class Scheduler():
             t.start()
         self.tcpserver = DaisyTCPServer()
         self.tcpserver.add_handler(self)
-        self.tcpserver.listen(0)  # 0 == random port
+        max_port_tries = 100
+        for i in range(max_port_tries):
+            try:
+                self.tcpserver.listen(0)  # 0 == random port
+                break
+            except OSError:
+                if i == max_port_tries - 1:
+                    raise RuntimeError(
+                        "Could not find a free port after %d tries " %
+                        max_port_tries)
+                pass
         self.net_identity = self.tcpserver.get_identity()
 
     def _start_status_thread(self):
