@@ -128,15 +128,6 @@ class SharedGraphProvider(object):
 
 
 class SharedSubGraph():
-    def get_nodes_in_roi(self):
-        '''Only returns nodes in the roi, excluding "dangling" nodes
-        introduced by edges that cross the roi boundary'''
-
-        nodes = {}
-        for node, data in self.nodes(data=True):
-            if 'position' in data:
-                nodes[node] = data
-        return nodes
 
     def write_edges(
             self,
@@ -196,6 +187,12 @@ class SharedSubGraph():
                 If true, delete nodes in ROI in back end that do not exist
                 in subgraph.
 
+        '''
+        raise RuntimeError("not implemented in %s" % self.name())
+
+    def get_connected_components(self):
+        '''Returns a list of connected components from the nodes and edges
+        in the subgraph. For directed graphs, weak connectivity is sufficient.
         '''
         raise RuntimeError("not implemented in %s" % self.name())
 
