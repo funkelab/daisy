@@ -11,29 +11,54 @@ daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
 
 
 class TestGraph(unittest.TestCase):
+    def mongo_provider_factory(self, mode):
+        return daisy.persistence.MongoDbGraphProvider(
+            'test_daisy_graph',
+            mode=mode)
 
+    def file_provider_factory(self, mode):
+        return daisy.persistence.FileGraphProvider(
+            'test_daisy_graph',
+            chunk_size=(10, 10, 10),
+            mode=mode)
+
+    # test basic graph io
     def test_graph_io_mongo(self):
-
-        def provider_factory(mode):
-            return daisy.persistence.MongoDbGraphProvider(
-                'test_daisy_graph',
-                nodes_collection='nodes',
-                edges_collection='edges',
-                mode=mode)
-
-        self.run_test_graph_io(provider_factory)
+        self.run_test_graph_io(self.mongo_provider_factory)
 
     def test_graph_io_file(self):
+        self.run_test_graph_io(self.file_provider_factory)
 
-        def provider_factory(mode):
-            return daisy.persistence.FileGraphProvider(
-                'test_daisy_graph',
-                chunk_size=(10, 10, 10),
-                nodes_collection='nodes',
-                edges_collection='edges',
-                mode=mode)
+    # test fail_if_exists flag when writing subgraph
+    def test_graph_fail_if_exists_mongo(self):
+        self.run_test_graph_fail_if_exists(self.mongo_provider_factory)
 
-        self.run_test_graph_io(provider_factory)
+    # test fail_if_not_exists flag when writing subgraph
+    def test_graph_fail_if_not_exists_mongo(self):
+        self.run_test_graph_fail_if_not_exists(self.mongo_provider_factory)
+
+    # test that only specified attributes are written to backend
+    def test_graph_write_attributes_mongo(self):
+        self.run_test_graph_write_attributes(self.mongo_provider_factory)
+
+    # test that only write nodes inside the write_roi
+    def test_graph_write_roi_mongo(self):
+        self.run_test_graph_write_roi(self.mongo_provider_factory)
+
+    def test_graph_write_roi_file(self):
+        logging.basicConfig(level=logging.DEBUG)
+        self.run_test_graph_write_roi(self.file_provider_factory)
+
+    # test connected components
+    def test_graph_connected_components_mongo(self):
+        self.run_test_graph_connected_components(self.mongo_provider_factory)
+
+    # test read_blockwise function
+    def test_graph_read_blockwise_mongo(self):
+        self.run_test_graph_read_blockwise(self.mongo_provider_factory)
+
+    def test_graph_read_blockwise_file(self):
+        self.run_test_graph_read_blockwise(self.file_provider_factory)
 
     def run_test_graph_io(self, provider_factory):
 
@@ -74,13 +99,9 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(nodes, compare_nodes)
         self.assertEqual(edges, compare_edges)
 
-    def test_graph_fail_if_exists(self):
+    def run_test_graph_fail_if_exists(self, provider_factory):
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            mode='w')
+        graph_provider = provider_factory('w')
         graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
@@ -102,13 +123,9 @@ class TestGraph(unittest.TestCase):
         with self.assertRaises(Exception):
             graph.write_edges(fail_if_exists=True)
 
-    def test_graph_fail_if_not_exists(self):
+    def run_test_graph_fail_if_not_exists(self, provider_factory):
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            mode='w')
+        graph_provider = provider_factory('w')
         graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
@@ -128,11 +145,9 @@ class TestGraph(unittest.TestCase):
         with self.assertRaises(Exception):
             graph.write_edges(fail_if_not_exists=True)
 
-    def test_graph_write_attributes(self):
+    def run_test_graph_write_attributes(self, provider_factory):
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            mode='w')
+        graph_provider = provider_factory('w')
         graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
@@ -150,33 +165,30 @@ class TestGraph(unittest.TestCase):
         graph.write_nodes(attributes=['position', 'swip'])
         graph.write_edges()
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            mode='r')
+        graph_provider = provider_factory('r')
         compare_graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
                 (10, 10, 10))
         ]
 
-        nodes = {}
+        nodes = []
         for node, data in graph.nodes(data=True):
             if node == 2:
                 continue
             if 'zap' in data:
                 del data['zap']
             data['position'] = list(data['position'])
-            nodes[node] = data
+            nodes.append((node, data))
 
-        compare_nodes = compare_graph.get_nodes_in_roi()
+        compare_nodes = compare_graph.nodes(data=True)
+        compare_nodes = [(node_id, data) for node_id, data in compare_nodes
+                         if len(data) > 0]
+        self.assertCountEqual(nodes, compare_nodes)
 
-        self.assertEqual(nodes, compare_nodes)
+    def run_test_graph_write_roi(self, provider_factory):
 
-    def test_graph_write_roi(self):
-
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            mode='w')
+        graph_provider = provider_factory('w')
         graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
@@ -195,9 +207,7 @@ class TestGraph(unittest.TestCase):
         graph.write_nodes(roi=write_roi)
         graph.write_edges(roi=write_roi)
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            mode='r')
+        graph_provider = provider_factory('r')
         compare_graph = graph_provider[
             daisy.Roi(
                 (0, 0, 0),
@@ -207,7 +217,10 @@ class TestGraph(unittest.TestCase):
         nodes = sorted(list(graph.nodes()))
         nodes.remove(2)  # node 2 has no position and will not be queried
         nodes.remove(57)  # node 57 is outside of the write_roi
-        compare_nodes = sorted(list(compare_graph.get_nodes_in_roi().keys()))
+        compare_nodes = compare_graph.nodes(data=True)
+        compare_nodes = [node_id for node_id, data in compare_nodes
+                         if len(data) > 0]
+        compare_nodes = sorted(list(compare_nodes))
         edges = sorted(list(graph.edges()))
         edges.remove((2, 42))  # node 2 has no position and will not be queried
         compare_edges = sorted(list(compare_graph.edges()))
@@ -215,13 +228,42 @@ class TestGraph(unittest.TestCase):
         self.assertEqual(nodes, compare_nodes)
         self.assertEqual(edges, compare_edges)
 
-    def test_graph_read_blockwise(self):
+    def run_test_graph_connected_components(self, provider_factory):
 
-        graph_provider = daisy.persistence.MongoDbGraphProvider(
-            'test_daisy_graph',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            mode='w')
+        graph_provider = provider_factory('w')
+        graph = graph_provider[
+            daisy.Roi(
+                (0, 0, 0),
+                (10, 10, 10))
+        ]
+
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(57, 23)
+        graph.add_edge(2, 42)
+
+        components = graph.get_connected_components()
+        self.assertEqual(len(components), 2)
+        c1, c2 = components
+        n1 = sorted(list(c1.nodes()))
+        n2 = sorted(list(c2.nodes()))
+
+        compare_n1 = [2, 42]
+        compare_n2 = [23, 57]
+
+        if 2 in n2:
+            temp = n2
+            n2 = n1
+            n1 = temp
+
+        self.assertCountEqual(n1, compare_n1)
+        self.assertCountEqual(n2, compare_n2)
+
+    def run_test_graph_read_blockwise(self, provider_factory):
+
+        graph_provider = provider_factory('w')
 
         graph = graph_provider[
             daisy.Roi(

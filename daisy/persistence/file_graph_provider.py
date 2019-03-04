@@ -131,20 +131,26 @@ class FileGraphProvider(SharedGraphProvider):
 
     def __get_roi_filter(self, nodes, roi):
 
-        roi_filter = np.ones((len(nodes),), dtype=np.bool)
-
         if type(self.position_attribute) == list:
-
+            num_nodes = len(nodes[self.position_attribute[0]])
+            roi_filter = np.ones((num_nodes,), dtype=np.bool)
             for d in range(roi.dims()):
-                ge = nodes[self.position_attribute[d]] >= roi.get_begin()[d]
-                lt = nodes[self.position_attribute[d]] < roi.get_end()[d]
+                node_dim_values = nodes[self.position_attribute[d]]
+                ge = np.array([node_value >= roi.get_begin()[d]
+                               for node_value in node_dim_values])
+                lt = np.array([node_value < roi.get_end()[d]
+                               for node_value in node_dim_values])
                 roi_filter &= (ge & lt)
 
         else:
-
+            node_positions = nodes[self.position_attribute]
+            num_nodes = len(node_positions)
+            roi_filter = np.ones((num_nodes,), dtype=np.bool)
             for d in range(roi.dims()):
-                ge = nodes[self.position_attribute][d] >= roi.get_begin()[d]
-                lt = nodes[self.position_attribute][d] < roi.get_end()[d]
+                ge = np.array([pos[d] >= roi.get_begin()[d]
+                               for pos in node_positions])
+                lt = np.array([pos[d] < roi.get_end()[d]
+                               for pos in node_positions])
                 roi_filter &= (ge & lt)
 
         return roi_filter
@@ -165,10 +171,9 @@ class FileGraphProvider(SharedGraphProvider):
 
             roi_filter = self.__get_roi_filter(nodes, roi)
             for k, v in nodes.items():
-                nodes[k] = nodes[k][roi_filter]
-
+                nodes[k] = list(np.array(nodes[k])[roi_filter])
         for k, v in nodes.items():
-            np.savez_compressed(os.path.join(path, k), nodes=nodes[k])
+            np.savez_compressed(os.path.join(path, k), nodes=v)
 
     def _write_edges_to_chunk(
             self,
@@ -199,7 +204,7 @@ class FileGraphProvider(SharedGraphProvider):
                 edges[k] = edges[k][roi_filter]
 
         for k, v in edges.items():
-            np.savez_compressed(os.path.join(path, k), edges=edges[k])
+            np.savez_compressed(os.path.join(path, k), edges=v)
 
     def _read_nodes_from_chunk(self, chunk_index, roi=None):
 
@@ -221,11 +226,9 @@ class FileGraphProvider(SharedGraphProvider):
 
         if roi is None or roi.contains(chunk_roi):
             return nodes
-
         roi_filter = self.__get_roi_filter(nodes, roi)
         for k, v in nodes.items():
             nodes[k] = nodes[k][roi_filter]
-
         return nodes
 
     def _read_edges_from_chunk(self, chunk_index, roi=None, node_ids=None):
@@ -261,12 +264,14 @@ class FileGraphProvider(SharedGraphProvider):
         '''Return a list of nodes within roi.'''
 
         nodes = {}
+        logger.debug("Reading nodes in roi %s" % roi)
         for chunk_index in self.get_chunks(roi):
-
+            logger.debug("Reading nodes in chunk %s" % str(chunk_index))
             chunk_nodes = self._read_nodes_from_chunk(chunk_index, roi)
             if len(chunk_nodes) == 0 or len(chunk_nodes['id']) == 0:
+                logger.debug("Chunk %s and roi %s did not contain any nodes"
+                             % (str(chunk_index), roi))
                 continue
-
             for k, v in chunk_nodes.items():
                 if k not in nodes:
                     nodes[k] = []
@@ -455,10 +460,16 @@ class FileSharedSubGraph(SharedSubGraph):
         assert not delete, "Delete not implemented"
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
-
+        if fail_if_exists:
+            raise RuntimeError("Fail if exists not implemented for "
+                               "file backend")
+        if fail_if_not_exists:
+            raise RuntimeError("Fail if not exists not implemented for "
+                               "file backend")
+        if attributes is not None:
+            raise RuntimeError("Attributes not implemented for file backend")
         if self.graph_provider.mode == 'r':
             raise RuntimeError("Trying to write to read-only DB")
-
         if roi is None:
             roi = self.roi
 
@@ -467,12 +478,13 @@ class FileSharedSubGraph(SharedSubGraph):
         edges = {'u': [], 'v': []}
         edge_positions = []
         for u, v, data in self.edges(data=True):
-
+            if not self.is_directed():
+                u, v = min(u, v), max(u, v)
             pos = self.__get_node_pos(self.nodes[u])
             if pos is None or not roi.contains(pos):
                 continue
-            edges['u'].append(u)
-            edges['v'].append(v)
+            edges['u'].append(np.uint64(u))
+            edges['v'].append(np.uint64(v))
             edge_positions.append(pos)
             for k, v in data.items():
                 if k not in edges:
@@ -502,7 +514,14 @@ class FileSharedSubGraph(SharedSubGraph):
         assert not delete, "Delete not implemented"
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
-
+        if fail_if_exists:
+            raise RuntimeError("Fail if exists not implemented for "
+                               "file backend")
+        if fail_if_not_exists:
+            raise RuntimeError("Fail if not exists not implemented for "
+                               "file backend")
+        if attributes is not None:
+            raise RuntimeError("Attributes not implemented for file backend")
         if self.graph_provider.mode == 'r':
             raise RuntimeError("Trying to write to read-only DB")
 
@@ -513,11 +532,10 @@ class FileSharedSubGraph(SharedSubGraph):
 
         nodes = {'id': []}
         for n, data in self.nodes(data=True):
-
             pos = self.__get_node_pos(self.nodes[n])
             if pos is None or not roi.contains(pos):
                 continue
-            nodes['id'].append(n)
+            nodes['id'].append(np.uint64(n))
             for k, v in data.items():
                 if k not in nodes:
                     num_entries = len(nodes['id'])
@@ -525,6 +543,7 @@ class FileSharedSubGraph(SharedSubGraph):
                 nodes[k].append(v)
 
         num_entries = len(nodes['id'])
+        logger.debug("ids have type %s" % type(nodes['id'][0]))
 
         if num_entries == 0:
             logger.debug("No nodes to insert in %s", roi)
