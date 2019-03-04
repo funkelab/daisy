@@ -743,6 +743,7 @@ def run_blockwise(
                 read_write_conflict=read_write_conflict,
                 fit=fit,
                 num_workers=num_workers,
+                max_retries=max_retries,
                 )
 
     return distribute([{'task': BlockwiseTask()}])
