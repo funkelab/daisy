@@ -192,7 +192,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             nodes = self.read_nodes(roi)
         node_ids = list([int(np.int64(n['id'])) for n in nodes])
         logger.debug("found %d nodes", len(node_ids))
-        logger.debug("looking for edges with u in %s", node_ids)
+        logger.debug("looking for edges with u in %s", node_ids[:100])
 
         edges = []
 
@@ -222,7 +222,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 assert i_e == len(node_ids)
 
             logger.debug("found %d edges", len(edges))
-            logger.debug("read edges: %s", edges)
+            logger.debug("read edges: %s", edges[:100])
 
         finally:
 
@@ -411,6 +411,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
         end = roi.get_end()
 
         if type(self.position_attribute) == list:
+            assert len(self.position_attribute) == roi.dims(), (
+                'Number of position attributes does not match number of '
+                'dimensions')
+
             return {
                 key: {'$gte': b, '$lt': e}
                 for key, b, e in zip(self.position_attribute, begin, end)
