@@ -6,7 +6,7 @@ import heapq
 import logging
 import threading
 from .blocks import create_dependency_graph, get_subgraph_blocks, \
-    expand_roi_to_grid
+    expand_request_roi_to_grid
 
 logger = logging.getLogger(__name__)
 
@@ -122,7 +122,7 @@ class DependencyGraph():
                     % (request_roi, task._daisy.orig_total_roi, task_id))
             # reduce total_roi to match request_roi
             # and calculate request_roi for its dependencies
-            total_roi = expand_roi_to_grid(
+            total_roi = expand_request_roi_to_grid(
                 request_roi,
                 task._daisy.orig_total_roi,
                 task._daisy.read_roi,

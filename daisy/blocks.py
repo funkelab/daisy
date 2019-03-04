@@ -391,6 +391,30 @@ def expand_roi_to_grid(
     return Roi(begin, end - begin)
 
 
+def expand_request_roi_to_grid(
+        req_roi,
+        total_roi,
+        read_roi,
+        write_roi):
+    '''Expands given roi so that its write region is aligned to write_roi
+    '''
+    offset = (
+        write_roi.get_begin() +
+        total_roi.get_begin() -
+        read_roi.get_begin())
+
+    begin = req_roi.get_begin() - offset
+    end = req_roi.get_end() - offset
+    begin = begin // write_roi.get_shape()  # `floordiv`
+    end = -(-end // write_roi.get_shape())  # `ceildiv`
+
+    begin = (begin * write_roi.get_shape())
+    end = (end * write_roi.get_shape())
+    end = (end + offset + offset)
+
+    return Roi(begin, end - begin)
+
+
 def expand_write_roi_to_grid(
         roi,
         write_roi):
