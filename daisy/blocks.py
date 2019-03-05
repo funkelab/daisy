@@ -407,10 +407,10 @@ def expand_request_roi_to_grid(
     end = req_roi.get_end() - offset
     begin = begin // write_roi.get_shape()  # `floordiv`
     end = -(-end // write_roi.get_shape())  # `ceildiv`
-
     begin = (begin * write_roi.get_shape())
     end = (end * write_roi.get_shape())
-    end = (end + offset + offset)
+    begin = (begin + offset + (read_roi.get_begin() - write_roi.get_begin()))
+    end = (end + offset + (read_roi.get_end() - write_roi.get_end()))
 
     return Roi(begin, end - begin)
 
