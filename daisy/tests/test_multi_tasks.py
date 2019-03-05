@@ -386,7 +386,7 @@ class TestMultipleTasks(TmpDirTestCase):
         outdir = self.path_to('')
 
         # this task generates 0-10
-        task0 = self.TaskWriteRoi3(outdir=outdir)
+        task0 = self.TaskWriteRoi22(outdir=outdir)
         task0_spec = {'task': task0}
         # request lies between block 0 and block 1
         expected_write_begins = list(range(1, 11, 2))
@@ -407,7 +407,7 @@ class TestMultipleTasks(TmpDirTestCase):
         outdir = self.path_to('')
 
         # this task generates 0-10
-        task0 = self.TaskWriteRoi3(outdir=outdir)
+        task0 = self.TaskWriteRoi22(outdir=outdir)
         task0_spec = {'task': task0, 'request': [daisy.Roi((1,), (2,))]}
         expected_write_begins = [1]
 
@@ -427,7 +427,7 @@ class TestMultipleTasks(TmpDirTestCase):
         outdir = self.path_to('')
 
         # this task generates 0-10
-        task0 = self.TaskWriteRoi3(outdir=outdir)
+        task0 = self.TaskWriteRoi22(outdir=outdir)
         task0_spec = {'task': task0, 'request': [daisy.Roi((1,), (6,))]}
         # requesting 1, 2, 3, 4, 5, 6
         # is satisfied with 3 write blocks
@@ -444,7 +444,7 @@ class TestMultipleTasks(TmpDirTestCase):
         self.assertTrue(ret)
         self.assertEqual(block_ids, expected_write_begins)
 
-    class TaskWriteRoi3(daisy.Task):
+    class TaskWriteRoi22(daisy.Task):
 
         outdir = daisy.Parameter()
 
@@ -563,7 +563,7 @@ class TestMultipleTasks(TmpDirTestCase):
 
     def process_block(outdir, block, fail=None):
 
-        logger.debug("Processing block", block)
+        logger.debug("Processing block %s", block)
 
         if block.block_id == fail:
             raise RuntimeError("intended failure")
