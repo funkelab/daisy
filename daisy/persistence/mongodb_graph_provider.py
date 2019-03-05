@@ -429,6 +429,58 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         self.edges_collection = self.database[
                 self.provider.edges_collection_name]
 
+    def write_nodes(
+            self,
+            roi=None,
+            attributes=None,
+            fail_if_exists=False,
+            fail_if_not_exists=False,
+            delete=False):
+        assert not delete, "Delete not implemented"
+        assert not(fail_if_exists and fail_if_not_exists),\
+            "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
+
+        if self.provider.mode == 'r':
+            raise RuntimeError("Trying to write to read-only DB")
+
+        if roi is None:
+            roi = self.roi
+
+        logger.debug("Writing all nodes")
+
+        nodes = []
+        for node_id, data in self.nodes(data=True):
+
+            if not self.__contains(roi, node_id):
+                logger.debug(
+                        "Skipping node {} with data {} because not in roi {}"
+                        .format(node_id, data, roi))
+                continue
+
+            node = {
+                'id': int(np.int64(node_id))
+            }
+            if not attributes:
+                node.update(data)
+            else:
+                for key in data:
+                    if key in attributes:
+                        node[key] = data[key]
+            nodes.append(node)
+
+        if len(nodes) == 0:
+            return
+
+        try:
+            self.__write(self.nodes_collection, ['id'], nodes,
+                         fail_if_exists=fail_if_exists,
+                         fail_if_not_exists=fail_if_not_exists,
+                         delete=delete)
+        except BulkWriteError as e:
+
+            logger.error(e.details)
+            raise
+
     def write_edges(
             self,
             roi=None,
@@ -479,58 +531,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
         try:
             self.__write(self.edges_collection, [u_name, v_name], edges,
-                         fail_if_exists=fail_if_exists,
-                         fail_if_not_exists=fail_if_not_exists,
-                         delete=delete)
-        except BulkWriteError as e:
-
-            logger.error(e.details)
-            raise
-
-    def write_nodes(
-            self,
-            roi=None,
-            attributes=None,
-            fail_if_exists=False,
-            fail_if_not_exists=False,
-            delete=False):
-        assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
-            "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
-
-        if self.provider.mode == 'r':
-            raise RuntimeError("Trying to write to read-only DB")
-
-        if roi is None:
-            roi = self.roi
-
-        logger.debug("Writing all nodes")
-
-        nodes = []
-        for node_id, data in self.nodes(data=True):
-
-            if not self.__contains(roi, node_id):
-                logger.debug(
-                        "Skipping node {} with data {} because not in roi {}"
-                        .format(node_id, data, roi))
-                continue
-
-            node = {
-                'id': int(np.int64(node_id))
-            }
-            if not attributes:
-                node.update(data)
-            else:
-                for key in data:
-                    if key in attributes:
-                        node[key] = data[key]
-            nodes.append(node)
-
-        if len(nodes) == 0:
-            return
-
-        try:
-            self.__write(self.nodes_collection, ['id'], nodes,
                          fail_if_exists=fail_if_exists,
                          fail_if_not_exists=fail_if_not_exists,
                          delete=delete)
