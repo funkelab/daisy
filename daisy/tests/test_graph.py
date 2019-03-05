@@ -46,7 +46,6 @@ class TestGraph(unittest.TestCase):
         self.run_test_graph_write_roi(self.mongo_provider_factory)
 
     def test_graph_write_roi_file(self):
-        logging.basicConfig(level=logging.DEBUG)
         self.run_test_graph_write_roi(self.file_provider_factory)
 
     # test connected components
