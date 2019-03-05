@@ -531,13 +531,13 @@ class MongoDbGraphProvider(SharedGraphProvider):
                          ],
                  'as': collection}
         }
-        unwind = {'$unwind': '$' + collection}
-        fields_to_add = {attr: '$' + collection + '.' + attr
+        fields_to_add = {attr: {'$arrayElemAt':
+                                ['$' + collection + '.' + attr, 0]}
                          for attr in attributes}
         add_fields = {'$addFields': fields_to_add}
         project = {'$project': {collection: 0}}
 
-        aggregate_list = [lookup, unwind, add_fields, project]
+        aggregate_list = [lookup, add_fields, project]
         logger.debug(aggregate_list)
         return aggregate_list
 
@@ -549,13 +549,13 @@ class MongoDbGraphProvider(SharedGraphProvider):
                  'foreignField': 'id',
                  'as': collection}
         }
-        unwind = {'$unwind': '$' + collection}
-        fields_to_add = {attr: '$' + collection + '.' + attr
+        fields_to_add = {attr: {'$arrayElemAt':
+                                ['$' + collection + '.' + attr, 0]}
                          for attr in attributes}
         add_fields = {'$addFields': fields_to_add}
         project = {'$project': {collection: 0}}
 
-        aggregate_list = [lookup, unwind, add_fields, project]
+        aggregate_list = [lookup, add_fields, project]
         logger.debug(json.dumps(aggregate_list, indent=2))
         return aggregate_list
 
@@ -627,7 +627,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                         if attr in data:
                             doc_to_insert[attr] = data[attr]
                             del data[attr]
-                collection_to_attrs[coll].append(doc_to_insert)
+                if len(doc_to_insert) > len(node):
+                    collection_to_attrs[coll].append(doc_to_insert)
 
             # Add remaining attributes to main collection
             if not attributes:
@@ -712,7 +713,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                         if attr in data:
                             doc_to_insert[attr] = data[attr]
                             del data[attr]
-                collection_to_attrs[coll].append(doc_to_insert)
+                if len(doc_to_insert) > len(edge):
+                    collection_to_attrs[coll].append(doc_to_insert)
 
             # Add remaining attributes to main collection
             if not attributes:
