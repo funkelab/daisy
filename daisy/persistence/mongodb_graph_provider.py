@@ -248,31 +248,17 @@ class MongoDbGraphProvider(SharedGraphProvider):
         edge_list = [
                 (e[u], e[v], self.__remove_keys(e, [u, v]))
                 for e in edges]
-
         if self.directed:
             graph = MongoDbSubDiGraph(
-                self.db_name,
-                roi,
-                self.host,
-                self.mode,
-                self.nodes_collection_name,
-                self.edges_collection_name,
-                self.endpoint_names,
-                self.position_attribute)
+                    self,
+                    roi)
         else:
             # create the subgraph
             graph = MongoDbSubGraph(
-                self.db_name,
-                roi,
-                self.host,
-                self.mode,
-                self.nodes_collection_name,
-                self.edges_collection_name,
-                self.endpoint_names,
-                self.position_attribute)
+                    self,
+                    roi)
         graph.add_nodes_from(node_list)
         graph.add_edges_from(edge_list)
-
         return graph
 
     def __remove_keys(self, dictionary, keys):
@@ -427,28 +413,20 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
     def __init__(
             self,
-            db_name,
-            roi,
-            host=None,
-            mode='r+',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            endpoint_names=['u', 'v'],
-            position_attribute='position'):
+            graph_provider,
+            roi):
 
         super().__init__()
 
-        self.db_name = db_name
+        self.provider = graph_provider
         self.roi = roi
-        self.host = host
-        self.mode = mode
 
-        self.client = MongoClient(self.host)
-        self.database = self.client[db_name]
-        self.nodes_collection = self.database[nodes_collection]
-        self.edges_collection = self.database[edges_collection]
-        self.endpoint_names = endpoint_names
-        self.position_attribute = position_attribute
+        self.client = MongoClient(self.provider.host)
+        self.database = self.client[self.provider.db_name]
+        self.nodes_collection = self.database[
+                self.provider.nodes_collection_name]
+        self.edges_collection = self.database[
+                self.provider.edges_collection_name]
 
     def write_edges(
             self,
@@ -461,7 +439,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
 
-        if self.mode == 'r':
+        if self.provider.mode == 'r':
             raise RuntimeError("Trying to write to read-only DB")
 
         if roi is None:
@@ -470,7 +448,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         logger.debug("Writing edges in %s", roi)
 
         edges = []
-        u_name, v_name = self.endpoint_names
+        u_name, v_name = self.provider.endpoint_names
         for u, v, data in self.edges(data=True):
             if not self.is_directed():
                 u, v = min(u, v), max(u, v)
@@ -545,7 +523,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
 
-        if self.mode == 'r':
+        if self.provider.mode == 'r':
             raise RuntimeError("Trying to write to read-only DB")
 
         if roi is None:
@@ -643,15 +621,15 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         # know they are outside of the subgraph ROI, and therefore also
         # outside of 'roi', whatever it is.
         coordinate = []
-        if type(self.position_attribute) == list:
-            for pos_attr in self.position_attribute:
+        if type(self.provider.position_attribute) == list:
+            for pos_attr in self.provider.position_attribute:
                 if pos_attr not in node_data:
                     return False
                 coordinate.append(node_data[pos_attr])
         else:
-            if self.position_attribute not in node_data:
+            if self.provider.position_attribute not in node_data:
                 return False
-            coordinate = node_data[self.position_attribute]
+            coordinate = node_data[self.provider.position_attribute]
         logger.debug("Checking if coordinate {} is inside roi {}"
                      .format(coordinate, roi))
         return roi.contains(Coordinate(coordinate))
@@ -663,25 +641,13 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
     def __init__(
             self,
-            db_name,
-            roi,
-            host=None,
-            mode='r+',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            endpoint_names=['u', 'v'],
-            position_attribute='position'):
+            graph_provider,
+            roi):
         # this calls the init function of the MongoDbSharedSubGraph,
         # because left parents come before right parents
         super().__init__(
-                db_name,
-                roi,
-                host=host,
-                mode=mode,
-                nodes_collection=nodes_collection,
-                edges_collection=edges_collection,
-                endpoint_names=endpoint_names,
-                position_attribute=position_attribute)
+                graph_provider,
+                roi)
 
     def is_directed(self):
         return False
@@ -690,25 +656,13 @@ class MongoDbSubGraph(MongoDbSharedSubGraph, Graph):
 class MongoDbSubDiGraph(MongoDbSharedSubGraph, DiGraph):
     def __init__(
             self,
-            db_name,
-            roi,
-            host=None,
-            mode='r+',
-            nodes_collection='nodes',
-            edges_collection='edges',
-            endpoint_names=['u', 'v'],
-            position_attribute='position'):
+            graph_provider,
+            roi):
         # this calls the init function of the MongoDbSharedSubGraph,
         # because left parents come before right parents
         super().__init__(
-                db_name,
-                roi,
-                host=host,
-                mode=mode,
-                nodes_collection=nodes_collection,
-                edges_collection=edges_collection,
-                endpoint_names=endpoint_names,
-                position_attribute=position_attribute)
+                graph_provider,
+                roi)
 
     def is_directed(self):
         return True
