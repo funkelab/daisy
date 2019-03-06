@@ -457,12 +457,27 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         self.__open_collections()
         metadata = self.__get_metadata()
-        if self.directed is not None and metadata['directed'] != self.directed:
+        if self.directed is None:
+            assert metadata['directed'] is not None,\
+                "Meta collection exists but does not contain "\
+                "directed information"
+            self.directed = metadata['directed']
+        elif metadata['directed'] != self.directed:
             raise ValueError((
                     "Input parameter directed={} does not match"
                     "directed value {} already in stored metadata")
                     .format(self.directed, metadata['directed']))
-        if self.total_roi:
+        if self.total_roi is None:
+            offset = metadata['total_roi_offset']
+            shape = metadata['total_roi_shape']
+            assert offset is not None,\
+                "Meta collection exists but does not contain "\
+                "total roi offset information"
+            assert shape is not None,\
+                "Meta collection exists but does not contain "\
+                "total roi shape information"
+            self.total_roi = Roi(offset, shape)
+        else:
             offset = self.total_roi.get_offset()
             if list(offset) != metadata['total_roi_offset']:
                 raise ValueError((
