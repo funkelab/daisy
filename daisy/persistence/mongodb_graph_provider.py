@@ -468,15 +468,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
                     "directed value {} already in stored metadata")
                     .format(self.directed, metadata['directed']))
         if self.total_roi is None:
-            offset = metadata['total_roi_offset']
-            shape = metadata['total_roi_shape']
-            assert offset is not None,\
-                "Meta collection exists but does not contain "\
-                "total roi offset information"
-            assert shape is not None,\
-                "Meta collection exists but does not contain "\
-                "total roi shape information"
-            self.total_roi = Roi(offset, shape)
+            if 'total_roi_offset' in metadata\
+                    and 'total_roi_shape' in metadata:
+                offset = metadata['total_roi_offset']
+                shape = metadata['total_roi_shape']
+                self.total_roi = Roi(offset, shape)
         else:
             offset = self.total_roi.get_offset()
             if list(offset) != metadata['total_roi_offset']:
@@ -500,17 +496,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
         if not self.directed:
             # default is false
             self.directed = False
-        if not self.total_roi:
-            # default is an unbounded roi
-            self.total_roi = Roi((0, 0, 0, 0), (None, None, None, None))
+        meta_data = {'directed': self.directed}
 
-        meta_data = {
-                'directed': self.directed,
-                'total_roi_offset': self.total_roi.get_offset(),
-                'total_roi_shape': self.total_roi.get_shape()
-            }
-
-        self.__open_db()
+        # if total_roi not specified, don't write it
+        if self.total_roi:
+            meta_data['total_roi_offset'] = self.total_roi.get_offset()
+            meta_data['total_roi_shape'] = self.total_roi.get_shape()
         self.__open_collections()
         self.meta.insert_one(meta_data)
 
