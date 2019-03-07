@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
 
 
-class TestFilterMongoGraph(unittest.TestCase):
+class TestMongoGraphSeparateCollections(unittest.TestCase):
 
     def get_mongo_graph_provider(self, mode, node_attributes, edge_attributes):
         return daisy.persistence.MongoDbGraphProvider(
