@@ -140,16 +140,16 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 if node_attribute_collections:
                     coll_names = [get_node_attribute_collection(coll) for coll
                                   in self.node_attribute_coll_map.keys()]
-                    logger.warn("dropping node attribute collections %s"
-                                % coll_names)
+                    logger.warning("dropping node attribute collections %s"
+                                   % coll_names)
                     for name in coll_names:
                         self.database[name].drop()
 
                 if edge_attribute_collections:
                     coll_names = [get_edge_attribute_collection(coll) for coll
                                   in self.edge_attribute_coll_map.keys()]
-                    logger.warn("dropping edge attribute collections %s" %
-                                coll_names)
+                    logger.warning("dropping edge attribute collections %s" %
+                                   coll_names)
                     for name in coll_names:
                         self.database[name].drop()
 
@@ -178,8 +178,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             self.__disconnect()
 
-    def read_nodes(self, roi):
-        '''Return a list of nodes within roi.'''
+    def read_nodes(self, roi, attr_filter={}):
+        '''Return a list of nodes within roi.
+        Optionally filters by attribute/value pairs on nodes'''
 
         logger.debug("Querying nodes in %s", roi)
 
@@ -188,8 +189,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__connect()
             self.__open_db()
             self.__open_collections()
+            pos_query = self.__pos_query(roi)
             if not self.node_attribute_coll_map:
-                nodes = self.nodes.find(self.__pos_query(roi), {'_id': False})
+                query_list = [pos_query]
+                for attr, value in attr_filter.items():
+                    query_list.append({attr: value})
+                nodes = self.nodes.find({'$and': query_list}, {'_id': False})
             else:
                 agg_pipeline = []
                 agg_pipeline.append({'$match': self.__pos_query(roi)})
@@ -199,6 +204,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
                     join_query = self.__join_node_collections_query(
                             coll_name, attrs)
                     agg_pipeline += join_query
+                if attr_filter:
+                    query_list = []
+                    for attr, value in attr_filter.items():
+                        query_list.append({attr: value})
+                    filter_query = {'$match': {'$and': query_list}}
+                    agg_pipeline.append(filter_query)
                 logger.debug("Final query: %s" % agg_pipeline)
                 nodes = self.nodes.aggregate(agg_pipeline)
             nodes = list(nodes)
@@ -255,7 +266,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return edges.count() > 0
 
-    def read_edges(self, roi, nodes=None):
+    def read_edges(self, roi, nodes=None, attr_filter={}):
         '''Returns a list of edges within roi.'''
 
         if nodes is None:
@@ -277,6 +288,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
             length = len(node_ids)
             query_size = 1000000
             num_chunks = (length - 1)//query_size + 1
+            filters = []
+            for attr, value in attr_filter.items():
+                filters.append({attr: value})
             for i in range(num_chunks):
 
                 i_b = i*query_size
@@ -285,7 +299,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 endpoint_query = {self.endpoint_names[0]:
                                   {'$in': node_ids[i_b:i_e]}}
                 if not self.edge_attribute_coll_map:
-                    edges += self.edges.find(endpoint_query)
+                    if attr_filter:
+                        filters.append(endpoint_query)
+                        query = {'$and': filters}
+                    else:
+                        query = endpoint_query
+                    edges += self.edges.find(query)
                 else:
                     agg_pipeline = []
                     agg_pipeline.append({'$match': endpoint_query})
@@ -296,6 +315,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
                         join_query = self.__join_edge_collections_query(
                                 coll_name, attrs)
                         agg_pipeline += join_query
+                    if attr_filter:
+                        agg_pipeline.append({"$match": {"$and": filters}})
                     logger.debug("Final query: %s"
                                  % json.dumps(agg_pipeline, indent=2))
                     edges += self.edges.aggregate(agg_pipeline)
@@ -320,7 +341,14 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         nodes = self.read_nodes(roi)
         edges = self.read_edges(roi, nodes)
+        return self.__get_subgraph(roi, nodes, edges)
 
+    def get_filtered_subgraph(self, roi, nodes_filter={}, edges_filter={}):
+        nodes = self.read_nodes(roi, attr_filter=nodes_filter)
+        edges = self.read_edges(roi, nodes=nodes, attr_filter=edges_filter)
+        return self.__get_subgraph(roi, nodes, edges)
+
+    def __get_subgraph(self, roi, nodes, edges):
         u, v = self.endpoint_names
         node_list = [
                 (n['id'], self.__remove_keys(n, ['id']))
