@@ -180,7 +180,17 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def read_nodes(self, roi, attr_filter={}):
         '''Return a list of nodes within roi.
-        Optionally filters by attribute/value pairs on nodes'''
+        Arguments:
+
+            roi (``daisy.Roi``):
+
+                Get nodes that fall within this roi
+
+            attr_filter (``dict``):
+
+                Only return nodes that have attribute=value for
+                each attribute value pair in attr_filter.
+        '''
 
         logger.debug("Querying nodes in %s", roi)
 
@@ -267,7 +277,25 @@ class MongoDbGraphProvider(SharedGraphProvider):
         return edges.count() > 0
 
     def read_edges(self, roi, nodes=None, attr_filter={}):
-        '''Returns a list of edges within roi.'''
+        '''Returns a list of edges within roi.
+        Arguments:
+
+            roi (``daisy.Roi``):
+
+                Get nodes that fall within this roi
+
+            nodes (``dict``):
+
+                Return edges with sources in this nodes list. If none,
+                reads nodes in roi using read_nodes. Dictionary format
+                is string attribute -> value, including 'id' as an attribute.
+
+            attr_filter (``dict``):
+
+                Only return nodes that have attribute=value for
+                each attribute value pair in attr_filter.
+
+        '''
 
         if nodes is None:
             nodes = self.read_nodes(roi)
@@ -339,16 +367,28 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
     def __getitem__(self, roi):
 
-        nodes = self.read_nodes(roi)
-        edges = self.read_edges(roi, nodes)
-        return self.__get_subgraph(roi, nodes, edges)
+        return self.get_graph(roi)
 
-    def get_filtered_subgraph(self, roi, nodes_filter={}, edges_filter={}):
+    def get_graph(self, roi, nodes_filter={}, edges_filter={}):
+        ''' Return a graph within roi, optionally filtering by
+        node and edge attributes.
+
+        Arguments:
+
+            roi (``daisy.Roi``):
+
+                Get nodes and edges whose source is within this roi
+
+            nodes_filter (``dict``):
+            edges_filter (``dict``):
+
+                Only return nodes/edges that have attribute=value for
+                each attribute value pair in nodes/edges_filter.
+
+
+        '''
         nodes = self.read_nodes(roi, attr_filter=nodes_filter)
         edges = self.read_edges(roi, nodes=nodes, attr_filter=edges_filter)
-        return self.__get_subgraph(roi, nodes, edges)
-
-    def __get_subgraph(self, roi, nodes, edges):
         u, v = self.endpoint_names
         node_list = [
                 (n['id'], self.__remove_keys(n, ['id']))

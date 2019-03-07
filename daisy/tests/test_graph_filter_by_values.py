@@ -53,7 +53,7 @@ class TestFilterMongoGraph(unittest.TestCase):
         expected_edge_endpoints = [(57, 23), (2, 42)]
         self.assertCountEqual(expected_edge_endpoints, filtered_edge_endpoints)
 
-        filtered_subgraph = graph_provider.get_filtered_subgraph(
+        filtered_subgraph = graph_provider.get_graph(
                 roi,
                 nodes_filter={'selected': True},
                 edges_filter={'selected': True})
@@ -102,7 +102,7 @@ class TestFilterMongoGraph(unittest.TestCase):
         expected_edge_endpoints = [(57, 23), (2, 42)]
         self.assertCountEqual(expected_edge_endpoints, filtered_edge_endpoints)
 
-        filtered_subgraph = graph_provider.get_filtered_subgraph(
+        filtered_subgraph = graph_provider.get_graph(
                 roi,
                 nodes_filter={'selected': True},
                 edges_filter={'selected': True})
@@ -177,7 +177,7 @@ class TestFilterMongoGraph(unittest.TestCase):
         expected_edge_endpoints = [(57, 23)]
         self.assertCountEqual(expected_edge_endpoints, filtered_edge_endpoints)
 
-        filtered_subgraph = graph_provider.get_filtered_subgraph(
+        filtered_subgraph = graph_provider.get_graph(
                 roi,
                 nodes_filter={'selected': True,
                               'test': 'test'},
