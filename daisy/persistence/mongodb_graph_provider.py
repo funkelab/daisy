@@ -156,7 +156,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
             collection_names = self.database.list_collection_names()
 
             if meta_collection in collection_names:
-                self.__check_metadata()
+                metadata = self.__get_metadata()
+                if metadata:
+                    self.__check_metadata(metadata)
+                else:
+                    self.__set_metadata()
             else:
                 self.__set_metadata()
 
@@ -368,7 +372,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def __get_metadata(self):
         '''Gets metadata out of the meta collection and returns it
         as a dictionary.'''
-
+        self.__open_collections()
         metadata = self.meta.find_one({}, {"_id": False})
         return metadata
 
@@ -451,12 +455,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             name='incident',
             unique=True)
 
-    def __check_metadata(self):
+    def __check_metadata(self, metadata):
         '''Checks if the provided metadata matches the existing
         metadata in the meta collection'''
 
-        self.__open_collections()
-        metadata = self.__get_metadata()
         if self.directed is None:
             assert metadata['directed'] is not None,\
                 "Meta collection exists but does not contain "\
@@ -503,7 +505,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
             meta_data['total_roi_offset'] = self.total_roi.get_offset()
             meta_data['total_roi_shape'] = self.total_roi.get_shape()
         self.__open_collections()
-        self.meta.insert_one(meta_data)
+        # It's possible that another worker has already inserted the metadata -
+        # upsert to keep only one document in the collection
+        self.meta.replace_one(meta_data, meta_data, upsert=True)
 
     def __pos_query(self, roi):
         '''Generates a mongo query for position'''
