@@ -4,4 +4,4 @@ numpy
 pymongo
 pytest
 pytest-cov
-tornado
+tornado>=5,<6

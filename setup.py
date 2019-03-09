@@ -15,7 +15,7 @@ setup(
         ],
         install_requires=[
             "numpy",
-            "tornado",
+            "tornado>=5,<6",
             "networkx",
             "pymongo"
         ]
