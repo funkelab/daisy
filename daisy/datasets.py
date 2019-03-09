@@ -215,13 +215,16 @@ def prepare_ds(
 
         logger.info("Creating new %s in %s", ds_name, filename)
 
+        if compressor is not None:
+            compressor = zarr.get_codec(compressor)
+
         root = zarr.open(filename, mode='a')
         ds = root.create_dataset(
             ds_name,
             shape=shape,
             chunks=chunk_size,
             dtype=dtype,
-            compressor=zarr.get_codec(compressor))
+            compressor=compressor)
 
         if file_format == 'zarr':
             ds.attrs['resolution'] = voxel_size
