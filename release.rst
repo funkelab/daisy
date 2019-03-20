@@ -17,6 +17,10 @@ Major changes
 * Introduce :class:`Task` and :class:`Parameter`, and :func:`daisy.distribute` to execute :class:`Task` chain.
   See ``TODO`` for an example on how to execute task chaining.
 
+* Changed :class:`SharedGraphProvider` and :class:`SharedSubGraph` APIs, and added many new features  
+  including ability to have directed and undirected graphs. For the mongo backend, also added the ability to
+  store node/edge features in separate collections, and filter by node/edge feature values.
+
 Notable features
 ~~~~~~~~~~~~~~~~
 
