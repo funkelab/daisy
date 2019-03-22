@@ -182,7 +182,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             self.__disconnect()
 
-    def read_nodes(self, roi, attr_filter={}):
+    def read_nodes(self, roi, attr_filter=None):
         '''Return a list of nodes within roi.
         Arguments:
 
@@ -197,6 +197,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
         '''
 
         logger.debug("Querying nodes in %s", roi)
+        if attr_filter is None:
+            attr_filter = {}
 
         try:
 
@@ -280,7 +282,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return edges.count() > 0
 
-    def read_edges(self, roi, nodes=None, attr_filter={}):
+    def read_edges(self, roi, nodes=None, attr_filter=None):
         '''Returns a list of edges within roi.
         Arguments:
 
@@ -308,6 +310,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
         logger.debug("looking for edges with u in %s", node_ids[:100])
 
         edges = []
+        if attr_filter is None:
+            attr_filter = {}
 
         try:
 
@@ -373,7 +377,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return self.get_graph(roi)
 
-    def get_graph(self, roi, nodes_filter={}, edges_filter={}):
+    def get_graph(self, roi, nodes_filter=None, edges_filter=None):
         ''' Return a graph within roi, optionally filtering by
         node and edge attributes.
 
