@@ -59,6 +59,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
             Names of the nodes, edges. and meta collections, should they differ
             from ``nodes``, ``edges``, and ``meta``.
 
+        endpoint_names (``list`` or ``tuple`` with two elements):
+
+            What keys to use for the start and end of an edge. Default is
+            ['u', 'v']
+
         position_attribute (``string`` or list of ``string``s, optional):
 
             The node attribute(s) that contain position information. This will
@@ -93,7 +98,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             total_roi=None,
             nodes_collection='nodes',
             edges_collection='edges',
-            endpoint_names=['u', 'v'],
+            endpoint_names=None,
             meta_collection='meta',
             position_attribute='position',
             node_attribute_collections=None,
@@ -106,7 +111,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.total_roi = total_roi
         self.nodes_collection_name = nodes_collection
         self.edges_collection_name = edges_collection
-        self.endpoint_names = endpoint_names
+        self.endpoint_names = ['u', 'v'] if endpoint_names is None\
+            else endpoint_names
         self.meta_collection_name = meta_collection
         self.client = None
         self.database = None
