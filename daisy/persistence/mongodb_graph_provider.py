@@ -677,7 +677,9 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             attributes=None,
             fail_if_exists=False,
             fail_if_not_exists=False,
-            delete=False):
+            delete=False,
+            separate_only=False):
+        '''If separate_only, only write attributes in separate collections'''
         assert not delete, "Delete not implemented"
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
@@ -733,15 +735,15 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
         if len(nodes) == 0:
             return
-
-        try:
-            self.__write(self.nodes_collection, ['id'], nodes,
-                         fail_if_exists=fail_if_exists,
-                         fail_if_not_exists=fail_if_not_exists,
-                         delete=delete)
-        except BulkWriteError as e:
-            logger.error(e.details)
-            raise
+        if not separate_only:
+            try:
+                self.__write(self.nodes_collection, ['id'], nodes,
+                             fail_if_exists=fail_if_exists,
+                             fail_if_not_exists=fail_if_not_exists,
+                             delete=delete)
+            except BulkWriteError as e:
+                logger.error(e.details)
+                raise
 
         for coll, attrs in collection_to_attrs.items():
             try:
@@ -758,7 +760,9 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             attributes=None,
             fail_if_exists=False,
             fail_if_not_exists=False,
-            delete=False):
+            delete=False,
+            separate_only=False):
+        '''If separate_only, only write attributes in separate collections'''
         assert not delete, "Delete not implemented"
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
@@ -822,14 +826,15 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             logger.debug("No edges to insert in %s", roi)
             return
 
-        try:
-            self.__write(self.edges_collection, [u_name, v_name], edges,
-                         fail_if_exists=fail_if_exists,
-                         fail_if_not_exists=fail_if_not_exists,
-                         delete=delete)
-        except BulkWriteError as e:
-            logger.error(e.details)
-            raise
+        if not separate_only:
+            try:
+                self.__write(self.edges_collection, [u_name, v_name], edges,
+                             fail_if_exists=fail_if_exists,
+                             fail_if_not_exists=fail_if_not_exists,
+                             delete=delete)
+            except BulkWriteError as e:
+                logger.error(e.details)
+                raise
 
         for coll, attrs in collection_to_attrs.items():
             try:
