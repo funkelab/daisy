@@ -11,11 +11,10 @@ Major changes
 
 * Use Tornado for worker-scheduler communication.
   Communication between scheduler and workers is now using ``tornado`` instead of ``dask`` to be more lightweight and reliable. Furthermore, a worker client is persistent across blocks, allowing it to request and receive multiple blocks to process on. This change is heavily motivated by the long queuing delay of ``lsf``/``slurm`` and bring-up delay of ``tensorflow``.
-  Furthermore, the user now has an API for acquiring and releasing block, allowing them to write their own Python module implementation of workers. For a brief demo of this API, see https://github.com/funkelab/daisy/blob/release-v0.2/daisy/scheduler.py#L593 (note: should write a better example, or refer to a README)
+  Furthermore, the user now has an API for acquiring and releasing block, allowing them to write their own Python module implementation of workers.
   By :user:`Tri Nguyen <trivoldus28>`, :user:`Jan Junke <funkey>`
 
 * Introduce :class:`Task` and :class:`Parameter`, and :func:`daisy.distribute` to execute :class:`Task` chain.
-  See ``TODO`` for an example on how to execute task chaining.
 
 * Changed :class:`SharedGraphProvider` and :class:`SharedSubGraph` APIs, and added many new features  
   including ability to have directed and undirected graphs. For the mongo backend, also added the ability to
