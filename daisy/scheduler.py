@@ -123,8 +123,9 @@ class Scheduler():
                     pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
                 except Exception as e:
                     logger.error(
-                        "pre_check() exception for block %s. Exception: %s",
-                        block, e)
+                        "pre_check() exception for block %s of task %s. "
+                        "Exception: %s",
+                        block, task_id, e)
                     pre_check_ret = False
 
                 if pre_check_ret:
