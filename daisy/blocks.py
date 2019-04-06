@@ -356,8 +356,7 @@ def get_subgraph_blocks(
     ]
     # generate absolute offsets
     block_offsets = [
-        Coordinate(o) + full_graph_offset
-        for o in product(*block_dim_offsets)
+        Coordinate(o) for o in product(*block_dim_offsets)
     ]
     blocks = enumerate_blocks(
         total_roi,
