@@ -133,7 +133,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             self.__disconnect()
 
-    def read_nodes(self, roi, attr_filter=None):
+    def read_nodes(self, roi, attr_filter=None, read_attrs=None):
         '''Return a list of nodes within roi.
         Arguments:
 
@@ -145,6 +145,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
                 Only return nodes that have attribute=value for
                 each attribute value pair in attr_filter.
+
+            read_attrs (``list`` of ``string``):
+
+                Attributes to return. Others will be ignored
         '''
 
         logger.debug("Querying nodes in %s", roi)
@@ -161,6 +165,15 @@ class MongoDbGraphProvider(SharedGraphProvider):
             for attr, value in attr_filter.items():
                 query_list.append({attr: value})
             projection = {'_id': False}
+            if read_attrs is not None:
+                projection['id'] = True
+                if type(self.position_attribute) == list:
+                    for a in self.position_attribute:
+                        projection[a] = True
+                else:
+                    projection[self.position_attribute] = True
+                for attr in read_attrs:
+                    projection[attr] = True
             nodes = self.nodes.find({'$and': query_list}, projection)
             nodes = list(nodes)
 
@@ -216,7 +229,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return edges.count() > 0
 
-    def read_edges(self, roi, nodes=None, attr_filter=None):
+    def read_edges(self, roi, nodes=None, attr_filter=None, read_attrs=None):
         '''Returns a list of edges within roi.
         Arguments:
 
@@ -235,6 +248,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 Only return nodes that have attribute=value for
                 each attribute value pair in attr_filter.
 
+            read_attrs (``list`` of ``string``):
+
+                Attributes to return. Others will be ignored
         '''
 
         if nodes is None:
@@ -264,6 +280,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 filters.append({attr: value})
 
             projection = {'_id': False}
+            if read_attrs is not None:
+                projection[u] = True
+                projection[v] = True
+                for attr in read_attrs:
+                    projection[attr] = True
 
             for i in range(num_chunks):
 
@@ -298,7 +319,13 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return self.get_graph(roi)
 
-    def get_graph(self, roi, nodes_filter=None, edges_filter=None):
+    def get_graph(
+            self,
+            roi,
+            nodes_filter=None,
+            edges_filter=None,
+            node_attrs=None,
+            edge_attrs=None):
         ''' Return a graph within roi, optionally filtering by
         node and edge attributes.
 
@@ -314,10 +341,28 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 Only return nodes/edges that have attribute=value for
                 each attribute value pair in nodes/edges_filter.
 
+            node_attrs (``list`` of ``string``):
+
+                Only return these attributes for nodes. Other
+                attributes will be ignored, but id and position attribute(s)
+                will always be included. If None (default), return all attrs.
+
+            edge_attrs (``list`` of ``string``):
+
+                Only return these attributes for edges. Other
+                attributes will be ignored, but source and target
+                will always be included. If None (default), return all attrs.
 
         '''
-        nodes = self.read_nodes(roi, attr_filter=nodes_filter)
-        edges = self.read_edges(roi, nodes=nodes, attr_filter=edges_filter)
+        nodes = self.read_nodes(
+                roi,
+                attr_filter=nodes_filter,
+                read_attrs=node_attrs)
+        edges = self.read_edges(
+                roi,
+                nodes=nodes,
+                attr_filter=edges_filter,
+                read_attrs=edge_attrs)
         u, v = self.endpoint_names
         node_list = [
                 (n['id'], self.__remove_keys(n, ['id']))
