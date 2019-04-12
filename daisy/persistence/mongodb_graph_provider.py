@@ -9,17 +9,8 @@ from pymongo.errors import BulkWriteError, WriteError
 import logging
 import numpy as np
 import networkx as nx
-import json
 
 logger = logging.getLogger(__name__)
-
-
-def get_node_attribute_collection(coll_name):
-    return 'nodes_' + coll_name
-
-
-def get_edge_attribute_collection(coll_name):
-    return 'edges_' + coll_name
 
 
 class MongoDbGraphProvider(SharedGraphProvider):
@@ -72,21 +63,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             entry denotes the position coordinates in order (e.g.,
             `position_z`, `position_y`, `position_x`).
 
-        node_attribute_collections (``dict`` from ``string`` to list of
-            ``string``s):
-
-            Specifies which node attributes should be stored and read from
-            separate collections. Maps from collection name (in practice,
-            prepended with 'node_' to prevent name clashes with edges)
-            to lists of attributes to be stored in that collection.
-
-        edge_attribute_collections (``dict`` from ``string`` to list of
-            ``string``s):
-
-            Specifies which edge attributes should be stored and read from
-            separate collections. Maps from collection name (in practice,
-            prepended with 'edge_' to prevent name clashes with nodes)
-            to lists of attributes to be stored in that collection.
     '''
 
     def __init__(
@@ -100,9 +76,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             edges_collection='edges',
             endpoint_names=None,
             meta_collection='meta',
-            position_attribute='position',
-            node_attribute_collections=None,
-            edge_attribute_collections=None):
+            position_attribute='position'):
 
         self.db_name = db_name
         self.host = host
@@ -120,10 +94,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.edges = None
         self.meta = None
         self.position_attribute = position_attribute
-        self.node_attribute_coll_map = node_attribute_collections\
-            if node_attribute_collections else {}
-        self.edge_attribute_coll_map = edge_attribute_collections\
-            if edge_attribute_collections else {}
 
         try:
 
@@ -143,22 +113,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.edges.drop()
                 self.meta.drop()
 
-                if node_attribute_collections:
-                    coll_names = [get_node_attribute_collection(coll) for coll
-                                  in self.node_attribute_coll_map.keys()]
-                    logger.warning("dropping node attribute collections %s"
-                                   % coll_names)
-                    for name in coll_names:
-                        self.database[name].drop()
-
-                if edge_attribute_collections:
-                    coll_names = [get_edge_attribute_collection(coll) for coll
-                                  in self.edge_attribute_coll_map.keys()]
-                    logger.warning("dropping edge attribute collections %s" %
-                                   coll_names)
-                    for name in coll_names:
-                        self.database[name].drop()
-
             collection_names = self.database.list_collection_names()
 
             if meta_collection in collection_names:
@@ -174,15 +128,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 self.__create_node_collection()
             if edges_collection not in collection_names:
                 self.__create_edge_collection()
-
-            for coll_name, attributes in self.node_attribute_coll_map.items():
-                if coll_name not in collection_names:
-                    self.__create_node_attribute_collection(coll_name,
-                                                            attributes)
-            for coll_name, attributes in self.edge_attribute_coll_map.items():
-                if coll_name not in collection_names:
-                    self.__create_edge_attribute_collection(coll_name,
-                                                            attributes)
 
         finally:
 
@@ -212,28 +157,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_db()
             self.__open_collections()
             pos_query = self.__pos_query(roi)
-            if not self.node_attribute_coll_map:
-                query_list = [pos_query]
-                for attr, value in attr_filter.items():
-                    query_list.append({attr: value})
-                nodes = self.nodes.find({'$and': query_list}, {'_id': False})
-            else:
-                agg_pipeline = []
-                agg_pipeline.append({'$match': self.__pos_query(roi)})
-                for node_attr_coll, attrs in\
-                        self.node_attribute_coll_map.items():
-                    coll_name = get_node_attribute_collection(node_attr_coll)
-                    join_query = self.__join_node_collections_query(
-                            coll_name, attrs)
-                    agg_pipeline += join_query
-                if attr_filter:
-                    query_list = []
-                    for attr, value in attr_filter.items():
-                        query_list.append({attr: value})
-                    filter_query = {'$match': {'$and': query_list}}
-                    agg_pipeline.append(filter_query)
-                logger.debug("Final query: %s" % agg_pipeline)
-                nodes = self.nodes.aggregate(agg_pipeline)
+            query_list = [pos_query]
+            for attr, value in attr_filter.items():
+                query_list.append({attr: value})
+            projection = {'_id': False}
+            nodes = self.nodes.find({'$and': query_list}, projection)
             nodes = list(nodes)
 
         finally:
@@ -315,6 +243,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         logger.debug("found %d nodes", len(node_ids))
         logger.debug("looking for edges with u in %s", node_ids[:100])
 
+        u, v = self.endpoint_names
         edges = []
         if attr_filter is None:
             attr_filter = {}
@@ -333,6 +262,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
             filters = []
             for attr, value in attr_filter.items():
                 filters.append({attr: value})
+
+            projection = {'_id': False}
+
             for i in range(num_chunks):
 
                 i_b = i*query_size
@@ -340,40 +272,23 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 assert i_b < len(node_ids)
                 endpoint_query = {self.endpoint_names[0]:
                                   {'$in': node_ids[i_b:i_e]}}
-                if not self.edge_attribute_coll_map:
-                    if attr_filter:
-                        filters.append(endpoint_query)
-                        query = {'$and': filters}
-                    else:
-                        query = endpoint_query
-                    edges += self.edges.find(query)
+                if attr_filter:
+                    query = {'$and': filters + [endpoint_query]}
                 else:
-                    agg_pipeline = []
-                    agg_pipeline.append({'$match': endpoint_query})
-                    for edge_attr_coll, attrs in\
-                            self.edge_attribute_coll_map.items():
-                        coll_name = get_edge_attribute_collection(
-                                edge_attr_coll)
-                        join_query = self.__join_edge_collections_query(
-                                coll_name, attrs)
-                        agg_pipeline += join_query
-                    if attr_filter:
-                        agg_pipeline.append({"$match": {"$and": filters}})
-                    logger.debug("Final query: %s"
-                                 % json.dumps(agg_pipeline, indent=2))
-                    edges += self.edges.aggregate(agg_pipeline)
+                    query = endpoint_query
+                edges += self.edges.find(query, projection)
+
             if num_chunks > 0:
                 assert i_e == len(node_ids)
 
             logger.debug("found %d edges", len(edges))
-            logger.debug("read edges: %s", edges[:100])
+            logger.debug("first 100 edges read: %s", edges[:100])
 
         finally:
 
             self.__disconnect()
 
         for edge in edges:
-            u, v = self.endpoint_names
             edge[u] = np.uint64(edge[u])
             edge[v] = np.uint64(edge[v])
 
@@ -505,34 +420,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
             name='incident',
             unique=True)
 
-    def __create_node_attribute_collection(self, coll_name, attributes):
-        '''Creates the node attribute collection, including indexes'''
-        self.__open_db()
-        coll_name = get_node_attribute_collection(coll_name)
-        coll = self.database[coll_name]
-
-        coll.create_index(
-            [
-                ('id', ASCENDING)
-            ],
-            name='id',
-            unique=True)
-
-    def __create_edge_attribute_collection(self, coll_name, attributes):
-        '''Creates the edge collection, including indexes'''
-        self.__open_db()
-        coll_name = get_edge_attribute_collection(coll_name)
-        coll = self.database[coll_name]
-
-        u, v = self.endpoint_names
-        coll.create_index(
-            [
-                (u, ASCENDING),
-                (v, ASCENDING)
-            ],
-            name='incident',
-            unique=True)
-
     def __check_metadata(self, metadata):
         '''Checks if the provided metadata matches the existing
         metadata in the meta collection'''
@@ -608,49 +495,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 for d, (b, e) in enumerate(zip(begin, end))
             }
 
-    def __join_edge_collections_query(self, collection, attributes):
-        u = self.endpoint_names[0]
-        v = self.endpoint_names[1]
-        lookup = {
-            '$lookup':
-                {'from': collection,
-                 'let': {u: '$' + u, v: '$' + v},
-                 'pipeline': [
-                         {'$match': {'$expr': {'$and': [
-                             {'$eq': ['$' + u, '$$' + u]},
-                             {'$eq': ['$' + v, '$$' + v]}
-                             ]}}}
-                         ],
-                 'as': collection}
-        }
-        fields_to_add = {attr: {'$arrayElemAt':
-                                ['$' + collection + '.' + attr, 0]}
-                         for attr in attributes}
-        add_fields = {'$addFields': fields_to_add}
-        project = {'$project': {collection: 0}}
-
-        aggregate_list = [lookup, add_fields, project]
-        logger.debug(aggregate_list)
-        return aggregate_list
-
-    def __join_node_collections_query(self, collection, attributes):
-        lookup = {
-            '$lookup':
-                {'from': collection,
-                 'localField': 'id',
-                 'foreignField': 'id',
-                 'as': collection}
-        }
-        fields_to_add = {attr: {'$arrayElemAt':
-                                ['$' + collection + '.' + attr, 0]}
-                         for attr in attributes}
-        add_fields = {'$addFields': fields_to_add}
-        project = {'$project': {collection: 0}}
-
-        aggregate_list = [lookup, add_fields, project]
-        logger.debug(json.dumps(aggregate_list, indent=2))
-        return aggregate_list
-
 
 class MongoDbSharedSubGraph(SharedSubGraph):
 
@@ -677,9 +521,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             attributes=None,
             fail_if_exists=False,
             fail_if_not_exists=False,
-            delete=False,
-            separate_only=False):
-        '''If separate_only, only write attributes in separate collections'''
+            delete=False):
         assert not delete, "Delete not implemented"
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
@@ -693,12 +535,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         logger.debug("Writing nodes")
 
         nodes = []
-        collection_to_attrs = {}
-        attribute_collections = self.provider.node_attribute_coll_map.keys()
-        if attribute_collections is None:
-            attribute_collections = []
-        for coll in attribute_collections:
-            collection_to_attrs[coll] = []
 
         for node_id, data in self.nodes(data=True):
 
@@ -711,20 +547,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             node = {
                 'id': int(np.int64(node_id))
             }
-            # Create a separate document containing specified attributes
-            # for each attribute collection
-            for coll in attribute_collections:
-                attrs = self.provider.node_attribute_coll_map[coll]
-                doc_to_insert = node.copy()
-                for attr in attrs:
-                    if not attributes or attr in attributes:
-                        if attr in data:
-                            doc_to_insert[attr] = data[attr]
-                            del data[attr]
-                if len(doc_to_insert) > len(node):
-                    collection_to_attrs[coll].append(doc_to_insert)
 
-            # Add remaining attributes to main collection
             if not attributes:
                 node.update(data)
             else:
@@ -735,24 +558,15 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
         if len(nodes) == 0:
             return
-        if not separate_only:
-            try:
-                self.__write(self.nodes_collection, ['id'], nodes,
-                             fail_if_exists=fail_if_exists,
-                             fail_if_not_exists=fail_if_not_exists,
-                             delete=delete)
-            except BulkWriteError as e:
-                logger.error(e.details)
-                raise
 
-        for coll, attrs in collection_to_attrs.items():
-            try:
-                collection = self.database[get_node_attribute_collection(coll)]
-                # Don't pass flags to attribute collections - just upsert
-                self.__write(collection, ['id'], attrs)
-            except BulkWriteError as e:
-                logger.error(e.details)
-                raise
+        try:
+            self.__write(self.nodes_collection, ['id'], nodes,
+                         fail_if_exists=fail_if_exists,
+                         fail_if_not_exists=fail_if_not_exists,
+                         delete=delete)
+        except BulkWriteError as e:
+            logger.error(e.details)
+            raise
 
     def write_edges(
             self,
@@ -760,9 +574,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             attributes=None,
             fail_if_exists=False,
             fail_if_not_exists=False,
-            delete=False,
-            separate_only=False):
-        '''If separate_only, only write attributes in separate collections'''
+            delete=False):
         assert not delete, "Delete not implemented"
         assert not(fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
@@ -776,12 +588,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         logger.debug("Writing edges in %s", roi)
 
         edges = []
-        collection_to_attrs = {}
-        attribute_collections = self.provider.edge_attribute_coll_map.keys()
-        if attribute_collections is None:
-            attribute_collections = []
-        for coll in attribute_collections:
-            collection_to_attrs[coll] = []
 
         u_name, v_name = self.provider.endpoint_names
         for u, v, data in self.edges(data=True):
@@ -799,20 +605,6 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                 v_name: int(np.int64(v)),
             }
 
-            # Create a separate document containing specified attributes
-            # for each attribute collection
-            for coll in attribute_collections:
-                attrs = self.provider.edge_attribute_coll_map[coll]
-                doc_to_insert = edge.copy()
-                for attr in attrs:
-                    if not attributes or attr in attributes:
-                        if attr in data:
-                            doc_to_insert[attr] = data[attr]
-                            del data[attr]
-                if len(doc_to_insert) > len(edge):
-                    collection_to_attrs[coll].append(doc_to_insert)
-
-            # Add remaining attributes to main collection
             if not attributes:
                 edge.update(data)
             else:
@@ -826,24 +618,14 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             logger.debug("No edges to insert in %s", roi)
             return
 
-        if not separate_only:
-            try:
-                self.__write(self.edges_collection, [u_name, v_name], edges,
-                             fail_if_exists=fail_if_exists,
-                             fail_if_not_exists=fail_if_not_exists,
-                             delete=delete)
-            except BulkWriteError as e:
-                logger.error(e.details)
-                raise
-
-        for coll, attrs in collection_to_attrs.items():
-            try:
-                collection = self.database[get_edge_attribute_collection(coll)]
-                # Don't pass flags to attribute collections - just upsert
-                self.__write(collection, [u_name, v_name], attrs)
-            except BulkWriteError as e:
-                logger.error(e.details)
-                raise
+        try:
+            self.__write(self.edges_collection, [u_name, v_name], edges,
+                         fail_if_exists=fail_if_exists,
+                         fail_if_not_exists=fail_if_not_exists,
+                         delete=delete)
+        except BulkWriteError as e:
+            logger.error(e.details)
+            raise
 
     def get_connected_components(self):
         '''Returns a list of connected components as networkx (di)graphs'''
