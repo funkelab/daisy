@@ -4,7 +4,7 @@ from ..roi import Roi
 from .shared_graph_provider import\
     SharedGraphProvider, SharedSubGraph
 from ..graph import Graph, DiGraph
-from pymongo import MongoClient, ASCENDING, ReplaceOne
+from pymongo import MongoClient, ASCENDING, ReplaceOne, UpdateOne
 from pymongo.errors import BulkWriteError, WriteError
 import logging
 import numpy as np
@@ -668,6 +668,115 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                          fail_if_exists=fail_if_exists,
                          fail_if_not_exists=fail_if_not_exists,
                          delete=delete)
+        except BulkWriteError as e:
+            logger.error(e.details)
+            raise
+
+    def update_node_attrs(
+            self,
+            roi=None,
+            attributes=None):
+
+        if self.provider.mode == 'r':
+            raise RuntimeError("Trying to write to read-only DB")
+
+        if roi is None:
+            roi = self.roi
+
+        logger.debug("Updating node attributes")
+
+        updates = []
+
+        for node_id, data in self.nodes(data=True):
+
+            if not self.__contains(roi, node_id):
+                logger.debug(
+                        "Skipping node {} with data {} because not in roi {}"
+                        .format(node_id, data, roi))
+                continue
+
+            _filter = {
+                'id': int(np.int64(node_id))
+            }
+
+            if not attributes:
+                update = {'$set': data}
+            else:
+                update = {}
+                for key in data:
+                    if key in attributes:
+                        update[key] = data[key]
+                if not update:
+                    logger.info("Skipping node %s with data %s"
+                                " - no attributes to update"
+                                % (node_id, data))
+                    continue
+                update = {'$set': update}
+
+            updates.append(UpdateOne(_filter, update))
+
+        if len(updates) == 0:
+            return
+
+        try:
+            self.nodes_collection.bulk_write(updates)
+        except BulkWriteError as e:
+            logger.error(e.details)
+            raise
+
+    def update_edge_attrs(
+            self,
+            roi=None,
+            attributes=None):
+
+        if self.provider.mode == 'r':
+            raise RuntimeError("Trying to write to read-only DB")
+
+        if roi is None:
+            roi = self.roi
+
+        logger.debug("Updating edge attributes")
+
+        updates = []
+
+        u_name, v_name = self.provider.endpoint_names
+        for u, v, data in self.edges(data=True):
+            if not self.is_directed():
+                u, v = min(u, v), max(u, v)
+            if not self.__contains(roi, u):
+                logger.debug(
+                        ("Skipping edge with u {}, v {}," +
+                         "and data {} because u not in roi {}")
+                        .format(u, v, data, roi))
+                continue
+
+            _filter = {
+                u_name: int(np.int64(u)),
+                v_name: int(np.int64(v)),
+            }
+
+            if not attributes:
+                update = {'$set': data}
+            else:
+                update = {}
+                for key in data:
+                    if key in attributes:
+                        update[key] = data[key]
+                if not update:
+                    logger.info("Skipping edge %s -> %s with data %s"
+                                "- no attributes to update"
+                                % (u, v, data))
+                    continue
+                update = {'$set': update}
+
+            updates.append(UpdateOne(_filter, update))
+
+        if len(updates) == 0:
+            logger.info("No updates in roi %s" % roi)
+            return
+
+        try:
+            self.edges_collection.bulk_write(updates)
         except BulkWriteError as e:
             logger.error(e.details)
             raise
