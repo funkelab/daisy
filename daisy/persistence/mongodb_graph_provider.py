@@ -212,22 +212,38 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_db()
             self.__open_collections()
 
-            node = self.nodes.find_one(self.__pos_query(roi))
+            nodes = list(self.nodes.find(self.__pos_query(roi)))
 
             # no nodes -> no edges
-            if node is None:
+            if len(nodes) == 0:
                 return False
 
-            edges = self.edges.find(
-                {
-                    self.endpoint_names[0]: int(np.int64(node['id']))
-                })
+            node_ids = list([int(np.int64(n['id'])) for n in nodes])
+
+            # limit query to 1M node IDs (otherwise we might exceed the 16MB
+            # BSON document size limit)
+            length = len(node_ids)
+            query_size = 1000000
+            num_chunks = (length - 1)//query_size + 1
+
+            for i in range(num_chunks):
+
+                i_b = i*query_size
+                i_e = min((i + 1)*query_size, len(node_ids))
+                assert i_b < len(node_ids)
+                query = {self.endpoint_names[0]:
+                         {'$in': node_ids[i_b:i_e]}}
+                if self.edges.find_one(query) is not None:
+                    return True
+
+            if num_chunks > 0:
+                assert i_e == len(node_ids)
 
         finally:
 
             self.__disconnect()
 
-        return edges.count() > 0
+        return False
 
     def read_edges(self, roi, nodes=None, attr_filter=None, read_attrs=None):
         '''Returns a list of edges within roi.
