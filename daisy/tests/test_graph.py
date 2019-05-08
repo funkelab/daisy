@@ -52,6 +52,10 @@ class TestGraph(unittest.TestCase):
     def test_graph_connected_components_mongo(self):
         self.run_test_graph_connected_components(self.mongo_provider_factory)
 
+    # test has_edge
+    def test_graph_has_edge_mongo(self):
+        self.run_test_graph_has_edge(self.mongo_provider_factory)
+
     # test read_blockwise function
     def test_graph_read_blockwise_mongo(self):
         self.run_test_graph_read_blockwise(self.mongo_provider_factory)
@@ -314,3 +318,25 @@ class TestGraph(unittest.TestCase):
 
         for u, v, score in zip(edges['u'], edges['v'], edges['score']):
             self.assertEqual(graph.edges[(u, v)]['score'], score)
+
+    def run_test_graph_has_edge(self, provider_factory):
+
+        graph_provider = provider_factory('w')
+
+        roi = daisy.Roi(
+                (0, 0, 0),
+                (10, 10, 10))
+        graph = graph_provider[roi]
+
+        graph.add_node(2, comment="without position")
+        graph.add_node(42, position=(1, 1, 1))
+        graph.add_node(23, position=(5, 5, 5), swip='swap')
+        graph.add_node(57, position=daisy.Coordinate((7, 7, 7)), zap='zip')
+        graph.add_edge(42, 23)
+        graph.add_edge(57, 23)
+
+        write_roi = daisy.Roi((0, 0, 0), (6, 6, 6))
+        graph.write_nodes(roi=write_roi)
+        graph.write_edges(roi=write_roi)
+
+        self.assertTrue(graph_provider.has_edges(roi))
