@@ -222,7 +222,8 @@ class FileGraphProvider(SharedGraphProvider):
         for attribute in meta['attributes']:
             file_path = os.path.join(path, attribute + '.npz')
             if os.path.exists(file_path):
-                nodes[attribute] = np.load(file_path)['nodes']
+                nodes[attribute] = np.load(file_path,
+                                           allow_pickle=True)['nodes']
 
         if roi is None or roi.contains(chunk_roi):
             return nodes
@@ -247,7 +248,8 @@ class FileGraphProvider(SharedGraphProvider):
         for attribute in meta['attributes']:
             file_path = os.path.join(path, attribute + '.npz')
             if os.path.exists(file_path):
-                edges[attribute] = np.load(file_path)['edges']
+                edges[attribute] = np.load(file_path,
+                                           allow_pickle=True)['edges']
 
         # we assume that if the chunk is contained in ROI, there is no need to
         # filter for node_ids any more
