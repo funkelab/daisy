@@ -236,9 +236,6 @@ class Client():
         elif ret == 1:
             ret = ReturnCode.ERROR
         else:
-            logger.warning(
-                "Daisy user function should return either 0 or 1--given %s",
-                ret)
             ret = ReturnCode.SUCCESS
 
         logger.debug("Releasing block {}".format(block.block_id))
