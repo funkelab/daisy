@@ -333,7 +333,8 @@ def get_subgraph_blocks(
     '''Return ids of blocks, as instantiated in the full graph, such that
     their total write rois fully cover `sub_roi`.
     The function API assumes that `sub_roi` and `total_roi` use absolute
-    coordinates and `block_read_roi` and `block_write_roi` use relative coordinates.
+    coordinates and `block_read_roi` and `block_write_roi` use relative
+    coordinates.
     '''
 
     # first align sub_roi to write roi shape
