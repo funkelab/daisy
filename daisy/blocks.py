@@ -330,8 +330,10 @@ def get_subgraph_blocks(
         block_read_roi,
         block_write_roi,
         fit):
-    ''' return ids of blocks, as instantiated in the full graph, such that
-        their total write rois fully cover `sub_roi`
+    '''Return ids of blocks, as instantiated in the full graph, such that
+    their total write rois fully cover `sub_roi`.
+    The function API assumes that `sub_roi` and `total_roi` use absolute
+    coordinates and `block_read_roi` and `block_write_roi` use relative coordinates.
     '''
 
     # first align sub_roi to write roi shape
@@ -356,7 +358,8 @@ def get_subgraph_blocks(
     ]
     # generate absolute offsets
     block_offsets = [
-        Coordinate(o) for o in product(*block_dim_offsets)
+        Coordinate(o) + (total_roi.get_begin() - block_read_roi.get_begin())
+        for o in product(*block_dim_offsets)
     ]
     blocks = enumerate_blocks(
         total_roi,

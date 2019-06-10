@@ -169,7 +169,9 @@ class DependencyGraph():
 
             self.blocks[block_id] = block
 
-            dependencies = [(task_id, b.block_id) for b in block_dependencies]
+            dependencies = [
+                (task_id, b.block_id) for b in block_dependencies
+                if (task_id, b.block_id) in self.blocks]
 
             # add inter-task read-write dependency
             if len(self.task_dependency[task_id]):
@@ -182,6 +184,11 @@ class DependencyGraph():
                     ])
 
             for dep_id in dependencies:
+                if dep_id not in self.blocks:
+                    raise RuntimeError(
+                        "Block dependency %s is not found for task %s." % (
+                            dep_id, task_id))
+                    continue
                 self.dependents[dep_id].add(block_id)
                 self.dependencies[block_id].add(dep_id)
 
