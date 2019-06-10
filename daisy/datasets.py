@@ -72,7 +72,10 @@ def open_ds(filename, ds_name, mode='r'):
     if filename.endswith('.zarr'):
 
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
-        ds = zarr.open(filename, mode=mode)[ds_name]
+        try:
+          ds = zarr.open(filename, mode=mode)[ds_name]
+        except:
+          raise RuntimeError("cannot open %s/%s" % (filename, ds_name))
 
         voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
@@ -268,6 +271,11 @@ def prepare_ds(
             compatible = False
 
         if not compatible:
+            raise RuntimeError(
+                "Existing dataset is not compatible, please manually delete "
+                "the volume at %s/%s" % (filename, ds_name))
+
+            # TODO: add an option to override the error
 
             logger.info("Existing dataset is not compatible, creating new one")
 
