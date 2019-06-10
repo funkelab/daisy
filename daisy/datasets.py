@@ -73,9 +73,10 @@ def open_ds(filename, ds_name, mode='r'):
 
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         try:
-          ds = zarr.open(filename, mode=mode)[ds_name]
-        except:
-          raise RuntimeError("cannot open %s/%s" % (filename, ds_name))
+            ds = zarr.open(filename, mode=mode)[ds_name]
+        except Exception as e:
+            logger.error("failed to open %s/%s" % (filename, ds_name))
+            raise e
 
         voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
