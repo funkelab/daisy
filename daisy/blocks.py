@@ -345,6 +345,11 @@ def get_subgraph_blocks(
 
     begin = sub_roi.get_begin() - full_graph_offset
     end = sub_roi.get_end() - full_graph_offset
+
+    # due to the way blocks are enumerated, write_roi can never be negative
+    # relative to total_roi and block_read_roi
+    begin = Coordinate([max(n, 0) for n in begin])
+
     aligned_subroi = (
         begin // block_write_roi.get_shape(),  # `floordiv`
         -(-end // block_write_roi.get_shape())  # `ceildiv`
