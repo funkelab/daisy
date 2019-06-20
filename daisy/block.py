@@ -1,5 +1,6 @@
 from __future__ import absolute_import
 from .freezable import Freezable
+from funlib.math import cantor_number
 
 
 class Block(Freezable):
@@ -62,25 +63,15 @@ class Block(Freezable):
             self.z_order_id = block_id  # for compatibility
         self.freeze()
 
-    def compute_block_id(self, total_roi, write_roi):
-
-        one = (1,)*total_roi.dims()
-        # this is an upper bound on the number of blocks per dimension, the
-        # actual number depends on the used fitting strategy
-        num_blocks = (
-            total_roi.get_shape() +
-            write_roi.get_shape() - one
-            )/write_roi.get_shape()
-        block_index = write_roi.get_offset()/write_roi.get_shape()
-
-        f = 1
-        block_id = 0
-        for d in range(total_roi.dims())[::-1]:
-            block_id += block_index[d]*f
-            f *= num_blocks[d]
-
+    def compute_block_id(self, total_roi, write_roi, shift=None):
+        block_index =  write_roi.get_offset()  / write_roi.get_shape()
+        
+        # block_id will be the cantor number for this block index
+        block_id = cantor_number(block_index)
+        print(block_index, block_id)
         bit32_constant = 1 << 31
         indices = [block_index[i] for i in range(total_roi.dims())]
+        
         n = 0
         z_order_id = 0
         while n < 32:
