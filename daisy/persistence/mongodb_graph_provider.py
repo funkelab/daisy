@@ -98,6 +98,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
         try:
 
             self.__connect()
+
+            if mode != 'w':
+                if self.db_name not in self.client.list_database_names():
+                    logger.warn("Opened with read mode %s, but no db with name"
+                                "%s found in client at %s"
+                                % (mode, self.db_name, self.host))
             self.__open_db()
 
             if mode == 'w':
