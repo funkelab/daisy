@@ -240,7 +240,7 @@ class Scheduler():
 
     def _stop_status_thread(self):
         if self.status_thread is not None:
-            self.status_thread.join(timeout=10)
+            self.status_thread.join(timeout=20)
             if self.status_thread.is_alive():
                 raise RuntimeError("Time out waiting to stop status thread..")
 
