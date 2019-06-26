@@ -1,3 +1,4 @@
+import copy
 from .parameter import Parameter, UNDEFINED_DAISY_PARAMETER
 
 
@@ -50,7 +51,8 @@ class Task():
 
         for param in current_class.__dict__:
             if isinstance(current_class.__dict__[param], Parameter):
-                self.__daisy_params__[param] = current_class.__dict__[param]
+                self.__daisy_params__[param] = copy.deepcopy(
+                                            current_class.__dict__[param])
 
     def __init__(self, task_id=None, global_config=None, **kwargs):
         '''Constructor for ``Task``. Should not be overridden by
