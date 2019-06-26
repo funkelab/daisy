@@ -64,14 +64,15 @@ class Block(Freezable):
         self.freeze()
 
     def compute_block_id(self, total_roi, write_roi, shift=None):
-        block_index =  write_roi.get_offset()  / write_roi.get_shape()
-        
+        block_index = write_roi.get_offset() / write_roi.get_shape()
+
         # block_id will be the cantor number for this block index
-        block_id = cantor_number(block_index)
-        print(block_index, block_id)
+        block_id = int(cantor_number(block_index))
+
+        # calculating Z-order index
         bit32_constant = 1 << 31
         indices = [block_index[i] for i in range(total_roi.dims())]
-        
+
         n = 0
         z_order_id = 0
         while n < 32:
