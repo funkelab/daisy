@@ -147,6 +147,52 @@ def prepare_ds(
         num_channels=1,
         compressor='default',
         delete=False):
+    '''Prepare a Zarr or N5 dataset.
+
+    Args:
+
+        filename (``string``):
+
+            The name of the container "file" (which is actually a directory).
+
+        ds_name (``string``):
+
+            The name of the dataset to prepare.
+
+        total_roi (:class:`daisy.Roi`):
+
+            The ROI of the dataset to prepare in world units.
+
+        voxel_size (:class:`daisy.Coordinate`):
+
+            The size of one voxel in the dataset in world units.
+
+        write_size (:class:`daisy.Coordinate`):
+
+            The size of anticipated writes to the dataset, in world units. The
+            chunk size of the dataset will be set such that ``write_size`` is a
+            multiple of it. This allows concurrent writes to the dataset if the
+            writes are aligned with ``write_size``.
+
+        num_channels (``int``, optional):
+
+            The number of channels.
+
+        compressor (``string``, optional):
+
+            The compressor to use. See `zarr.get_codec` for available options.
+            Defaults to gzip level 5.
+
+        delete (``bool``, optional):
+
+            Whether to delete an existing dataset if it was found to be
+            incompatible with the other requirements. The default is not to
+            delete the dataset and raise an exception instead.
+
+    Returns:
+
+        A :class:`daisy.Array` pointing to the newly created dataset.
+    '''
 
     voxel_size = Coordinate(voxel_size)
     if write_size is not None:
