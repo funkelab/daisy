@@ -68,6 +68,25 @@ def _read_voxel_size_offset(ds, order='C'):
 
 
 def open_ds(filename, ds_name, mode='r'):
+    '''Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
+    dataset has attributes ``resolution`` and ``offset``, those will be
+    used to determine the meta-information of the returned array.
+
+    Args:
+
+        filename (``string``):
+
+            The name of the container "file" (which is a directory for Zarr and
+            N5).
+
+        ds_name (``string``):
+
+            The name of the dataset to open.
+
+    Returns:
+
+        A :class:`daisy.Array` pointing to the dataset.
+    '''
 
     if filename.endswith('.zarr'):
 
