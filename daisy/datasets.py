@@ -145,7 +145,8 @@ def prepare_ds(
         write_roi=None,
         write_size=None,
         num_channels=1,
-        compressor='default'):
+        compressor='default',
+        delete=False):
 
     voxel_size = Coordinate(voxel_size)
     if write_size is not None:
@@ -279,11 +280,11 @@ def prepare_ds(
             compatible = False
 
         if not compatible:
-            raise RuntimeError(
-                "Existing dataset is not compatible, please manually delete "
-                "the volume at %s/%s" % (filename, ds_name))
 
-            # TODO: add an option to override the error
+            if not delete:
+                raise RuntimeError(
+                    "Existing dataset is not compatible, please manually delete "
+                    "the volume at %s/%s" % (filename, ds_name))
 
             logger.info("Existing dataset is not compatible, creating new one")
 
