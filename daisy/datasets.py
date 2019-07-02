@@ -68,6 +68,25 @@ def _read_voxel_size_offset(ds, order='C'):
 
 
 def open_ds(filename, ds_name, mode='r'):
+    '''Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
+    dataset has attributes ``resolution`` and ``offset``, those will be
+    used to determine the meta-information of the returned array.
+
+    Args:
+
+        filename (``string``):
+
+            The name of the container "file" (which is a directory for Zarr and
+            N5).
+
+        ds_name (``string``):
+
+            The name of the dataset to open.
+
+    Returns:
+
+        A :class:`daisy.Array` pointing to the dataset.
+    '''
 
     if filename.endswith('.zarr'):
 
@@ -145,7 +164,54 @@ def prepare_ds(
         write_roi=None,
         write_size=None,
         num_channels=1,
-        compressor='default'):
+        compressor='default',
+        delete=False):
+    '''Prepare a Zarr or N5 dataset.
+
+    Args:
+
+        filename (``string``):
+
+            The name of the container "file" (which is actually a directory).
+
+        ds_name (``string``):
+
+            The name of the dataset to prepare.
+
+        total_roi (:class:`daisy.Roi`):
+
+            The ROI of the dataset to prepare in world units.
+
+        voxel_size (:class:`daisy.Coordinate`):
+
+            The size of one voxel in the dataset in world units.
+
+        write_size (:class:`daisy.Coordinate`):
+
+            The size of anticipated writes to the dataset, in world units. The
+            chunk size of the dataset will be set such that ``write_size`` is a
+            multiple of it. This allows concurrent writes to the dataset if the
+            writes are aligned with ``write_size``.
+
+        num_channels (``int``, optional):
+
+            The number of channels.
+
+        compressor (``string``, optional):
+
+            The compressor to use. See `zarr.get_codec` for available options.
+            Defaults to gzip level 5.
+
+        delete (``bool``, optional):
+
+            Whether to delete an existing dataset if it was found to be
+            incompatible with the other requirements. The default is not to
+            delete the dataset and raise an exception instead.
+
+    Returns:
+
+        A :class:`daisy.Array` pointing to the newly created dataset.
+    '''
 
     voxel_size = Coordinate(voxel_size)
     if write_size is not None:
@@ -271,12 +337,19 @@ def prepare_ds(
                 chunk_size)
             compatible = False
 
-        if not compatible:
-            raise RuntimeError(
-                "Existing dataset is not compatible, please manually delete "
-                "the volume at %s/%s" % (filename, ds_name))
+        if dtype != ds.dtype:
+            logger.info(
+                "dtypes differ: %s vs %s",
+                ds.dtype,
+                dtype)
+            compatible = False
 
-            # TODO: add an option to override the error
+        if not compatible:
+
+            if not delete:
+                raise RuntimeError(
+                    "Existing dataset is not compatible, please manually delete "
+                    "the volume at %s/%s" % (filename, ds_name))
 
             logger.info("Existing dataset is not compatible, creating new one")
 
