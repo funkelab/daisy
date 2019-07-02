@@ -271,6 +271,13 @@ def prepare_ds(
                 chunk_size)
             compatible = False
 
+        if dtype != ds.dtype:
+            logger.info(
+                "dtypes differ: %s vs %s",
+                ds.dtype,
+                dtype)
+            compatible = False
+
         if not compatible:
             raise RuntimeError(
                 "Existing dataset is not compatible, please manually delete "
