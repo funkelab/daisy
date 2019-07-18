@@ -1,4 +1,5 @@
 from __future__ import absolute_import
+from .coordinate import Coordinate
 from .freezable import Freezable
 from funlib.math import cantor_number
 
@@ -70,8 +71,12 @@ class Block(Freezable):
         block_id = int(cantor_number(block_index))
 
         # calculating Z-order index
+        # this index is inexact and is shape agnostic to promote maximum
+        # parallelism across tasks
+        block_index_z = (write_roi.get_offset() /
+                         Coordinate([2048 for _ in range(total_roi.dims())]))
         bit32_constant = 1 << 31
-        indices = [block_index[i] for i in range(total_roi.dims())]
+        indices = [int(block_index_z[i]) for i in range(total_roi.dims())]
 
         n = 0
         z_order_id = 0
