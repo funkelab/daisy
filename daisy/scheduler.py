@@ -505,8 +505,8 @@ class Scheduler():
         for task in self.tasks:
             self.tasks[task].cleanup()
 
-        # 10 minutes from now
-        timeout = time.time() + 60*10
+        # wait up to 60 seconds
+        timeout = time.time() + 60
 
         # join worker processes
         for proc in self.started_processes:
