@@ -165,7 +165,8 @@ def prepare_ds(
         write_size=None,
         num_channels=1,
         compressor='default',
-        delete=False):
+        delete=False,
+        force_exact_write_size=False):
     '''Prepare a Zarr or N5 dataset.
 
     Args:
@@ -208,6 +209,11 @@ def prepare_ds(
             incompatible with the other requirements. The default is not to
             delete the dataset and raise an exception instead.
 
+        force_exact_write_size (``bool``, optional):
+
+            Whether to use `write_size` as-is, or to first process it with
+            `get_chunk_size`.
+
     Returns:
 
         A :class:`daisy.Array` pointing to the newly created dataset.
@@ -249,7 +255,10 @@ def prepare_ds(
         raise RuntimeError("Unknown file format for %s" % filename)
 
     if write_size is not None:
-        chunk_size = get_chunk_size(write_size/voxel_size)
+        if not force_exact_write_size:
+            chunk_size = get_chunk_size(write_size/voxel_size)
+        else:
+            chunk_size = write_size/voxel_size
     else:
         chunk_size = None
 
