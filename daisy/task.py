@@ -163,6 +163,10 @@ class Task():
         self._daisy.orig_total_roi = total_roi
         self._daisy.read_roi = read_roi
         self._daisy.write_roi = write_roi
+        self._daisy.total_write_roi = self._daisy.total_roi.grow(
+                                -(write_roi.get_begin()-read_roi.get_begin()),
+                                -(read_roi.get_end()-write_roi.get_end()),
+                                )
         self._daisy.process_function = process_function
         self._daisy.read_write_conflict = read_write_conflict
         self._daisy.fit = fit
