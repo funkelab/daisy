@@ -108,6 +108,7 @@ class Scheduler():
         if not _NO_SPAWN_STATUS_THREAD:
             self._start_status_thread()
         blocks = {}  # {task_id: block_id}
+        last_prechecked = collections.defaultdict(lambda: (None, None))
         no_worker_delay = 0.001
         while not graph.empty():
 
@@ -117,17 +118,22 @@ class Scheduler():
             for task_id in blocks:
                 block = blocks[task_id]
 
-                # pre-check and skip blocks if possible
-                try:
-                    # pre_check can intermittently fail
-                    # so we wrap it in a try block
-                    pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
-                except Exception as e:
-                    logger.error(
-                        "pre_check() exception for block %s of task %s. "
-                        "Exception: %s",
-                        block, task_id, e)
-                    pre_check_ret = False
+                if last_prechecked[task_id][0] != block:
+                    # pre-check and skip blocks if possible
+                    try:
+                        # pre_check can intermittently fail
+                        # so we wrap it in a try block
+                        pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
+                    except Exception as e:
+                        logger.error(
+                            "pre_check() exception for block %s of task %s. "
+                            "Exception: %s",
+                            block, task_id, e)
+                        pre_check_ret = False
+                    finally:
+                        last_prechecked[task_id] = (block, pre_check_ret)
+
+                pre_check_ret = last_prechecked[task_id][1]
 
                 if pre_check_ret:
                     logger.debug(
