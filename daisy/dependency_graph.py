@@ -116,10 +116,20 @@ class DependencyGraph():
         task._daisy.total_roi = task._daisy.orig_total_roi
 
         if request_roi:
-            if not task._daisy.orig_total_roi.contains(request_roi):
-                raise RuntimeError(
-                    "Unsatisfiable request %s given total_roi %s for Task %s"
-                    % (request_roi, task._daisy.orig_total_roi, task_id))
+            # request has to be within the total_write_roi
+            # TODO: make sure this is correct given the fitting strategy
+            # of the dependent task
+            if not task._daisy.total_write_roi.contains(request_roi):
+
+                new_request_roi = request_roi.intersect(
+                                                task._daisy.total_write_roi)
+                logger.info(
+                    "Reducing request_roi for Task %s from %s to %s because "
+                    "total_write_roi is only %s",
+                    task_id, request_roi, new_request_roi,
+                    task._daisy.total_write_roi)
+                request_roi = new_request_roi
+
             # reduce total_roi to match request_roi
             # and calculate request_roi for its dependencies
             total_roi = expand_request_roi_to_grid(
@@ -132,9 +142,6 @@ class DependencyGraph():
                 "Reducing total_roi for Task %s from %s to %s because of "
                 "request %s",
                 task_id, task._daisy.orig_total_roi, total_roi, request_roi)
-
-            # TODO: check whether this reduction + fit policy to the original
-            # total_roi cause dependent tasks to fail
 
             task._daisy.total_roi = total_roi
             dependency_request_roi = total_roi
