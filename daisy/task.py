@@ -153,7 +153,8 @@ class Task():
             read_write_conflict=True,
             num_workers=1,
             max_retries=2,
-            fit='valid'
+            fit='valid',
+            timeout=None
             ):
         '''Configure necessary parameters for the scheduler to run this
         task. The arguments are the same as those in
@@ -177,6 +178,7 @@ class Task():
         self._daisy.fit = fit
         self._daisy.num_workers = num_workers
         self._daisy.max_retries = max_retries
+        self._daisy.timeout = timeout
 
         if check_function is not None:
             try:
