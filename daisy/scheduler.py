@@ -15,6 +15,7 @@ from datetime import timedelta
 import logging
 import os
 import queue
+import socket
 import threading
 import time
 
@@ -75,6 +76,7 @@ class Scheduler():
         self.status_thread = None
         self.periodic_interval = 10
         self.completion_rate = collections.defaultdict(int)
+        self.issue_times = {}
 
     def distribute(self, graph):
         try:
@@ -153,6 +155,8 @@ class Scheduler():
                             if worker not in self.dead_workers:
                                 self.worker_outstanding_blocks[worker].add(
                                     (task_id, block.block_id))
+                                self.issue_times[(task_id, block.block_id)] = (
+                                    task_id, worker, time.time())
                             else:
                                 logger.debug(
                                     "Worker %s is dead or disconnected. "
@@ -257,9 +261,31 @@ class Scheduler():
         SAMPLING_INTERVAL = 120
 
         while not self.finished_scheduling:
+            current_time = time.time()
+
+            # check workers timeout
+
+            with self.worker_states_lock:
+                # make a copy to avoid race condition
+                issue_times = self.issue_times.copy()
+
+            for block_id in issue_times:
+
+                task_id, worker, issue_time = issue_times[block_id]
+                if self.tasks[task_id]._daisy.timeout is None:
+                    continue
+                if (current_time - issue_time >
+                        self.tasks[task_id]._daisy.timeout):
+                    # kill worker by shutting down TCP connection and let the
+                    # recovery mechanism clean up
+                    logger.info("Killing worker %s due to timeout" % worker)
+                    try:
+                        worker.stream.fileno().shutdown(socket.SHUT_RDWR)
+                    except OSError:
+                        # TCP socket is somehow already closed; fine
+                        pass
 
             # collecting ETA based on the last 5 minutes
-            current_time = time.time()
 
             if (current_time - last_time) > SAMPLING_INTERVAL:
                 last_time = current_time
@@ -366,6 +392,7 @@ class Scheduler():
             with self.worker_states_lock:
                 outstanding_blocks = (self.worker_outstanding_blocks[worker]
                                       .copy())
+
             for block_id in outstanding_blocks:
                 self.block_return(worker, block_id, ReturnCode.NETWORK_ERROR)
 
@@ -584,6 +611,7 @@ class Scheduler():
         if worker is not None:
             with self.worker_states_lock:
                 self.worker_outstanding_blocks[worker].remove(block_id)
+                self.issue_times.pop(block_id)
 
         if ret in [ReturnCode.ERROR, ReturnCode.NETWORK_ERROR,
                    ReturnCode.FAILED_POST_CHECK]:
@@ -634,7 +662,8 @@ def run_blockwise(
         fit='valid',
         num_workers=1,
         processes=None,
-        max_retries=2):
+        max_retries=2,
+        timeout=None):
     '''Convenient function to run a single block-wise task.
 
     Args:
@@ -742,6 +771,11 @@ def run_blockwise(
             (either due to failed post_check or application crashes or network
             failure)
 
+        timeout (int, optional):
+
+            Time in seconds to wait for a block to be returned from a worker.
+            The worker is killed (and block retried) if this time is exceeded.
+
     Returns:
 
         True, if all tasks succeeded (or were skipped because they were already
@@ -760,6 +794,7 @@ def run_blockwise(
                 fit=fit,
                 num_workers=num_workers,
                 max_retries=max_retries,
+                timeout=timeout
                 )
 
     return distribute([{'task': BlockwiseTask()}])
@@ -778,11 +813,6 @@ def distribute(tasks, global_config=None):
     '''
     dependency_graph = DependencyGraph(global_config=global_config)
 
-    # if len(tasks) > 1:
-    #     raise NotImplementedError(
-    #         "Daisy does not support distribute() multiple tasks yet.")
-    # task = tasks[0]
-
     for task in tasks:
         dependency_graph.add(task['task'])
 
@@ -797,9 +827,5 @@ def distribute(tasks, global_config=None):
 
             dependency_graph.init(task['task'].task_id,
                                   request_roi=task['request'][0])
-
-    # if 'request' in task and task['request'] is not None:
-    #     subgraph = dependency_graph.get_subgraph(task['request'])
-    #     dependency_graph = subgraph
 
     return Scheduler().distribute(dependency_graph)
