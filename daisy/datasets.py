@@ -100,8 +100,10 @@ def open_ds(filename, ds_name, mode='r'):
         voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        chunk_shape = ds.chunks
+
         logger.debug("opened zarr dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size)
+        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith('.n5'):
 
@@ -111,8 +113,10 @@ def open_ds(filename, ds_name, mode='r'):
         voxel_size, offset = _read_voxel_size_offset(ds, 'F')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        chunk_shape = ds.chunks
+
         logger.debug("opened N5 dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size)
+        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith('.h5') or filename.endswith('.hdf'):
 
@@ -122,8 +126,10 @@ def open_ds(filename, ds_name, mode='r'):
         voxel_size, offset = _read_voxel_size_offset(ds, 'C')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        chunk_shape = ds.chunks
+
         logger.debug("opened H5 dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size)
+        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith('.json'):
 
@@ -136,7 +142,8 @@ def open_ds(filename, ds_name, mode='r'):
             array.data,
             Roi(spec['offset'], spec['size']),
             array.voxel_size,
-            array.roi.get_begin())
+            array.roi.get_begin(),
+            chunk_shape=array.chunk_shape)
 
     elif filename.endswith('.klb'):
 
@@ -147,7 +154,8 @@ def open_ds(filename, ds_name, mode='r'):
             adaptor,
             adaptor.roi,
             adaptor.voxel_size,
-            adaptor.roi.get_begin())
+            adaptor.roi.get_begin(),
+            chunk_shape=adaptor.chunk_shape)
 
     else:
 
@@ -312,7 +320,11 @@ def prepare_ds(
             ds.attrs['resolution'] = voxel_size[::-1]
             ds.attrs['offset'] = total_roi.get_begin()[::-1]
 
-        return Array(ds, total_roi, voxel_size)
+        return Array(
+            ds,
+            total_roi,
+            voxel_size,
+            chunk_shape=chunk_size/voxel_size)
 
     else:
 

@@ -40,6 +40,9 @@ class KlbAdaptor():
         header = pyklb.readheader(self.files[0])
         self.dtype = header['datatype']
 
+        # TODO: get chunk size from KLB headers
+        self.chunk_size = None
+
     def __getitem__(self, slices):
 
         if len(self.files) == 1:

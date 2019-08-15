@@ -29,13 +29,24 @@ class Array(Freezable):
 
             The start of ``data``, in world units. Defaults to
             ``roi.get_begin()``, if not given.
+
+        chunk_shape (`class:Coordinate`, optional):
+
+            The size of a chunk of the underlying data container in voxels.
     '''
 
-    def __init__(self, data, roi, voxel_size, data_offset=None):
+    def __init__(
+            self,
+            data,
+            roi,
+            voxel_size,
+            data_offset=None,
+            chunk_shape=None):
 
         self.data = data
         self.roi = roi
         self.voxel_size = Coordinate(voxel_size)
+        self.chunk_shape = Coordinate(chunk_shape) if chunk_shape else None
         self.n_channel_dims = len(data.shape) - roi.dims()
 
         assert self.voxel_size.dims() == self.roi.dims(), (
@@ -111,7 +122,9 @@ class Array(Freezable):
             roi = key
 
             assert self.roi.contains(roi), (
-                "Requested roi is not contained in this array.")
+                "Requested roi %s is not contained in this array %s." % (
+                    roi,
+                    self.roi))
 
             return Array(
                 self.data,
