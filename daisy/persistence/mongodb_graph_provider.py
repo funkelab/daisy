@@ -889,7 +889,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
     def __contains(self, roi, node):
         '''Determines if the given node is inside the given roi'''
-        node_data = self.node[node]
+        node_data = self.nodes[node]
 
         # Some nodes are outside of the originally requested ROI (they have
         # been pulled in by edges leaving the ROI). These nodes have no
