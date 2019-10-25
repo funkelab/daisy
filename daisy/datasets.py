@@ -290,6 +290,7 @@ def prepare_ds(
         shape = (num_channels,) + shape
         if chunk_size is not None:
             chunk_size = Coordinate((num_channels,) + chunk_size)
+        voxel_size_with_channels = Coordinate((1,) + voxel_size)
 
     if not os.path.isdir(filename):
 
@@ -320,11 +321,15 @@ def prepare_ds(
             ds.attrs['resolution'] = voxel_size[::-1]
             ds.attrs['offset'] = total_roi.get_begin()[::-1]
 
+        if num_channels > 1:
+            chunk_shape = chunk_size/voxel_size_with_channels
+        else:
+            chunk_shape = chunk_size/voxel_size
         return Array(
             ds,
             total_roi,
             voxel_size,
-            chunk_shape=chunk_size/voxel_size)
+            chunk_shape=chunk_shape)
 
     else:
 
