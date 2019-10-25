@@ -9,7 +9,7 @@ import os
 
 class KlbAdaptor():
 
-    def __init__(self, filename):
+    def __init__(self, filename, attr_filename=None):
 
         self.files = glob.glob(filename)
         self.files.sort()
@@ -17,13 +17,17 @@ class KlbAdaptor():
         if len(self.files) == 0:
             raise IOError("no KLB files found that match %s" % filename)
 
+        if attr_filename is None:
+            attr_filename = 'attributes.json'
+
         attributes_file = os.path.join(
             os.path.split(filename)[0],
-            'attributes.json')
+            attr_filename)
 
         if not os.path.isfile(attributes_file):
             raise IOError(
-                "no attributes.json file found next to %s" % filename)
+                "no attributes file %s found next to %s"
+                % (attr_filename, filename))
 
         with open(attributes_file, 'r') as f:
 
@@ -40,7 +44,7 @@ class KlbAdaptor():
         header = pyklb.readheader(self.files[0])
         self.dtype = header['datatype']
 
-        # TODO: get chunk size from KLB headers
+        # TODO: get chunk shape from KLB headers
         self.chunk_shape = None
 
     def __getitem__(self, slices):
