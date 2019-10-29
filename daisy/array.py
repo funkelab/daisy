@@ -33,6 +33,11 @@ class Array(Freezable):
         chunk_shape (`class:Coordinate`, optional):
 
             The size of a chunk of the underlying data container in voxels.
+
+        check_write_chunk_align (``bool``, optional):
+
+            If true, assert that each write to this array is aligned with the
+            chunks of the underlying array-like.
     '''
 
     def __init__(
@@ -41,13 +46,15 @@ class Array(Freezable):
             roi,
             voxel_size,
             data_offset=None,
-            chunk_shape=None):
+            chunk_shape=None,
+            check_write_chunk_align=False):
 
         self.data = data
         self.roi = roi
         self.voxel_size = Coordinate(voxel_size)
         self.chunk_shape = Coordinate(chunk_shape) if chunk_shape else None
         self.n_channel_dims = len(data.shape) - roi.dims()
+        self.check_write_chunk_align = check_write_chunk_align
 
         assert self.voxel_size.dims() == self.roi.dims(), (
             "dimension of voxel_size (%d) does not match dimension of roi (%d)"
@@ -169,7 +176,9 @@ class Array(Freezable):
                 roi.get_shape(), self.voxel_size))
 
         target = self.data
-        target_slices = self.__slices(roi)
+        target_slices = self.__slices(
+            roi,
+            check_chunk_align=self.check_write_chunk_align)
 
         if not hasattr(value, '__getitem__'):
 
@@ -257,10 +266,18 @@ class Array(Freezable):
         intersection = self.roi.intersect(roi)
         return self[intersection]
 
-    def __slices(self, roi):
+    def __slices(self, roi, check_chunk_align=False):
         '''Get the voxel slices for the given roi.'''
 
         voxel_roi = (roi - self.data_roi.get_begin())/self.voxel_size
+
+        if check_chunk_align:
+            assert voxel_roi % self.chunk_shape == Roi(
+                    (0,)*len(self.chunk_shape),
+                    (0,)*len(self.chunk_shape)), (
+                "ROI %s (in voxels: %s) does not align with chunks of size %s"
+                % (roi, voxel_roi, self.chunk_shape))
+
         return (slice(None),)*self.n_channel_dims + voxel_roi.to_slices()
 
     def __index(self, coordinate):
