@@ -380,6 +380,12 @@ class Roi(Freezable):
             "can only divide by a number or tuple of numbers"
         return Roi(self.__offset//other, self.__shape//other)
 
+    def __mod__(self, other):  # pragma: py3 no cover
+
+        assert isinstance(other, tuple) or isinstance(other, numbers.Number), \
+            "can only mod by a number or tuple of numbers"
+        return Roi(self.__offset % other, self.__shape % other)
+
     def __eq__(self, other):
 
         if isinstance(other, self.__class__):
