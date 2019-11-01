@@ -251,7 +251,15 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return False
 
-    def read_edges(self, roi, nodes=None, attr_filter=None, read_attrs=None, targeting_edges=False, dangling_attrs=False):
+    def read_edges(
+        self,
+        roi,
+        nodes=None,
+        attr_filter=None,
+        read_attrs=None,
+        targeting_edges=False,
+        dangling_attrs=False
+    ):
         '''Returns a list of edges within roi.
         Arguments:
 
@@ -347,7 +355,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("first 100 edges read: %s", edges[:100])
 
             if dangling_attrs:
-            
+
                 node_ids = set(node_ids)
                 to_fetch = []
                 for edge in edges:
