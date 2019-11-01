@@ -102,6 +102,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.edges = None
         self.meta = None
         self.position_attribute = position_attribute
+        self.dims = dims
 
         try:
 
