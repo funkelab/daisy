@@ -481,10 +481,15 @@ class MongoDbGraphProvider(SharedGraphProvider):
         u, v = self.endpoint_names
         self.edges.create_index(
             [
-                (u, ASCENDING),
+                (u, ASCENDING)
+            ],
+            name='source',
+            unique=True)
+        self.edges.create_index(
+            [
                 (v, ASCENDING)
             ],
-            name='incident',
+            name='target',
             unique=True)
 
     def __check_metadata(self, metadata):
