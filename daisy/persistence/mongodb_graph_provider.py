@@ -553,12 +553,31 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 'dimensions')
 
             return {
-                key: {'$gte': b, '$lt': e}
+                key: {
+                    k: v
+                    for k, v in zip(
+                        ["$gte", "$lte"],
+                        [
+                            b if b is not None else float("-inf"),
+                            e if e is not None else float("inf"),
+                        ],
+                    )
+                }
                 for key, b, e in zip(self.position_attribute, begin, end)
             }
         else:
             return {
-                'position.%d' % d: {'$gte': b, '$lt': e}
+                "position.%d"
+                % d: {
+                    k: v
+                    for k, v in zip(
+                        ["$gte", "$lte"],
+                        [
+                            b if b is not None else float("-inf"),
+                            e if e is not None else float("inf"),
+                        ],
+                    )
+                }
                 for d, (b, e) in enumerate(zip(begin, end))
             }
 
