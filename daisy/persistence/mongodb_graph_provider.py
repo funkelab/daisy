@@ -251,7 +251,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         return False
 
-    def read_edges(self, roi, nodes=None, attr_filter=None, read_attrs=None):
+    def read_edges(self, roi, nodes=None, attr_filter=None, read_attrs=None, targeting_edges=False, dangling_attrs=False):
         '''Returns a list of edges within roi.
         Arguments:
 
@@ -273,7 +273,18 @@ class MongoDbGraphProvider(SharedGraphProvider):
             read_attrs (``list`` of ``string``):
 
                 Attributes to return. Others will be ignored
+
+            targeting_edges (``bool``):
+
+                Whether to also return edges with targets in this node list.
+
+            dangling_attrs (``bool``):
+
+                Whether to include attributes of dangling nodes. If True,
+                the dangling nodes will be queried and appended to nodes.
+                dangling_attrs cannot be true of nodes is None.
         '''
+        dangling_attrs = dangling_attrs and nodes is not None
 
         if nodes is None:
             nodes = self.read_nodes(roi)
@@ -313,6 +324,14 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 i_b = i*query_size
                 i_e = min((i + 1)*query_size, len(node_ids))
                 assert i_b < len(node_ids)
+                if targeting_edges:
+                    endpoint_query = {
+                        "$or": [
+                            {u: {"$in": node_ids[i_b:i_e]}},
+                            {v: {"$in": node_ids[i_b:i_e]}},
+                        ]
+                    }
+                else:
                 endpoint_query = {self.endpoint_names[0]:
                                   {'$in': node_ids[i_b:i_e]}}
                 if attr_filter:
@@ -327,13 +346,29 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("found %d edges", len(edges))
             logger.debug("first 100 edges read: %s", edges[:100])
 
-        finally:
+            if dangling_attrs:
+            
+                node_ids = set(node_ids)
+                to_fetch = []
+                for edge in edges:
+                    edge[u] = np.uint64(edge[u])
+                    edge[v] = np.uint64(edge[v])
+                    if edge[u] not in node_ids:
+                        to_fetch.append(int(np.int64(edge[u])))
+                    elif edge[v] not in node_ids:
+                        to_fetch.append(int(np.int64(edge[v])))
 
-            self.__disconnect()
+                additional_nodes = list(self.nodes.find({"id": {"$in": to_fetch}}, projection))
+                nodes += additional_nodes
 
+            else:
         for edge in edges:
             edge[u] = np.uint64(edge[u])
             edge[v] = np.uint64(edge[v])
+
+        finally:
+
+            self.__disconnect()
 
         return edges
 
@@ -347,7 +382,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
             nodes_filter=None,
             edges_filter=None,
             node_attrs=None,
-            edge_attrs=None):
+            edge_attrs=None,
+            targeting_edges=False,
+            dangling_attrs=False):
         ''' Return a graph within roi, optionally filtering by
         node and edge attributes.
 
@@ -384,7 +421,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 roi,
                 nodes=nodes,
                 attr_filter=edges_filter,
-                read_attrs=edge_attrs)
+                read_attrs=edge_attrs,
+                targeting_edges=targeting_edges,
+                dangling_attrs=dangling_attrs)
+
         u, v = self.endpoint_names
         node_list = [
                 (n['id'], self.__remove_keys(n, ['id']))
