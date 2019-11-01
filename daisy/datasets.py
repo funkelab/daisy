@@ -374,8 +374,8 @@ def prepare_ds(
 
             if not delete:
                 raise RuntimeError(
-                    "Existing dataset is not compatible, please manually delete "
-                    "the volume at %s/%s" % (filename, ds_name))
+                    "Existing dataset is not compatible, please manually "
+                    "delete the volume at %s/%s" % (filename, ds_name))
 
             logger.info("Existing dataset is not compatible, creating new one")
 
