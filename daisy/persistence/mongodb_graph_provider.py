@@ -63,6 +63,13 @@ class MongoDbGraphProvider(SharedGraphProvider):
             entry denotes the position coordinates in order (e.g.,
             `position_z`, `position_y`, `position_x`).
 
+        dims (``int``):
+
+            The number of dimensions of the data stored in the "position_attribute".
+            Only needed if "position_attribute" is a single value e.g. "position"
+            to create the valid number of attributes e.g. "position.0", "position.1",
+            "position.2"
+
     '''
 
     def __init__(
@@ -76,7 +83,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
             edges_collection='edges',
             endpoint_names=None,
             meta_collection='meta',
-            position_attribute='position'):
+            position_attribute='position',
+            dims=3):
 
         self.db_name = db_name
         self.host = host
@@ -475,7 +483,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
         else:
             self.nodes.create_index(
                 [
-                    ('position', ASCENDING)
+                    ('position.%s' % i, ASCENDING)
+                    for i in range(self.dims)
                 ],
                 name='position')
 
