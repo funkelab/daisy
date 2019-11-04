@@ -366,7 +366,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
                     elif edge[v] not in node_ids:
                         to_fetch.append(int(np.int64(edge[v])))
 
-                additional_nodes = list(self.nodes.find({"id": {"$in": to_fetch}}, projection))
+                additional_nodes = list(
+                    self.nodes.find({"id": {"$in": to_fetch}}, projection))
                 nodes += additional_nodes
 
             else:
