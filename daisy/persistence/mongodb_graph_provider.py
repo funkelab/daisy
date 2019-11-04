@@ -556,7 +556,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 key: {
                     k: v
                     for k, v in zip(
-                        ["$gte", "$lte"],
+                        ["$gte", "$lt"],
                         [
                             b if b is not None else float("-inf"),
                             e if e is not None else float("inf"),
@@ -571,7 +571,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 % d: {
                     k: v
                     for k, v in zip(
-                        ["$gte", "$lte"],
+                        ["$gte", "$lt"],
                         [
                             b if b is not None else float("-inf"),
                             e if e is not None else float("inf"),
