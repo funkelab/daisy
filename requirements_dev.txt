@@ -5,3 +5,4 @@ pymongo
 pytest
 pytest-cov
 tornado>=5,<6
+git+git://github.com/funkelab/funlib.math@0c623f71c083d33184cac40ef7b1b995216be8ef#egg=funlib.math
