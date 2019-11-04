@@ -65,10 +65,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         dims (``int``):
 
-            The number of dimensions of the data stored in the "position_attribute".
-            Only needed if "position_attribute" is a single value e.g. "position"
-            to create the valid number of attributes e.g. "position.0", "position.1",
-            "position.2"
+            The number of dimensions of the data stored in the
+            "position_attribute". Only needed if "position_attribute" is a
+            single value e.g. "position" to create the valid number of
+            attributes e.g. "position.0", "position.1", "position.2"
 
     '''
 
