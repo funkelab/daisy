@@ -264,32 +264,20 @@ def prepare_ds(
 
     if write_size is not None:
         if not force_exact_write_size:
-            chunk_size = get_chunk_size(write_size/voxel_size)
+            chunk_shape = get_chunk_shape(write_size/voxel_size)
         else:
-            chunk_size = write_size/voxel_size
+            chunk_shape = write_size/voxel_size
     else:
-        chunk_size = None
-
-    if chunk_size is not None and file_format == 'n5':
-
-        total_roi_grown = (total_roi - total_roi.get_begin()).snap_to_grid(
-            chunk_size*voxel_size,
-            mode='grow') + total_roi.get_begin()
-
-        if total_roi_grown != total_roi:
-            logger.warning(
-                "Increased total ROI from %s to %s to accommodate complete "
-                "chunks for N5 format",
-                total_roi, total_roi_grown)
-            total_roi = total_roi_grown
+        chunk_shape = None
 
     shape = total_roi.get_shape()/voxel_size
 
     if num_channels > 1:
 
         shape = (num_channels,) + shape
-        if chunk_size is not None:
-            chunk_size = Coordinate((num_channels,) + chunk_size)
+
+        if chunk_shape is not None:
+            chunk_shape = Coordinate((num_channels,) + chunk_shape)
         voxel_size_with_channels = Coordinate((1,) + voxel_size)
 
     if not os.path.isdir(filename):
@@ -310,7 +298,7 @@ def prepare_ds(
         ds = root.create_dataset(
             ds_name,
             shape=shape,
-            chunks=chunk_size,
+            chunks=chunk_shape,
             dtype=dtype,
             compressor=compressor)
 
@@ -322,9 +310,9 @@ def prepare_ds(
             ds.attrs['offset'] = total_roi.get_begin()[::-1]
 
         if num_channels > 1:
-            chunk_shape = chunk_size/voxel_size_with_channels
+            chunk_shape = chunk_shape/voxel_size_with_channels
         else:
-            chunk_shape = chunk_size/voxel_size
+            chunk_shape = chunk_shape/voxel_size
         return Array(
             ds,
             total_roi,
@@ -356,11 +344,11 @@ def prepare_ds(
                 voxel_size)
             compatible = False
 
-        if write_size is not None and ds.data.chunks != chunk_size:
+        if write_size is not None and ds.data.chunks != chunk_shape:
             logger.info(
-                "Chunk sizes differ: %s vs %s",
+                "Chunk shapes differ: %s vs %s",
                 ds.data.chunks,
-                chunk_size)
+                chunk_shape)
             compatible = False
 
         if dtype != ds.dtype:
@@ -396,16 +384,16 @@ def prepare_ds(
             return ds
 
 
-def get_chunk_size(block_size):
+def get_chunk_shape(block_shape):
     '''Get a reasonable chunk size that divides the given block size.'''
 
-    chunk_size = Coordinate(
+    chunk_shape = Coordinate(
         get_chunk_size_dim(b, 256)
-        for b in block_size)
+        for b in block_shape)
 
-    logger.debug("Setting chunk size to %s", chunk_size)
+    logger.debug("Setting chunk size to %s", chunk_shape)
 
-    return chunk_size
+    return chunk_shape
 
 
 def get_chunk_size_dim(b, target_chunk_size):
