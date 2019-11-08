@@ -272,11 +272,22 @@ class Array(Freezable):
         voxel_roi = (roi - self.data_roi.get_begin())/self.voxel_size
 
         if check_chunk_align:
-            assert voxel_roi % self.chunk_shape == Roi(
-                    (0,)*len(self.chunk_shape),
-                    (0,)*len(self.chunk_shape)), (
-                "ROI %s (in voxels: %s) does not align with chunks of size %s"
-                % (roi, voxel_roi, self.chunk_shape))
+
+            for d in range(roi.dims()):
+
+                end_of_array = roi.get_end()[d] == self.roi.get_end()[d]
+
+                begin_align_with_chunks = (
+                    voxel_roi.get_begin()[d] % self.chunk_shape[d] == 0)
+                shape_align_with_chunks = (
+                    voxel_roi.get_shape()[d] % self.chunk_shape[d] == 0)
+
+                assert begin_align_with_chunks and (
+                    shape_align_with_chunks or
+                    end_of_array), (
+                        "ROI %s (in voxels: %s) does not align with chunks of "
+                        "size %s (mismatch in dimension %d)"
+                        % (roi, voxel_roi, self.chunk_shape, d))
 
         return (slice(None),)*self.n_channel_dims + voxel_roi.to_slices()
 
