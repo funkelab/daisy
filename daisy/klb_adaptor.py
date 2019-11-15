@@ -41,7 +41,7 @@ class KlbAdaptor():
         self.dtype = header['datatype']
 
         # TODO: get chunk size from KLB headers
-        self.chunk_size = None
+        self.chunk_shape = None
 
     def __getitem__(self, slices):
 
