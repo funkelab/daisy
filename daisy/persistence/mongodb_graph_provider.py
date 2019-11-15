@@ -741,7 +741,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             return
 
         try:
-            self.nodes_collection.bulk_write(updates)
+            self.nodes_collection.bulk_write(updates, ordered=False)
         except BulkWriteError as e:
             logger.error(e.details)
             raise
@@ -796,9 +796,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         if len(updates) == 0:
             logger.info("No updates in roi %s" % roi)
             return
-
         try:
-            self.edges_collection.bulk_write(updates)
+            self.edges_collection.bulk_write(updates, ordered=False)
         except BulkWriteError as e:
             logger.error(e.details)
             raise
@@ -864,7 +863,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
     def __write_no_flags(self, collection, old_docs, new_docs):
         bulk_query = [ReplaceOne(old, new, upsert=True)
                       for old, new in zip(old_docs, new_docs)]
-        collection.bulk_write(bulk_query)
+        collection.bulk_write(bulk_query, ordered=False)
 
     def __write_fail_if_exists(self, collection, old_docs, new_docs):
         for old in old_docs:
@@ -882,7 +881,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                         "set to True. Aborting write for all docs." % old)
         bulk_query = [ReplaceOne(old, new, upsert=False)
                       for old, new in zip(old_docs, new_docs)]
-        result = collection.bulk_write(bulk_query)
+        result = collection.bulk_write(bulk_query, ordered=False)
         assert len(new_docs) == result.matched_count,\
             ("Supposed to replace %s docs, but only replaced %s"
                 % (len(new_docs), result.matched_count))
