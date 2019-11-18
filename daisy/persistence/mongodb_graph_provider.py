@@ -257,6 +257,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         nodes=None,
         attr_filter=None,
         read_attrs=None,
+        node_attrs=None,
         targeting_edges=False,
         dangling_attrs=False
     ):
@@ -355,6 +356,16 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("first 100 edges read: %s", edges[:100])
 
             if dangling_attrs:
+                projection = {'_id': False}
+                if node_attrs is not None:
+                    projection['id'] = True
+                    if type(self.position_attribute) == list:
+                        for a in self.position_attribute:
+                            projection[a] = True
+                    else:
+                        projection[self.position_attribute] = True
+                    for attr in node_attrs:
+                        projection[attr] = True
 
                 node_ids = set(node_ids)
                 to_fetch = []
@@ -431,6 +442,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 nodes=nodes,
                 attr_filter=edges_filter,
                 read_attrs=edge_attrs,
+                node_attrs=node_attrs,
                 targeting_edges=targeting_edges,
                 dangling_attrs=dangling_attrs)
 
