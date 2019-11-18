@@ -322,7 +322,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             # limit query to 1M node IDs (otherwise we might exceed the 16MB
             # BSON document size limit)
             length = len(node_ids)
-            query_size = 1000000
+            query_size = 500000
             num_chunks = (length - 1)//query_size + 1
             filters = []
             for attr, value in attr_filter.items():
