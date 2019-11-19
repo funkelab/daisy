@@ -294,8 +294,8 @@ class TestFilterMongoGraph(unittest.TestCase):
                 small_roi,
                 node_attrs=['selected'],
                 edge_attrs=['c'],
-                dangling_attrs=True,
-                targeting_edges=True)
+                node_inclusion='dangling',
+                edge_inclusion='either')
 
         seen = []
         for node, data in limited_graph.nodes(data=True):
@@ -308,8 +308,8 @@ class TestFilterMongoGraph(unittest.TestCase):
                 small_roi,
                 node_attrs=['selected'],
                 edge_attrs=['c'],
-                dangling_attrs=False,
-                targeting_edges=True)
+                node_inclusion='strict',
+                edge_inclusion='either')
 
         seen = []
         for node, data in limited_graph.nodes(data=True):
@@ -363,8 +363,8 @@ class TestFilterMongoGraph(unittest.TestCase):
                 small_roi,
                 node_attrs=['selected'],
                 edge_attrs=['c'],
-                dangling_attrs=False,
-                targeting_edges=True)
+                node_inclusion='strict',
+                edge_inclusion='either')
 
         seen = []
         for node, data in limited_graph.nodes(data=True):
@@ -377,8 +377,8 @@ class TestFilterMongoGraph(unittest.TestCase):
                 small_roi,
                 node_attrs=['selected'],
                 edge_attrs=['c'],
-                dangling_attrs=False,
-                targeting_edges=False)
+                node_inclusion='strict',
+                edge_inclusion='u')
 
         seen = []
         for node, data in limited_graph.nodes(data=True):
