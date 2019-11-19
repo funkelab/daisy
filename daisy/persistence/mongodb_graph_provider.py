@@ -84,7 +84,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
             endpoint_names=None,
             meta_collection='meta',
             position_attribute='position',
-            dims=3):
+            dims=None):
 
         self.db_name = db_name
         self.host = host
