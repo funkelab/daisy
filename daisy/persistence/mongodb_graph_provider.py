@@ -435,34 +435,40 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 nodes=nodes,
                 attr_filter=edges_filter,
                 read_attrs=edge_attrs,
-                node_attrs=node_attrs,
                 edge_inclusion=edge_inclusion)
         if node_inclusion == 'dangling':
-            projection = {'_id': False}
-            if node_attrs is not None:
-                projection['id'] = True
-                if type(self.position_attribute) == list:
-                    for a in self.position_attribute:
-                        projection[a] = True
-                else:
-                    projection[self.position_attribute] = True
-                for attr in node_attrs:
-                    projection[attr] = True
+            try:
+                self.__connect()
+                self.__open_db()
+                self.__open_collections()
+                projection = {'_id': False}
+                if node_attrs is not None:
+                    projection['id'] = True
+                    if type(self.position_attribute) == list:
+                        for a in self.position_attribute:
+                            projection[a] = True
+                    else:
+                        projection[self.position_attribute] = True
+                    for attr in node_attrs:
+                        projection[attr] = True
 
-            node_ids = set([int(np.int64(n['id'])) for n in nodes])
-            u, v = self.endpoint_names
-            to_fetch = []
-            for edge in edges:
-                edge[u] = np.uint64(edge[u])
-                edge[v] = np.uint64(edge[v])
-                if edge[u] not in node_ids:
-                    to_fetch.append(int(np.int64(edge[u])))
-                elif edge[v] not in node_ids:
-                    to_fetch.append(int(np.int64(edge[v])))
+                node_ids = set([int(np.int64(n['id'])) for n in nodes])
+                u, v = self.endpoint_names
+                to_fetch = []
+                for edge in edges:
+                    edge[u] = np.uint64(edge[u])
+                    edge[v] = np.uint64(edge[v])
+                    if edge[u] not in node_ids:
+                        to_fetch.append(int(np.int64(edge[u])))
+                    elif edge[v] not in node_ids:
+                        to_fetch.append(int(np.int64(edge[v])))
 
-            additional_nodes = list(
-                self.nodes.find({"id": {"$in": to_fetch}}, projection))
-            nodes += additional_nodes
+                additional_nodes = list(
+                    self.nodes.find({"id": {"$in": to_fetch}}, projection))
+                nodes += additional_nodes
+
+            finally:
+                self.__disconnect()
 
         u, v = self.endpoint_names
         node_list = [
