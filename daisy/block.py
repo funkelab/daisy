@@ -51,8 +51,8 @@ class Block(Freezable):
         self.write_roi = write_roi
 
         if block_id is None:
-            self.block_id, self.z_order_id = self.__compute_block_id(total_roi,
-                                                                   write_roi)
+            self.block_id, self.z_order_id = self.__compute_block_id(
+                    total_roi, write_roi)
         else:
             self.block_id = block_id
             self.z_order_id = block_id  # for compatibility
