@@ -17,4 +17,5 @@ Daisy is not a mapreduce framework. It reduces overhead by only sending coordina
 ## API:
 See docs at https://daisy-doc.readthedocs.io
 
-
+## Examples:
+See examples folder for some basic examples of using daisy for blockwise processing.
