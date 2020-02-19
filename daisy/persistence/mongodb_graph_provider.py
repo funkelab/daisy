@@ -135,9 +135,14 @@ class MongoDbGraphProvider(SharedGraphProvider):
             if edges_collection not in collection_names:
                 self.__create_edge_collection()
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
+
+    def __del__(self):
+
+        self.__disconnect()
 
     def read_nodes(self, roi, attr_filter=None, read_attrs=None):
         '''Return a list of nodes within roi.
@@ -183,9 +188,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             nodes = self.nodes.find({'$and': query_list}, projection)
             nodes = list(nodes)
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         for node in nodes:
             node['id'] = np.uint64(node['id'])
@@ -203,9 +209,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             num = self.nodes.count(self.__pos_query(roi))
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         return num
 
@@ -245,9 +252,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             if num_chunks > 0:
                 assert i_e == len(node_ids)
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         return False
 
@@ -327,9 +335,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("found %d edges", len(edges))
             logger.debug("first 100 edges read: %s", edges[:100])
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         for edge in edges:
             edge[u] = np.uint64(edge[u])
@@ -415,19 +424,22 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def __connect(self):
         '''Connects to Mongo client'''
 
-        self.client = MongoClient(self.host)
+        if not self.client:
+            self.client = MongoClient(self.host)
 
     def __open_db(self):
         '''Opens Mongo database'''
 
-        self.database = self.client[self.db_name]
+        if not self.database:
+            self.database = self.client[self.db_name]
 
     def __open_collections(self):
         '''Opens the node, edge, and meta collections'''
 
-        self.nodes = self.database[self.nodes_collection_name]
-        self.edges = self.database[self.edges_collection_name]
-        self.meta = self.database[self.meta_collection_name]
+        if not self.nodes:
+            self.nodes = self.database[self.nodes_collection_name]
+            self.edges = self.database[self.edges_collection_name]
+            self.meta = self.database[self.meta_collection_name]
 
     def __get_metadata(self):
         '''Gets metadata out of the meta collection and returns it
@@ -444,8 +456,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.edges = None
         self.meta = None
         self.database = None
-        self.client.close()
-        self.client = None
+        if self.client:
+            self.client.close()
+            self.client = None
 
     def __create_node_collection(self):
         '''Creates the node collection, including indexes'''
