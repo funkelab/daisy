@@ -1,5 +1,5 @@
 import daisy
-import pyklb
+from daisy.ext import pyklb
 import numpy as np
 import unittest
 import json
