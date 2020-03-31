@@ -1,5 +1,5 @@
 import daisy
-from daisy.ext import pyklb
+from daisy.ext import pyklb, NoSuchModule
 import numpy as np
 import unittest
 import json
@@ -30,6 +30,7 @@ class TestArray(unittest.TestCase):
         self.klb_file = None
         self.attrs_file = None
 
+    @unittest.skipIf(isinstance(pyklb, NoSuchModule), "pyklb is not installed")
     def test_load_klb(self):
         self.write_test_klb()
         data = daisy.open_ds(self.klb_file, None)
@@ -41,6 +42,7 @@ class TestArray(unittest.TestCase):
                          daisy.Coordinate((1, 2, 1, 1)))
         self.remove_test_klb()
 
+    @unittest.skipIf(isinstance(pyklb, NoSuchModule), "pyklb is not installed")
     def test_overwrite_attrs(self):
         self.write_test_klb()
         data = daisy.open_ds(self.klb_file,
