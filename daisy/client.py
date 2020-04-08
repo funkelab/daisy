@@ -1,6 +1,6 @@
 from .context import Context
-from .tcp import pack_message, get_and_unpack_message, \
-    SchedulerMessage, SchedulerMessageType, ReturnCode
+# from .tcp import pack_message, get_and_unpack_message, \
+    # SchedulerMessage, SchedulerMessageType, ReturnCode
 from collections import deque
 from tornado.ioloop import IOLoop
 from tornado.iostream import StreamClosedError
