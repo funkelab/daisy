@@ -1,17 +1,13 @@
-from tornado.iostream import StreamClosedError
 import logging
+import queue
 import socket
 import tornado.tcpserver
 
 from .io_looper import IOLooper
 from .tcp_stream import TCPStream
-from daisy import Message
+from daisy import ExceptionMessage
 
 logger = logging.getLogger(__name__)
-
-
-class ClientDisconnected(Message):
-    pass
 
 
 class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
@@ -29,7 +25,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         tornado.tcpserver.TCPServer.__init__(self)
         IOLooper.__init__(self)
 
-        self.callbacks = []
+        self.message_queue = queue.Queue()
 
         # find empty port, start listening
         for i in range(max_port_tries):
@@ -44,22 +40,32 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 pass
         self.address = self._get_address()
 
-    def register_message_callback(self, f):
-        '''Register a callback for receiving messages sent to this server.
+    def get_message(self, timeout=None):
+        '''Get a message that was sent to this server.
 
         Args:
-            f (function):
-                The function to register. ``f`` will be called whenever the
-                server recieves a message. Arguments passed to the function
-                will be the server, the message, the TCPStream, and the address
-                tuple (host, port) of the sender.
+
+            timeout (int, optional):
+
+                If set, wait up to `timeout` seconds for a message to arrive.
+                If no message is available after the timeout, returns ``None``.
+                If not set, wait until a message arrived.
         '''
-        self.callbacks.append(f)
+        try:
+
+            message = self.message_queue.get(block=True, timeout=timeout)
+            if isinstance(message, ExceptionMessage):
+                raise message.exception
+            return message
+
+        except queue.Empty:
+
+            return None
 
     async def handle_stream(self, stream, address):
         ''' Overrides a function from tornado's TCPServer, and is called
         whenever there is a new IOStream from an incoming connection (not
-        whenever there is new data in the IOStream)
+        whenever there is new data in the IOStream).
 
         Args:
             stream (:class:`tornado.iostream.IOStream`):
@@ -69,19 +75,16 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         '''
         logger.debug("Received new connection from %s:%d", *address)
         tcpstream = TCPStream(stream)
-        # one IO loop scheduler per worker
+
         while True:
             try:
-                message = await tcpstream._get_message()
-                for f in self.callbacks:
-                    f(self, message, tcpstream, address)
 
-            except StreamClosedError:
-                # note: may not be an actual error--workers exits and closes
-                # TCP connection without explicitly notifying the scheduler
-                logger.debug("Losing connection from %s:%d", *address)
-                for f in self.callbacks:
-                    f(self, ClientDisconnected, tcpstream, address)
+                message = await tcpstream._get_message()
+                self.message_queue.put(message)
+
+            except Exception as e:
+
+                logger.error("TCPServer %s got Exception %s", self, e)
                 break
 
     def _get_address(self):

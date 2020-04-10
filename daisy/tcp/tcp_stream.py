@@ -4,14 +4,14 @@ import struct
 import tornado.iostream
 
 from .io_looper import IOLooper
-from daisy import Message
+from daisy import ExceptionMessage
 
 logger = logging.getLogger(__name__)
 
 
-class StreamExceptionMessage(Message):
+class StreamExceptionMessage(ExceptionMessage):
     def __init__(self, exception):
-        self.exception = exception
+        super().__init__(exception)
 
 
 class StreamClosedError(Exception):
@@ -48,10 +48,10 @@ class TCPStream(IOLooper):
 
     async def _send_message(self, message):
         pickled_data = pickle.dumps(message)
-        msg_size_bytes = struct.pack('I', len(pickled_data))
-        msg_bytes = msg_size_bytes + pickled_data
+        message_size_bytes = struct.pack('I', len(pickled_data))
+        message_bytes = message_size_bytes + pickled_data
         try:
-            await self.stream.write(msg_bytes)
+            await self.stream.write(message_bytes)
         except tornado.iostream.StreamClosedError:
             # might actually be okay if worker exits normally
             logger.debug("Scheduler lost connection while sending data.")
@@ -67,5 +67,6 @@ class TCPStream(IOLooper):
             logger.debug("stream %s was closed", self.stream)
             self.stream = None
             return StreamExceptionMessage(StreamClosedError())
-        msg = pickle.loads(pickled_data)
-        return msg
+        message = pickle.loads(pickled_data)
+        message.stream = self
+        return message

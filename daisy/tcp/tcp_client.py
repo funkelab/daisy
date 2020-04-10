@@ -4,7 +4,8 @@ import time
 import tornado.tcpclient
 
 from .io_looper import IOLooper
-from .tcp_stream import TCPStream, StreamExceptionMessage
+from .tcp_stream import TCPStream
+from daisy import ExceptionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -47,8 +48,7 @@ class TCPClient(IOLooper):
 
                 Message to send over the connection.
         '''
-
-        self.ioloop.add_callback(self.stream._send_message, message)
+        self.stream.send_message(message)
 
     def get_message(self, timeout=None):
         '''Get a message that was sent to this client.
@@ -63,10 +63,10 @@ class TCPClient(IOLooper):
         '''
         try:
 
-            msg = self.message_queue.get(block=True, timeout=timeout)
-            if isinstance(msg, StreamExceptionMessage):
-                raise msg.exception
-            return msg
+            message = self.message_queue.get(block=True, timeout=timeout)
+            if isinstance(message, ExceptionMessage):
+                raise message.exception
+            return message
 
         except queue.Empty:
 
@@ -81,10 +81,9 @@ class TCPClient(IOLooper):
 
         while True:
             try:
-                msg = await self.stream._get_message()
-                logger.debug("Received %s", msg)
 
-                self.message_queue.put(msg)
+                message = await self.stream._get_message()
+                self.message_queue.put(message)
 
             except Exception as e:
 
