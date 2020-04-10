@@ -41,8 +41,6 @@ class WorkerPool:
 
         self.error_queue = multiprocessing.Queue(100)
 
-        # TODO: start TcpServer, update context
-
     def set_num_workers(self, num_workers):
         '''Set the number of workers in this pool.
 
@@ -91,10 +89,6 @@ class WorkerPool:
             raise error
         except queue.Empty:
             pass
-
-    def _on_worker_exception(self, worker, exception):
-        # implement once TcpServer/TcpClient are done
-        pass
 
     def __start_workers(self, n):
 
