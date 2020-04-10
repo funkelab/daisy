@@ -19,7 +19,4 @@ from .scheduler import _NO_SPAWN_STATUS_THREAD # noqa
 from .scheduler import distribute # noqa
 from .scheduler import run_blockwise # noqa
 from .task import Task # noqa
-from .tcp_client import TCPClient # noqa
-from .tcp_server import TCPServer # noqa
-from .tcp_stream import TCPStream # noqa
-
+from .tcp import TCPClient, TCPServer, TCPStream # noqa
