@@ -1,10 +1,21 @@
 from time import sleep
 import daisy
+import daisy.tcp
 import unittest
 import logging
 import subprocess
 
 logging.basicConfig(level=logging.DEBUG)
+
+
+class Request(daisy.Message):
+    def __init__(self, request_id):
+        self.request_id = request_id
+
+
+class Answer(daisy.Message):
+    def __init__(self, answer_id):
+        self.answer_id = answer_id
 
 
 class UnluckyNumberException(Exception):
@@ -60,6 +71,27 @@ def early_exit_worker():
 
 def command_worker():
     subprocess.check_call(['python', __file__])
+
+
+def message_worker():
+
+    context = daisy.Context.from_env()
+    worker_id = int(context['worker_id'])
+    server_name = context['server_name']
+    server_port = int(context['server_port'])
+
+    logging.debug("started worker %d", worker_id)
+    logging.debug("connecting to %s:%d", server_name, server_port)
+
+    client = daisy.tcp.TCPClient(server_name, server_port)
+
+    logging.debug("sending request...")
+    client.send_message(Request(worker_id))
+    logging.debug("waiting for reply...")
+    reply = client.get_message()
+    logging.debug("got reply %s", reply)
+    assert isinstance(reply, Answer)
+    assert reply.answer_id == worker_id + 1
 
 
 class TestWorkerPool(unittest.TestCase):
@@ -153,6 +185,23 @@ class TestWorkerPool(unittest.TestCase):
         sleep(1)
         pool.check_for_errors()
         pool.stop()
+
+    def test_tcp_server(self):
+
+        server = daisy.tcp.TCPServer()
+        context = daisy.Context(
+            task_id=0,
+            server_name=server.address[0],
+            server_port=server.address[1])
+        pool = daisy.WorkerPool(message_worker, context)
+
+        pool.set_num_workers(10)
+
+        for _ in range(10):
+            message = server.get_message()
+            if isinstance(message, Request):
+                message.stream.send_message(Answer(message.request_id + 1))
+            pool.check_for_errors()
 
 
 if __name__ == "__main__":
