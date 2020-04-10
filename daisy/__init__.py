@@ -18,3 +18,5 @@ from .scheduler import _NO_SPAWN_STATUS_THREAD # noqa
 from .scheduler import distribute # noqa
 from .scheduler import run_blockwise # noqa
 from .task import Task # noqa
+from .worker_pool import WorkerPool # noqa
+from .worker import Worker # noqa
