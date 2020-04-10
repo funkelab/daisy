@@ -1,6 +1,7 @@
-import tornado.ioloop
-import threading
 import logging
+import os
+import threading
+import tornado.ioloop
 
 logger = logging.getLogger(__name__)
 
@@ -14,18 +15,27 @@ class IOLooper:
         ioloop (:class:`tornado.ioloop.IOLoop`):
 
             The IO loop to be used in subclasses. Will run in a singleton
-            thread.
+            thread per process.
     '''
 
-    thread = None
+    threads = {}
 
     def __init__(self):
 
-        self.ioloop = tornado.ioloop.IOLoop.current()
+        pid = os.getpid()
 
-        if IOLooper.thread is None:
-            logger.debug("Starting io loop...")
-            IOLooper.thread = threading.Thread(
+        if pid not in IOLooper.threads:
+
+            logger.debug("Creating new IOLoop for process %d...", pid)
+            self.ioloop = tornado.ioloop.IOLoop()
+
+            logger.debug("Starting io loop for process %d...", pid)
+            IOLooper.threads[pid] = threading.Thread(
                 target=self.ioloop.start,
                 daemon=True)
-            IOLooper.thread.start()
+            IOLooper.threads[pid].start()
+
+        else:
+
+            logger.debug("Reusing IOLoop for process %d...", pid)
+            self.ioloop = tornado.ioloop.IOLoop.current()
