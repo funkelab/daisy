@@ -1,46 +1,92 @@
-import tornado.tcpclient
-import tornado.ioloop
-from daisy.tcp_stream import TCPStream
-from daisy import Context
-import asyncio
-import threading
+import logging
+import queue
 import time
+import tornado.tcpclient
+
+from .io_looper import IOLooper
+from .tcp_stream import TCPStream, StreamExceptionMessage
+
+logger = logging.getLogger(__name__)
 
 
-class TCPClient():
+class TCPClient(IOLooper):
+    '''A TCP client to handle client-server communication through
+    :class:`Message` objects.
+
+    Args:
+
+        host (string):
+        port (int):
+            The hostname and port of the :class:`TCPServer` to connect to.
+    '''
     def __init__(self, host, port):
+
+        super().__init__()
+
         self.host = host
         self.port = port
         self.client = tornado.tcpclient.TCPClient()
         self.stream = None
-        self.worker_id = None
-        self.stream = None
-        #self.context = Context.from_env()
-
-        new_event_loop = asyncio.new_event_loop()
-        asyncio._set_running_loop(new_event_loop)
-        asyncio.set_event_loop(new_event_loop)
-        self.ioloop = tornado.ioloop.IOLoop.current()
-        t = threading.Thread(target=self.ioloop.start, daemon=True)
-        t.start()
+        self.message_queue = queue.Queue()
 
         self.ioloop.add_callback(self._connect)
         # wait until connected
         while not self.stream:
             time.sleep(.1)
 
+        self.ioloop.add_callback(self._receive)
+
+    def send_message(self, message):
+        '''Send a message to the server asynchronously. Same as::
+
+            self.stream.send_message(message)
+
+        Args:
+
+            message (:class:`daisy.Message`):
+
+                Message to send over the connection.
+        '''
+
+        self.ioloop.add_callback(self.stream._send_message, message)
+
+    def get_message(self, timeout=None):
+        '''Get a message that was sent to this client.
+
+        Args:
+
+            timeout (int, optional):
+
+                If set, wait up to `timeout` seconds for a message to arrive.
+                If no message is available after the timeout, returns ``None``.
+                If not set, wait until a message arrived.
+        '''
+        try:
+
+            msg = self.message_queue.get(block=True, timeout=timeout)
+            if isinstance(msg, StreamExceptionMessage):
+                raise msg.exception
+            return msg
+
+        except queue.Empty:
+
+            return None
+
     async def _connect(self):
         stream = await self.client.connect(self.host, self.port)
         self.stream = TCPStream(stream)
 
-    def send(self, message):
-        '''
-        Args:
-            message (Message):
-                Message to send over the connection.
+    async def _receive(self):
+        '''Loop that receives messages from the server.'''
 
-        Raises exception if there is no connection
-        '''
-        if not self.stream:
-            raise Exception("No stream found. Did you call connect?")
-        self.ioloop.add_callback(self.stream.send_message, message)
+        while True:
+            try:
+                msg = await self.stream._get_message()
+                logger.debug("Received %s", msg)
+
+                self.message_queue.put(msg)
+
+            except Exception as e:
+
+                logger.error("TCPClient %s got Exception %s", self, e)
+                break
