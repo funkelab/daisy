@@ -80,6 +80,8 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
             try:
 
                 message = await tcpstream._get_message()
+                if message is None:
+                    break
                 self.message_queue.put(message)
 
             except Exception as e:

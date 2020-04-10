@@ -24,16 +24,22 @@ class TCPClient(IOLooper):
 
         super().__init__()
 
+        logger.debug("Creating new client...")
+
         self.host = host
         self.port = port
         self.client = tornado.tcpclient.TCPClient()
         self.stream = None
         self.message_queue = queue.Queue()
 
+        logger.debug("Connecting to server...")
+
         self.ioloop.add_callback(self._connect)
-        # wait until connected
+
+        logger.debug("Waiting for connection to be established...")
         while not self.stream:
             time.sleep(.1)
+        logger.debug("...connected")
 
         self.ioloop.add_callback(self._receive)
 
@@ -73,16 +79,25 @@ class TCPClient(IOLooper):
             return None
 
     async def _connect(self):
+
+        logger.debug("Connecting to %s:%d...", self.host, self.port)
+
         stream = await self.client.connect(self.host, self.port)
         self.stream = TCPStream(stream)
 
+        logger.debug("...connected")
+
     async def _receive(self):
         '''Loop that receives messages from the server.'''
+
+        logger.debug("Entering receive loop")
 
         while True:
             try:
 
                 message = await self.stream._get_message()
+                if message is None:
+                    break
                 self.message_queue.put(message)
 
             except Exception as e:

@@ -58,6 +58,8 @@ class TCPStream(IOLooper):
             self.stream = None
 
     async def _get_message(self):
+        if self.stream is None:
+            return
         try:
             size = await self.stream.read_bytes(4)
             size = struct.unpack('I', size)[0]
