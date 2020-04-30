@@ -1,5 +1,6 @@
 import logging
 import queue
+import sys
 import time
 import tornado.tcpclient
 
@@ -8,6 +9,19 @@ from .tcp_stream import TCPStream
 from daisy import ExceptionMessage
 
 logger = logging.getLogger(__name__)
+
+# TODO: Do we want to close the stream or ioloop or anything?
+'''
+
+    def __del__(self):
+        Stop spawn ioloop when client is done
+        try:
+            self.ioloop.add_callback(self.ioloop.stop)
+        except Exception:
+            # self.ioloop is None
+            pass
+
+'''
 
 
 class TCPClient(IOLooper):
@@ -31,6 +45,7 @@ class TCPClient(IOLooper):
         self.client = tornado.tcpclient.TCPClient()
         self.stream = None
         self.message_queue = queue.Queue()
+        self.error_state = False
 
         logger.debug("Connecting to server...")
 
@@ -38,6 +53,9 @@ class TCPClient(IOLooper):
 
         logger.debug("Waiting for connection to be established...")
         while not self.stream:
+            if self.error_state:
+                logger.error("Could not connect to server")
+                sys.exit(1)
             time.sleep(.1)
         logger.debug("...connected")
 
@@ -81,8 +99,13 @@ class TCPClient(IOLooper):
     async def _connect(self):
 
         logger.debug("Connecting to %s:%d...", self.host, self.port)
-
-        stream = await self.client.connect(self.host, self.port)
+        try:
+            stream = await self.client.connect(self.host, self.port)
+            # TODO: Add a timeout? previously had 60 second timeout and 10
+            # retries
+        except Exception:
+            self.error_state = True
+            raise
         self.stream = TCPStream(stream)
 
         logger.debug("...connected")
