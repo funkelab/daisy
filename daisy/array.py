@@ -144,8 +144,8 @@ class Array(Freezable):
             coordinate = key
 
             assert self.roi.contains(coordinate), (
-                "Requested coordinate (%s) is not contained in this array (%s)." % (
-                    coordinate, self.roi))
+                "Requested coordinate (%s) is not contained "
+                "in this array (%s)." % (coordinate, self.roi))
 
             return self.data[self.__index(coordinate)]
 
