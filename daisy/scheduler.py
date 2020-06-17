@@ -664,7 +664,9 @@ def run_blockwise(
         num_workers=1,
         processes=None,
         max_retries=2,
-        timeout=None):
+        timeout=None,
+        periodic_callback=None,
+        ):
     '''Convenient function to run a single block-wise task.
 
     Args:
@@ -797,6 +799,9 @@ def run_blockwise(
                 max_retries=max_retries,
                 timeout=timeout
                 )
+
+    if periodic_callback is not None:
+        BlockwiseTask._periodic_callback = periodic_callback
 
     return distribute([{'task': BlockwiseTask()}])
 
