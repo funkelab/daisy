@@ -74,7 +74,7 @@ class Scheduler():
         self.started_processes = set()
 
         self.status_thread = None
-        self.periodic_interval = 10
+        self.periodic_interval = 100  # 10s (100x 0.1s)
         self.max_port_tries = 1000
         self.completion_rate = collections.defaultdict(int)
         self.issue_times = {}
@@ -260,8 +260,16 @@ class Scheduler():
         last_time = time.time()
         last_completion_rate = self.completion_rate
         SAMPLING_INTERVAL = 120
+        print_counter = 0
 
         while not self.finished_scheduling:
+
+            if print_counter > 0:
+                time.sleep(0.1)
+                print_counter -= 1
+                continue
+            print_counter = self.periodic_interval
+
             current_time = time.time()
 
             # check workers timeout
@@ -336,8 +344,6 @@ class Scheduler():
                     eta)
 
                 self.tasks[task_id]._periodic_callback()
-
-            time.sleep(self.periodic_interval)
             logger.info("\n")  # separator
 
     def remove_worker_callback(self, worker):
