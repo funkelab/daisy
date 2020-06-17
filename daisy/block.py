@@ -2,6 +2,7 @@ from __future__ import absolute_import
 from .coordinate import Coordinate
 from .freezable import Freezable
 from funlib.math import cantor_number
+import copy
 
 
 class Block(Freezable):
@@ -21,12 +22,6 @@ class Block(Freezable):
 
             A unique ID for this block (within all blocks tiling the total ROI
             to process).
-
-        requested_write_roi (`class:Roi`):
-
-            The write ROI that was actually requested for this block.
-            ``write_roi`` might differ if the block was shrunk at the boundary
-            of the total ROI.
 
     Args:
 
@@ -54,17 +49,20 @@ class Block(Freezable):
 
         self.read_roi = read_roi
         self.write_roi = write_roi
-        self.requested_write_roi = write_roi.copy()
 
         if block_id is None:
-            self.block_id, self.z_order_id = self.compute_block_id(total_roi,
-                                                                   write_roi)
+            self.block_id, self.z_order_id = self.__compute_block_id(
+                    total_roi, write_roi)
         else:
             self.block_id = block_id
             self.z_order_id = block_id  # for compatibility
         self.freeze()
 
-    def compute_block_id(self, total_roi, write_roi, shift=None):
+    def copy(self):
+
+        return copy.deepcopy(self)
+
+    def __compute_block_id(self, total_roi, write_roi, shift=None):
         block_index = write_roi.get_offset() / write_roi.get_shape()
 
         # block_id will be the cantor number for this block index

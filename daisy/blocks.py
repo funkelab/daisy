@@ -318,8 +318,9 @@ def shrink(total_roi, block):
         block.read_roi.get_begin() - r.get_begin(),
         r.get_end() - block.read_roi.get_end())
 
-    # create a new block, but keep the block_id
-    shrunk_block = Block(total_roi, r, w, block_id=block.block_id)
+    shrunk_block = block.copy()
+    shrunk_block.read_roi = r
+    shrunk_block.write_roi = w
 
     return shrunk_block
 

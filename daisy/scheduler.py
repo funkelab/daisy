@@ -75,6 +75,7 @@ class Scheduler():
 
         self.status_thread = None
         self.periodic_interval = 10
+        self.max_port_tries = 1000
         self.completion_rate = collections.defaultdict(int)
         self.issue_times = {}
 
@@ -125,7 +126,8 @@ class Scheduler():
                     try:
                         # pre_check can intermittently fail
                         # so we wrap it in a try block
-                        pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
+                        pre_check_ret = self.tasks[task_id]._daisy.pre_check(
+                            block)
                     except Exception as e:
                         logger.error(
                             "pre_check() exception for block %s of task %s. "
@@ -231,16 +233,15 @@ class Scheduler():
             t.start()
         self.tcpserver = DaisyTCPServer()
         self.tcpserver.add_handler(self)
-        max_port_tries = 100
-        for i in range(max_port_tries):
+        for i in range(self.max_port_tries):
             try:
                 self.tcpserver.listen(0)  # 0 == random port
                 break
             except OSError:
-                if i == max_port_tries - 1:
+                if i == self.max_port_tries - 1:
                     raise RuntimeError(
                         "Could not find a free port after %d tries " %
-                        max_port_tries)
+                        self.max_port_tries)
                 pass
         self.net_identity = self.tcpserver.get_identity()
 

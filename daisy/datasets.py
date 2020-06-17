@@ -67,7 +67,7 @@ def _read_voxel_size_offset(ds, order='C'):
     return Coordinate(voxel_size), Coordinate(offset)
 
 
-def open_ds(filename, ds_name, mode='r'):
+def open_ds(filename, ds_name, mode='r', attr_filename=None):
     '''Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
     used to determine the meta-information of the returned array.
@@ -82,6 +82,11 @@ def open_ds(filename, ds_name, mode='r'):
         ds_name (``string``):
 
             The name of the dataset to open.
+
+        attr_filename (``string``):
+
+            KLB only: the name of the attributes json file. Default is
+            "attributes.json".
 
     Returns:
 
@@ -100,8 +105,10 @@ def open_ds(filename, ds_name, mode='r'):
         voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        chunk_shape = ds.chunks
+
         logger.debug("opened zarr dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size)
+        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith('.n5'):
 
@@ -111,8 +118,10 @@ def open_ds(filename, ds_name, mode='r'):
         voxel_size, offset = _read_voxel_size_offset(ds, 'F')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        chunk_shape = ds.chunks
+
         logger.debug("opened N5 dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size)
+        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith('.h5') or filename.endswith('.hdf'):
 
@@ -122,8 +131,10 @@ def open_ds(filename, ds_name, mode='r'):
         voxel_size, offset = _read_voxel_size_offset(ds, 'C')
         roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
 
+        chunk_shape = ds.chunks
+
         logger.debug("opened H5 dataset %s in %s", ds_name, filename)
-        return Array(ds, roi, voxel_size)
+        return Array(ds, roi, voxel_size, chunk_shape=chunk_shape)
 
     elif filename.endswith('.json'):
 
@@ -136,18 +147,20 @@ def open_ds(filename, ds_name, mode='r'):
             array.data,
             Roi(spec['offset'], spec['size']),
             array.voxel_size,
-            array.roi.get_begin())
+            array.roi.get_begin(),
+            chunk_shape=array.chunk_shape)
 
     elif filename.endswith('.klb'):
 
         logger.debug("opening KLB dataset %s", filename)
-        adaptor = KlbAdaptor(filename)
+        adaptor = KlbAdaptor(filename, attr_filename=attr_filename)
 
         return Array(
             adaptor,
             adaptor.roi,
             adaptor.voxel_size,
-            adaptor.roi.get_begin())
+            adaptor.roi.get_begin(),
+            chunk_shape=adaptor.chunk_shape)
 
     else:
 
@@ -256,32 +269,21 @@ def prepare_ds(
 
     if write_size is not None:
         if not force_exact_write_size:
-            chunk_size = get_chunk_size(write_size/voxel_size)
+            chunk_shape = get_chunk_shape(write_size/voxel_size)
         else:
-            chunk_size = write_size/voxel_size
+            chunk_shape = write_size/voxel_size
     else:
-        chunk_size = None
-
-    if chunk_size is not None and file_format == 'n5':
-
-        total_roi_grown = total_roi.snap_to_grid(
-            chunk_size*voxel_size,
-            mode='grow')
-
-        if total_roi_grown != total_roi:
-            logger.warning(
-                "Increased total ROI from %s to %s to accommodate complete "
-                "chunks for N5 format",
-                total_roi, total_roi_grown)
-            total_roi = total_roi_grown
+        chunk_shape = None
 
     shape = total_roi.get_shape()/voxel_size
 
     if num_channels > 1:
 
         shape = (num_channels,) + shape
-        if chunk_size is not None:
-            chunk_size = Coordinate((num_channels,) + chunk_size)
+
+        if chunk_shape is not None:
+            chunk_shape = Coordinate((num_channels,) + chunk_shape)
+        voxel_size_with_channels = Coordinate((1,) + voxel_size)
 
     if not os.path.isdir(filename):
 
@@ -301,7 +303,7 @@ def prepare_ds(
         ds = root.create_dataset(
             ds_name,
             shape=shape,
-            chunks=chunk_size,
+            chunks=chunk_shape,
             dtype=dtype,
             compressor=compressor)
 
@@ -312,7 +314,15 @@ def prepare_ds(
             ds.attrs['resolution'] = voxel_size[::-1]
             ds.attrs['offset'] = total_roi.get_begin()[::-1]
 
-        return Array(ds, total_roi, voxel_size)
+        if num_channels > 1:
+            chunk_shape = chunk_shape/voxel_size_with_channels
+        else:
+            chunk_shape = chunk_shape/voxel_size
+        return Array(
+            ds,
+            total_roi,
+            voxel_size,
+            chunk_shape=chunk_shape)
 
     else:
 
@@ -339,11 +349,11 @@ def prepare_ds(
                 voxel_size)
             compatible = False
 
-        if write_size is not None and ds.data.chunks != chunk_size:
+        if write_size is not None and ds.data.chunks != chunk_shape:
             logger.info(
-                "Chunk sizes differ: %s vs %s",
+                "Chunk shapes differ: %s vs %s",
                 ds.data.chunks,
-                chunk_size)
+                chunk_shape)
             compatible = False
 
         if dtype != ds.dtype:
@@ -357,8 +367,8 @@ def prepare_ds(
 
             if not delete:
                 raise RuntimeError(
-                    "Existing dataset is not compatible, please manually delete "
-                    "the volume at %s/%s" % (filename, ds_name))
+                    "Existing dataset is not compatible, please manually "
+                    "delete the volume at %s/%s" % (filename, ds_name))
 
             logger.info("Existing dataset is not compatible, creating new one")
 
@@ -379,16 +389,16 @@ def prepare_ds(
             return ds
 
 
-def get_chunk_size(block_size):
+def get_chunk_shape(block_shape):
     '''Get a reasonable chunk size that divides the given block size.'''
 
-    chunk_size = Coordinate(
+    chunk_shape = Coordinate(
         get_chunk_size_dim(b, 256)
-        for b in block_size)
+        for b in block_shape)
 
-    logger.debug("Setting chunk size to %s", chunk_size)
+    logger.debug("Setting chunk size to %s", chunk_shape)
 
-    return chunk_size
+    return chunk_shape
 
 
 def get_chunk_size_dim(b, target_chunk_size):

@@ -135,9 +135,14 @@ class MongoDbGraphProvider(SharedGraphProvider):
             if edges_collection not in collection_names:
                 self.__create_edge_collection()
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
+
+    def __del__(self):
+
+        self.__disconnect()
 
     def read_nodes(self, roi, attr_filter=None, read_attrs=None):
         '''Return a list of nodes within roi.
@@ -183,9 +188,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             nodes = self.nodes.find({'$and': query_list}, projection)
             nodes = list(nodes)
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         for node in nodes:
             node['id'] = np.uint64(node['id'])
@@ -203,9 +209,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             num = self.nodes.count(self.__pos_query(roi))
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         return num
 
@@ -245,9 +252,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             if num_chunks > 0:
                 assert i_e == len(node_ids)
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         return False
 
@@ -327,9 +335,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
             logger.debug("found %d edges", len(edges))
             logger.debug("first 100 edges read: %s", edges[:100])
 
-        finally:
+        except Exception as e:
 
             self.__disconnect()
+            raise e
 
         for edge in edges:
             edge[u] = np.uint64(edge[u])
@@ -415,19 +424,22 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def __connect(self):
         '''Connects to Mongo client'''
 
-        self.client = MongoClient(self.host)
+        if not self.client:
+            self.client = MongoClient(self.host)
 
     def __open_db(self):
         '''Opens Mongo database'''
 
-        self.database = self.client[self.db_name]
+        if not self.database:
+            self.database = self.client[self.db_name]
 
     def __open_collections(self):
         '''Opens the node, edge, and meta collections'''
 
-        self.nodes = self.database[self.nodes_collection_name]
-        self.edges = self.database[self.edges_collection_name]
-        self.meta = self.database[self.meta_collection_name]
+        if not self.nodes:
+            self.nodes = self.database[self.nodes_collection_name]
+            self.edges = self.database[self.edges_collection_name]
+            self.meta = self.database[self.meta_collection_name]
 
     def __get_metadata(self):
         '''Gets metadata out of the meta collection and returns it
@@ -444,8 +456,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.edges = None
         self.meta = None
         self.database = None
-        self.client.close()
-        self.client = None
+        if self.client:
+            self.client.close()
+            self.client = None
 
     def __create_node_collection(self):
         '''Creates the node collection, including indexes'''
@@ -553,12 +566,31 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 'dimensions')
 
             return {
-                key: {'$gte': b, '$lt': e}
+                key: {
+                    k: v
+                    for k, v in zip(
+                        ["$gte", "$lt"],
+                        [
+                            b if b is not None else float("-inf"),
+                            e if e is not None else float("inf"),
+                        ],
+                    )
+                }
                 for key, b, e in zip(self.position_attribute, begin, end)
             }
         else:
             return {
-                'position.%d' % d: {'$gte': b, '$lt': e}
+                "position.%d"
+                % d: {
+                    k: v
+                    for k, v in zip(
+                        ["$gte", "$lt"],
+                        [
+                            b if b is not None else float("-inf"),
+                            e if e is not None else float("inf"),
+                        ],
+                    )
+                }
                 for d, (b, e) in enumerate(zip(begin, end))
             }
 
@@ -741,7 +773,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             return
 
         try:
-            self.nodes_collection.bulk_write(updates)
+            self.nodes_collection.bulk_write(updates, ordered=False)
         except BulkWriteError as e:
             logger.error(e.details)
             raise
@@ -796,9 +828,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         if len(updates) == 0:
             logger.info("No updates in roi %s" % roi)
             return
-
         try:
-            self.edges_collection.bulk_write(updates)
+            self.edges_collection.bulk_write(updates, ordered=False)
         except BulkWriteError as e:
             logger.error(e.details)
             raise
@@ -864,7 +895,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
     def __write_no_flags(self, collection, old_docs, new_docs):
         bulk_query = [ReplaceOne(old, new, upsert=True)
                       for old, new in zip(old_docs, new_docs)]
-        collection.bulk_write(bulk_query)
+        collection.bulk_write(bulk_query, ordered=False)
 
     def __write_fail_if_exists(self, collection, old_docs, new_docs):
         for old in old_docs:
@@ -882,14 +913,14 @@ class MongoDbSharedSubGraph(SharedSubGraph):
                         "set to True. Aborting write for all docs." % old)
         bulk_query = [ReplaceOne(old, new, upsert=False)
                       for old, new in zip(old_docs, new_docs)]
-        result = collection.bulk_write(bulk_query)
+        result = collection.bulk_write(bulk_query, ordered=False)
         assert len(new_docs) == result.matched_count,\
             ("Supposed to replace %s docs, but only replaced %s"
                 % (len(new_docs), result.matched_count))
 
     def __contains(self, roi, node):
         '''Determines if the given node is inside the given roi'''
-        node_data = self.node[node]
+        node_data = self.nodes[node]
 
         # Some nodes are outside of the originally requested ROI (they have
         # been pulled in by edges leaving the ROI). These nodes have no
