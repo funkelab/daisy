@@ -67,7 +67,7 @@ def _read_voxel_size_offset(ds, order='C'):
     return Coordinate(voxel_size), Coordinate(offset)
 
 
-def open_ds(filename, ds_name, mode='r', attr_filename=None):
+def open_ds(filename, ds_name, mode='r', attr_filename=None, nested=False):
     '''Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
     used to determine the meta-information of the returned array.
@@ -97,7 +97,12 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
 
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         try:
-            ds = zarr.open(filename, mode=mode)[ds_name]
+            if nested:
+                # Use nested directories
+                store = zarr.NestedDirectoryStore(filename)
+            else:
+                store = zarr.DirectoryStore(filename)
+            ds = zarr.open_group(store=store, mode=mode)[ds_name]
         except Exception as e:
             logger.error("failed to open %s/%s" % (filename, ds_name))
             raise e
