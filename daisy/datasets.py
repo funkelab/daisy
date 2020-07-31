@@ -67,7 +67,7 @@ def _read_voxel_size_offset(ds, order='C'):
     return Coordinate(voxel_size), Coordinate(offset)
 
 
-def open_ds(filename, ds_name, mode='r', attr_filename=None):
+def open_ds(filename, ds_name, mode='r', attr_filename=None, nested=False):
     '''Open a Zarr, N5, or HDF5 dataset as a :class:`daisy.Array`. If the
     dataset has attributes ``resolution`` and ``offset``, those will be
     used to determine the meta-information of the returned array.
@@ -97,7 +97,12 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
 
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         try:
-            ds = zarr.open_group(filename, mode=mode)[ds_name]
+            if nested:
+                # Use nested directories
+                store = zarr.NestedDirectoryStore(filename)
+            else:
+                store = zarr.DirectoryStore(filename)
+            ds = zarr.open_group(store=store, mode=mode)[ds_name]
         except Exception as e:
             logger.error("failed to open %s/%s" % (filename, ds_name))
             raise e
@@ -179,8 +184,7 @@ def prepare_ds(
         num_channels=1,
         compressor='default',
         delete=False,
-        force_exact_write_size=False,
-        nested=False):
+        force_exact_write_size=False):
     '''Prepare a Zarr or N5 dataset.
 
     Args:
@@ -286,17 +290,12 @@ def prepare_ds(
             chunk_shape = Coordinate((num_channels,) + chunk_shape)
         voxel_size_with_channels = Coordinate((1,) + voxel_size)
 
-    if nested:
-        logger.debug("Using nested directory structure")
-        store = zarr.NestedDirectoryStore(filename)
-    else:
-        store = zarr.DirectoryStore(filename)
-
     if not os.path.isdir(filename):
 
         logger.info("Creating new %s", filename)
         os.makedirs(filename)
-        zarr.open(store=store, mode='w')
+
+        zarr.open(filename, mode='w')
 
     if not os.path.isdir(os.path.join(filename, ds_name)):
 
@@ -305,7 +304,7 @@ def prepare_ds(
         if compressor is not None:
             compressor = zarr.get_codec(compressor)
 
-        root = zarr.open(store=store, mode='a')
+        root = zarr.open(filename, mode='a')
         ds = root.create_dataset(
             ds_name,
             shape=shape,
