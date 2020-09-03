@@ -195,6 +195,58 @@ class TestFilterMongoGraph(unittest.TestCase):
         for u, v, data in updated_graph.edges(data=True):
             self.assertEqual(data['c'], 5)
 
+    def test_unset_attrs(self):
+        graph_provider = self.get_mongo_graph_provider('w')
+        roi = daisy.Roi((0, 0, 0),
+                        (10, 10, 10))
+        graph = graph_provider[roi]
+
+        graph.add_node(2,
+                       position=(2, 2, 2),
+                       selected=True,
+                       test='test')
+        graph.add_node(42,
+                       position=(1, 1, 1),
+                       selected=False,
+                       test='test2')
+        graph.add_node(23,
+                       position=(5, 5, 5),
+                       selected=True,
+                       test='test2')
+        graph.add_node(57,
+                       position=daisy.Coordinate((7, 7, 7)),
+                       selected=True,
+                       test='test')
+
+        graph.add_edge(42, 23,
+                       selected=False,
+                       a=100,
+                       b=3)
+        graph.add_edge(57, 23,
+                       selected=True,
+                       a=100,
+                       b=2)
+        graph.add_edge(2, 42,
+                       selected=True,
+                       a=101,
+                       b=3)
+
+        graph.write_nodes()
+        graph.write_edges()
+
+        graph.update_edge_attrs(attributes=['c'], unset=True)
+        graph.update_node_attrs(attributes=['test', 'selected'], unset=True)
+
+        graph_provider = self.get_mongo_graph_provider('r')
+        updated_graph = graph_provider.get_graph(roi)
+
+        for node, data in updated_graph.nodes(data=True):
+            self.assertFalse('test' in data)
+            self.assertFalse('selected' in data)
+
+        for u, v, data in updated_graph.edges(data=True):
+            self.assertFalse('c' in data)
+
     def test_graph_read_unbounded_roi(self):
         graph_provider = self.get_mongo_graph_provider('w')
         roi = daisy.Roi((0, 0, 0),

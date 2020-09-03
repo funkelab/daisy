@@ -729,7 +729,10 @@ class MongoDbSharedSubGraph(SharedSubGraph):
     def update_node_attrs(
             self,
             roi=None,
-            attributes=None):
+            attributes=None,
+            unset=False):
+        ''' If unset is true, will remove attributes in the attributes list from
+        edges within the roi'''
 
         if self.provider.mode == 'r':
             raise RuntimeError("Trying to write to read-only DB")
@@ -755,6 +758,11 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
             if not attributes:
                 update = {'$set': data}
+            elif unset:
+                update = {}
+                for key in attributes:
+                    update[key] = ""
+                update = {'$unset': update}
             else:
                 update = {}
                 for key in data:
@@ -781,7 +789,10 @@ class MongoDbSharedSubGraph(SharedSubGraph):
     def update_edge_attrs(
             self,
             roi=None,
-            attributes=None):
+            attributes=None,
+            unset=False):
+        ''' If unset is true, will remove attributes in the attributes list from
+        edges within the roi'''
 
         if self.provider.mode == 'r':
             raise RuntimeError("Trying to write to read-only DB")
@@ -811,6 +822,11 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
             if not attributes:
                 update = {'$set': data}
+            elif unset:
+                update = {}
+                for key in attributes:
+                    update[key] = ""
+                update = {'$unset': update}
             else:
                 update = {}
                 for key in data:
