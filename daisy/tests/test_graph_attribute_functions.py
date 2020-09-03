@@ -234,7 +234,9 @@ class TestFilterMongoGraph(unittest.TestCase):
         graph.write_nodes()
         graph.write_edges()
 
-        graph.update_edge_attrs(attributes=['c'], unset=True)
+        small_roi = daisy.Roi((0, 0, 0),
+                              (5, 5, 5))
+        graph.update_edge_attrs(roi=small_roi, attributes=['b'], unset=True)
         graph.update_node_attrs(attributes=['test', 'selected'], unset=True)
 
         graph_provider = self.get_mongo_graph_provider('r')
@@ -245,7 +247,11 @@ class TestFilterMongoGraph(unittest.TestCase):
             self.assertFalse('selected' in data)
 
         for u, v, data in updated_graph.edges(data=True):
-            self.assertFalse('c' in data)
+            self.assertTrue('a' in data)
+            if u == 57:
+                self.assertTrue('b' in data)
+            else:
+                self.assertFalse('b' in data)
 
     def test_graph_read_unbounded_roi(self):
         graph_provider = self.get_mongo_graph_provider('w')
