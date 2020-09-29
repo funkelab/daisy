@@ -68,11 +68,8 @@ class DependencyGraph():
         '''Recursively add dependencies of a task to the graph.'''
         for dependency_task in task.requires():
 
-            if dependency_task.task_id not in self.task_map:
-                self.tasks.add(dependency_task)
-                self.task_map[dependency_task.task_id] = dependency_task
-                # recursively add dependency
-                self.add_task_dependency(dependency_task)
+            # Add the required task to tasks and task_map
+            self.add(dependency_task)
 
             # modify task dependency graph
             self.task_dependency[task.task_id].add(dependency_task.task_id)
