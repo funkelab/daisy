@@ -33,7 +33,6 @@ class DependencyGraph():
         self.dependents = collections.defaultdict(set)
         self.dependencies = collections.defaultdict(set)
         self.ready_queues = collections.defaultdict(collections.deque)
-        self.ready_queue_cv = threading.Condition()
         self.processing_blocks = set()
         self.task_processing_blocks = collections.defaultdict(set)
         self.blocks = {}
@@ -223,33 +222,25 @@ class DependencyGraph():
         '''
 
         return_blocks = waiting_blocks
-        while True:
-            with self.ready_queue_cv:
+        if self.empty():
+            return return_blocks
 
-                if self.empty():
-                    return return_blocks
+        for task_type in self.ready_queues:
 
-                for task_type in self.ready_queues:
+            if task_type in return_blocks:
+                pass
 
-                    if task_type in return_blocks:
-                        pass
+            elif len(self.ready_queues[task_type]) == 0:
+                pass
 
-                    elif len(self.ready_queues[task_type]) == 0:
-                        pass
+            else:
+                block_id = self.get_from_ready_queue(task_type)
+                self.processing_blocks.add(block_id)
+                self.task_processing_blocks[block_id[0]].add(
+                    block_id[1])
+                return_blocks[block_id[0]] = self.blocks[block_id]
 
-                    else:
-                        block_id = self.get_from_ready_queue(task_type)
-                        self.processing_blocks.add(block_id)
-                        self.task_processing_blocks[block_id[0]].add(
-                            block_id[1])
-                        return_blocks[block_id[0]] = self.blocks[block_id]
-
-                if len(return_blocks):
-                    return return_blocks
-
-                # empty work list; blocks until more blocks are returned
-                while not self.empty() and self.ready_size() == 0:
-                    self.ready_queue_cv.wait()
+        return return_blocks
 
     def get_tasks(self):
         '''Get all tasks in the graph.'''
@@ -298,36 +289,32 @@ class DependencyGraph():
 
         self.retry_count[block_id] = self.retry_count[block_id] + 1
 
-        with self.ready_queue_cv:
+        self.processing_blocks.remove(block_id)
+        self.task_processing_blocks[block_id[0]].remove(block_id[1])
+        task_id = block_id[0]
 
-            self.processing_blocks.remove(block_id)
-            self.task_processing_blocks[block_id[0]].remove(block_id[1])
-            task_id = block_id[0]
+        if (
+                self.retry_count[block_id] >
+                self.task_map[task_id]._daisy.max_retries):
 
-            if (
-                    self.retry_count[block_id] >
-                    self.task_map[task_id]._daisy.max_retries):
+            self.failed_blocks.add(block_id)
+            self.task_failed_count[block_id[0]] += 1
+            logger.error(
+                "Block {} is canceled and will not be rescheduled."
+                .format(block_id))
 
-                self.failed_blocks.add(block_id)
-                self.task_failed_count[block_id[0]] += 1
+            if len(self.dependents[block_id]):
                 logger.error(
-                    "Block {} is canceled and will not be rescheduled."
-                    .format(block_id))
+                    "The following blocks are then orphaned and "
+                    "cannot be run: {}".format(self.dependents[block_id]))
 
-                if len(self.dependents[block_id]):
-                    logger.error(
-                        "The following blocks are then orphaned and "
-                        "cannot be run: {}".format(self.dependents[block_id]))
+            self.recursively_check_orphans(block_id)
+            # simply leave it canceled at this point
 
-                self.recursively_check_orphans(block_id)
-                # simply leave it canceled at this point
+        else:
 
-            else:
-
-                self.add_to_ready_queue(task_id, block_id)
-                logger.info("Block {} will be rescheduled.".format(block_id))
-
-            self.ready_queue_cv.notify()  # in either case, unblock next()
+            self.add_to_ready_queue(task_id, block_id)
+            logger.info("Block {} will be rescheduled.".format(block_id))
 
     def recursively_check_orphans(self, block_id):
         '''Check and mark children of the given block as orphans.'''
@@ -342,23 +329,18 @@ class DependencyGraph():
 
     def remove_and_update(self, block_id):
         '''Removing a finished block and update ready queue.'''
-        with self.ready_queue_cv:
 
-            self.task_done_count[block_id[0]] += 1
-            self.processing_blocks.remove(block_id)
-            self.task_processing_blocks[block_id[0]].remove(block_id[1])
+        self.task_done_count[block_id[0]] += 1
+        self.processing_blocks.remove(block_id)
+        self.task_processing_blocks[block_id[0]].remove(block_id[1])
 
-            dependents = self.dependents[block_id]
-            for dep in dependents:
-                self.dependencies[dep].remove(block_id)
-                if len(self.dependencies[dep]) == 0:
-                    # ready to run
-                    self.add_to_ready_queue(dep[0], dep)
+        dependents = self.dependents[block_id]
+        for dep in dependents:
+            self.dependencies[dep].remove(block_id)
+            if len(self.dependencies[dep]) == 0:
+                # ready to run
+                self.add_to_ready_queue(dep[0], dep)
 
-            # Unblock next() regardless. If we only unblock for new
-            # elements in ready_queue, the program might lock up if
-            # this block is the last
-            self.ready_queue_cv.notify()
 
     def get_subgraph(self, roi):
         '''Create a subgraph given a ROI, assuming this ROI is that
