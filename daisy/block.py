@@ -2,7 +2,12 @@ from __future__ import absolute_import
 from .coordinate import Coordinate
 from .freezable import Freezable
 from funlib.math import cantor_number
+
 import copy
+from enum import Enum
+
+class BlockStatus(Enum):
+    SUCCESS = 1
 
 
 class Block(Freezable):

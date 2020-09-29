@@ -162,9 +162,6 @@ class DependencyGraph():
         self.task_total_block_count[task_id] += len(blocks)
         self.task_done_count[task_id] = 0
 
-        # some sanity checks
-        assert(task._daisy.max_retries >= 0)
-
         # add tasks to block-wise graph, while accounting for intra-task
         # and inter-task dependencies
         for block, block_dependencies in blocks:
