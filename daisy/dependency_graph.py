@@ -341,46 +341,6 @@ class DependencyGraph():
                 # ready to run
                 self.add_to_ready_queue(dep[0], dep)
 
-
-    def get_subgraph(self, roi):
-        '''Create a subgraph given a ROI, assuming this ROI is that
-        of the leaf task.'''
-        raise RuntimeError("Deprecated function.")  # deprecated function
-        subgraph = copy.deepcopy(self)
-        subgraph.__create_subgraph(roi)
-        return subgraph
-
-    def __create_subgraph(self, roi):
-        '''Modify existing graph so that only the minimum number of
-        blocks will be computed to cover the given ROI. This is achieved
-        by simply recomputing the ready_queue as computed for the full
-        graph.'''
-        raise RuntimeError("Deprecated function.")  # deprecated function
-
-        self.ready_queues.clear()
-
-        # get blocks of the leaf task that writes to the given ROI
-        to_check = collections.deque()
-        to_check.extend([
-            (self.leaf_task_id, block)
-            for block in self._get_subgraph_blocks(self.leaf_task_id, roi)
-        ])
-
-        processed = set()
-        while len(to_check) > 0:
-
-            block = to_check.popleft()
-
-            if block in processed:
-                continue
-            else:
-                processed.add(block)
-
-            if len(self.dependencies[block]) == 0:
-                self.ready_queues[block[0]].append(block)
-            else:
-                to_check.extend(self.dependencies[block])
-
     def _get_subgraph_blocks(self, task_id, roi):
         '''Return blocks of this task that write to given ROI.'''
         task = self.task_map[task_id]
