@@ -21,8 +21,7 @@ class DependencyGraph():
     ``get_subgraph``.
     '''
 
-    def __init__(self, global_config):
-        self.global_config = global_config
+    def __init__(self):
 
         # self.leaf_task_id = None
         self.tasks = set()
