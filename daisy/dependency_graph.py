@@ -11,6 +11,16 @@ from .blocks import create_dependency_graph, get_subgraph_blocks, \
 logger = logging.getLogger(__name__)
 
 
+class TaskState():
+    def __init__(self):
+        self.ready_queue = []
+        self.created = False
+        self.total_block_count = 0
+        self.done_count = 0
+        self.failed_count = 0
+        self.processing_blocks = []
+
+
 class DependencyGraph():
     '''This class constructs a block-wise dependency graph of a given
     ``Task`` and its dependencies.It provides an interface for the
@@ -29,20 +39,18 @@ class DependencyGraph():
         self.created_tasks = {}
         self.task_dependency = collections.defaultdict(set)
 
+        # task states:
+        self.task_states = collections.defaultdict(TaskState)
+
         self.dependents = collections.defaultdict(set)
         self.dependencies = collections.defaultdict(set)
-        self.ready_queues = collections.defaultdict(collections.deque)
-        self.processing_blocks = set()
-        self.task_processing_blocks = collections.defaultdict(set)
         self.blocks = {}
 
         self.retry_count = collections.defaultdict(int)
+
+        self.processing_blocks = set()
         self.failed_blocks = set()
         self.orphaned_blocks = set()
-        self.task_failed_count = collections.defaultdict(int)
-
-        self.task_done_count = collections.defaultdict(int)
-        self.task_total_block_count = collections.defaultdict(int)
 
     def add(self, task, request_roi=None):
         '''Add a ``Task`` to the graph.
@@ -70,10 +78,10 @@ class DependencyGraph():
             self.task_dependency[task.task_id].add(dependency_task.task_id)
 
     def add_to_ready_queue(self, task_id, block_id):
-        self.ready_queues[task_id].append(block_id)
+        self.task_states[task_id].ready_queue.append(block_id)
 
     def get_from_ready_queue(self, task_id):
-        return self.ready_queues[task_id].popleft()
+        return self.task_states[task_id].ready_queue.popleft()
 
     def __recursively_create_dependency_graph(self, task_id, request_roi):
         '''Create dependency graph for its dependencies first before
@@ -139,8 +147,8 @@ class DependencyGraph():
             task._daisy.read_write_conflict,
             task._daisy.fit)
 
-        self.task_total_block_count[task_id] += len(blocks)
-        self.task_done_count[task_id] = 0
+        self.task_states[task_id].total_block_count += len(blocks)
+        self.task_states[task_id].done_count = 0
 
         # add tasks to block-wise graph, while accounting for intra-task
         # and inter-task dependencies
@@ -200,18 +208,18 @@ class DependencyGraph():
         if self.empty():
             return return_blocks
 
-        for task_type in self.ready_queues:
+        for task_id in self.task_states:
 
-            if task_type in return_blocks:
+            if task_id in return_blocks:
                 pass
 
-            elif len(self.ready_queues[task_type]) == 0:
+            elif len(self.task_states[task_id].ready_queue) == 0:
                 pass
 
             else:
-                block_id = self.get_from_ready_queue(task_type)
+                block_id = self.get_from_ready_queue(task_id)
                 self.processing_blocks.add(block_id)
-                self.task_processing_blocks[block_id[0]].add(
+                self.task_states[block_id[0]].processing_blocks.add(
                     block_id[1])
                 return_blocks[block_id[0]] = self.blocks[block_id]
 
@@ -236,8 +244,8 @@ class DependencyGraph():
     def ready_size(self):
         '''Return the number of blocks ready to be run.'''
         count = 0
-        for task in self.ready_queues:
-            count += len(self.ready_queues[task])
+        for task in self.task_states:
+            count += len(self.task_states[task].ready_queue)
         return count
 
     def get_orphans(self):
@@ -265,7 +273,7 @@ class DependencyGraph():
         self.retry_count[block_id] += 1
 
         self.processing_blocks.remove(block_id)
-        self.task_processing_blocks[block_id[0]].remove(block_id[1])
+        self.task_states[block_id[0]].processing_blocks.remove(block_id[1])
         task_id = block_id[0]
 
         if (
@@ -273,7 +281,7 @@ class DependencyGraph():
                 self.task_map[task_id]._daisy.max_retries):
 
             self.failed_blocks.add(block_id)
-            self.task_failed_count[block_id[0]] += 1
+            self.task_states[block_id[0]].failed_count += 1
             logger.error(
                 "Block {} is canceled and will not be rescheduled."
                 .format(block_id))
@@ -297,6 +305,8 @@ class DependencyGraph():
 
             if (orphan_id in self.orphaned_blocks
                     or orphan_id in self.failed_blocks):
+                # TODO: isn't this return too early, shouldn't we check all
+                # orphan_ids in self.dependents[block_id]?
                 return
 
             self.orphaned_blocks.add(orphan_id)
@@ -305,9 +315,9 @@ class DependencyGraph():
     def remove_and_update(self, block_id):
         '''Removing a finished block and update ready queue.'''
 
-        self.task_done_count[block_id[0]] += 1
+        self.task_states[block_id[0]].done_count += 1
         self.processing_blocks.remove(block_id)
-        self.task_processing_blocks[block_id[0]].remove(block_id[1])
+        self.task_states[block_id[0]].processing_blocks.remove(block_id[1])
 
         dependents = self.dependents[block_id]
         for dep in dependents:
@@ -328,17 +338,17 @@ class DependencyGraph():
 
     def is_task_done(self, task_id):
         '''Return ``True`` if all blocks of a task have completed.'''
-        return (self.task_done_count[task_id]
-                == self.task_total_block_count[task_id])
+        return (self.task_states[task_id].done_count
+                == self.task_states[task_id].total_block_count)
 
     def get_task_size(self, task_id):
-        return self.task_total_block_count[task_id]
+        return self.task_states[task_id].total_block_count
 
     def get_task_done_count(self, task_id):
-        return self.task_done_count[task_id]
+        return self.task_states[task_id].done_count
 
     def get_task_failed_count(self, task_id):
-        return self.task_failed_count[task_id]
+        return self.task_states[task_id].failed_count
 
     def get_task_processing_blocks(self, task_id):
-        return self.task_processing_blocks[task_id]
+        return self.task_states[task_id].processing_blocks
