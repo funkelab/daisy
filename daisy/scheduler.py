@@ -45,8 +45,6 @@ class Scheduler:
             self.dependency_graph.add(task)
             self.dependency_graph.init(task.task_id, task._daisy.total_write_roi)
 
-        self.lock = threading.Lock()
-
         self.available_blocks = {}
 
         self.last_prechecked = collections.defaultdict(lambda: (None, None))
