@@ -4,7 +4,7 @@ import logging
 from daisy.tcp import TCPClient, StreamClosedError 
 
 from .context import Context
-from .message import Message, ExceptionMessage
+from .messages import Message, ExceptionMessage
 
 logger = logging.getLogger(__name__)
 

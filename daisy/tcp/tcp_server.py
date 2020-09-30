@@ -5,7 +5,7 @@ import tornado.tcpserver
 
 from .io_looper import IOLooper
 from .tcp_stream import TCPStream
-from daisy.message import ExceptionMessage
+from daisy.messages import ExceptionMessage
 
 logger = logging.getLogger(__name__)
 

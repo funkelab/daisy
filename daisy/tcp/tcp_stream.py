@@ -3,7 +3,7 @@ import pickle
 import struct
 import tornado.iostream
 
-from daisy.message import ExceptionMessage
+from daisy.messages import ExceptionMessage
 from .io_looper import IOLooper
 
 logger = logging.getLogger(__name__)
