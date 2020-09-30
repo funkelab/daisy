@@ -1,5 +1,4 @@
 from __future__ import absolute_import
-from . import persistence # noqa
 from .array import Array # noqa
 from .block import Block, BlockStatus # noqa
 from .blocks import create_dependency_graph # noqa
@@ -17,6 +16,8 @@ from .scheduler import Scheduler # noqa
 from .scheduler import _NO_SPAWN_STATUS_THREAD # noqa
 from .scheduler import distribute # noqa
 from .scheduler import run_blockwise # noqa
+from .server import Server # noqa
 from .task import Task # noqa
-from .worker_pool import WorkerPool # noqa
 from .worker import Worker # noqa
+from .worker_pool import WorkerPool # noqa
+from . import persistence # noqa
