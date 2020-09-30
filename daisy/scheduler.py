@@ -83,12 +83,6 @@ class Scheduler:
                 return self.available_blocks.pop(task_id)
 
         else:
-            # INFINITE LOOP WARNING
-            # The possible cases here:
-            # 1) This task is done, no more blocks will ever be available
-            # 2) All available blocks are being processed, blocks might become available
-            # 3) Block is available and continue as normal
-
             # These cases should be handled by task STATE
             self.available_blocks = self.dependency_graph.next(self.available_blocks)
             if task_id not in self.available_blocks:
