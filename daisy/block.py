@@ -1,8 +1,16 @@
 from __future__ import absolute_import
 from .coordinate import Coordinate
+from enum import Enum
 from .freezable import Freezable
 from funlib.math import cantor_number
 import copy
+
+BlockStatus = Enum(
+        'WAITING',
+        'READY',
+        'PROCESSING',
+        'DONE',
+        'FAILED')
 
 
 class Block(Freezable):
@@ -18,10 +26,20 @@ class Block(Freezable):
 
             The region of interest (ROI) to write to.
 
+        status (``BlockStatus``):
+
+            Stores the processing status of the block. Block status should be
+            updated as it goes through the lifecycle of scheduler to client and
+            back.
+
         block_id (``int``):
 
             A unique ID for this block (within all blocks tiling the total ROI
             to process).
+
+        task_id (``int``):
+
+            The id of the Task that this block belongs to.
 
     Args:
 
@@ -38,14 +56,32 @@ class Block(Freezable):
 
             The region of interest (ROI) to write to.
 
+        status (``BlockStatus``):
+
+            Stores the processing status of the block. Block status should be
+            updated as it goes through the lifecycle of scheduler to client and
+            back.
+
         block_id (``int``, optional):
 
             The ID to assign to this block. The ID is normally computed from
             the write ROI and the total ROI, such that each block has a unique
             ID.
+
+        task_id (``int``, optional):
+
+            The id of the Task that this block belongs to. Defaults to None.
+
     '''
 
-    def __init__(self, total_roi, read_roi, write_roi, block_id=None):
+    def __init__(
+            self,
+            total_roi,
+            read_roi,
+            write_roi,
+            status,
+            block_id=None,
+            task_id=None):
 
         self.read_roi = read_roi
         self.write_roi = write_roi
@@ -56,11 +92,18 @@ class Block(Freezable):
         else:
             self.block_id = block_id
             self.z_order_id = block_id  # for compatibility
+        self.task_id = task_id
+        self.status = status
         self.freeze()
 
     def copy(self):
 
         return copy.deepcopy(self)
+
+    def set_status(self, status):
+        self.unfreeze()
+        self.status = status
+        self.freeze()
 
     def __compute_block_id(self, total_roi, write_roi, shift=None):
         block_index = write_roi.get_offset() / write_roi.get_shape()
