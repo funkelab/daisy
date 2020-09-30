@@ -39,8 +39,8 @@ class Scheduler:
     See the DependencyGraph class for more information.
     """
 
-    def __init__(self, tasks: List[Task], global_config):
-        self.dependency_graph = DependencyGraph(global_config)
+    def __init__(self, tasks: List[Task]):
+        self.dependency_graph = DependencyGraph()
         for task in tasks:
             self.dependency_graph.add(task)
             self.dependency_graph.init(task.task_id, task._daisy.total_write_roi)
