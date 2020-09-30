@@ -1,10 +1,7 @@
 from __future__ import absolute_import
 
 import collections
-import copy
-import heapq
 import logging
-import threading
 from .blocks import create_dependency_graph, get_subgraph_blocks, \
     expand_request_roi_to_grid
 
