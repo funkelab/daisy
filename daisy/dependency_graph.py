@@ -18,6 +18,8 @@ class TaskState():
         self.done_count = 0
         self.failed_count = 0
         self.processing_blocks = set()
+        self.failed_blocks = set()
+        self.orphaned_blocks = set()
 
 
 class DependencyGraph():
@@ -47,12 +49,25 @@ class DependencyGraph():
 
         self.retry_count = collections.defaultdict(int)
 
-        self.failed_blocks = set()
-        self.orphaned_blocks = set()
 
     @property
     def processing_blocks(self):
-        set(itertools.chain(*[task_state.processing_blocks for task_state in self.task_states.values()]))
+        set().union(
+            *[set((task_id, block_ind) for block_ind in task_state.processed_blocks)
+            for task_id, task_state in self.task_states]
+        )
+    @property
+    def orphaned_blocks(self):
+        set().union(
+            *[set((task_id, block_ind) for block_ind in task_state.orphaned_blocks)
+            for task_id, task_state in self.task_states]
+        )
+    @property
+    def failed_blocks(self):
+        set().union(
+            *[set((task_id, block_ind) for block_ind in task_state.failed_blocks)
+            for task_id, task_state in self.task_states]
+        )
 
     def add(self, task, request_roi=None):
         '''Add a ``Task`` to the graph.
@@ -249,15 +264,6 @@ class DependencyGraph():
             count += len(self.task_states[task].ready_queue)
         return count
 
-    def get_orphans(self):
-        '''Return the number of blocks cannot be issued due to failed
-        dependencies.'''
-        return self.orphaned_blocks
-
-    def get_failed_blocks(self):
-        '''Return blocks that have failed and won't be retried.'''
-        return self.failed_blocks
-
     def get_block(self, block_id):
         '''Return a specific block.'''
         return self.blocks[block_id]
@@ -280,7 +286,7 @@ class DependencyGraph():
                 self.retry_count[block_id] >
                 self.task_map[task_id]._daisy.max_retries):
 
-            self.failed_blocks.add(block_id)
+            self.task_states[block_id[0]].add(block_id[1])
             self.task_states[block_id[0]].failed_count += 1
             logger.error(
                 "Block {} is canceled and will not be rescheduled."
@@ -303,13 +309,13 @@ class DependencyGraph():
         '''Check and mark children of the given block as orphans.'''
         for orphan_id in self.dependents[block_id]:
 
-            if (orphan_id in self.orphaned_blocks
-                    or orphan_id in self.failed_blocks):
+            if (orphan_id in self.task_states[orphan_id[0]].orphaned_blocks[orphan_id[1]]
+                    or orphan_id in self.task_states[orphan_id[0]].failed_blocks[orphan_id[1]]):
                 # TODO: isn't this return too early, shouldn't we check all
                 # orphan_ids in self.dependents[block_id]?
                 return
 
-            self.orphaned_blocks.add(orphan_id)
+            self.task_states[orphan_id[0]].orphaned_blocks.add(orphan_id[1])
             self.recursively_check_orphans(orphan_id)
 
     def remove_and_update(self, block_id):
