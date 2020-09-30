@@ -158,7 +158,8 @@ class DependencyGraph():
         # and inter-task dependencies
         for block, block_dependencies in blocks:
 
-            block_id = (task_id, block.block_id)
+            block_id = block.block_id
+            assert isinstance(block_id, tuple) and len(block_id) == 2, "block_id should be a unique (task_id, block_index) identifier for a specific block"
 
             if block_id in self.blocks:
                 continue
@@ -166,8 +167,8 @@ class DependencyGraph():
             self.blocks[block_id] = block
 
             dependencies = [
-                (task_id, b.block_id) for b in block_dependencies
-                if (task_id, b.block_id) in self.blocks]
+                b.block_id for b in block_dependencies
+                if b.block_id in self.blocks]
 
             # add inter-task read-write dependency
             if len(self.task_dependency[task_id]):
