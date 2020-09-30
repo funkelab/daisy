@@ -43,8 +43,8 @@ class DependencyGraph():
         # task states:
         self.task_states = collections.defaultdict(TaskState)
 
-        self.dependents = collections.defaultdict(set)
-        self.dependencies = collections.defaultdict(set)
+        self.downstream = collections.defaultdict(set)
+        self.upstream = collections.defaultdict(set)
         self.blocks = {}
 
         self.retry_count = collections.defaultdict(int)
@@ -199,8 +199,8 @@ class DependencyGraph():
                         "Block dependency %s is not found for task %s." % (
                             dep_id, task_id))
                     continue
-                self.dependents[dep_id].add(block_id)
-                self.dependencies[block_id].add(dep_id)
+                self.downstream[dep_id].add(block_id)
+                self.upstream[block_id].add(dep_id)
 
             if len(dependencies) == 0:
                 # if this block has no dependencies, add it to the ready
@@ -292,10 +292,10 @@ class DependencyGraph():
                 "Block {} is canceled and will not be rescheduled."
                 .format(block_id))
 
-            if len(self.dependents[block_id]):
+            if len(self.downstream[block_id]):
                 logger.error(
                     "The following blocks are then orphaned and "
-                    "cannot be run: {}".format(self.dependents[block_id]))
+                    "cannot be run: {}".format(self.downstream[block_id]))
 
             self.recursively_check_orphans(block_id)
             # simply leave it canceled at this point
@@ -307,12 +307,12 @@ class DependencyGraph():
 
     def recursively_check_orphans(self, block_id):
         '''Check and mark children of the given block as orphans.'''
-        for orphan_id in self.dependents[block_id]:
+        for orphan_id in self.downstream[block_id]:
 
             if (orphan_id in self.task_states[orphan_id[0]].orphaned_blocks[orphan_id[1]]
                     or orphan_id in self.task_states[orphan_id[0]].failed_blocks[orphan_id[1]]):
                 # TODO: isn't this return too early, shouldn't we check all
-                # orphan_ids in self.dependents[block_id]?
+                # orphan_ids in self.downstream[block_id]?
                 return
 
             self.task_states[orphan_id[0]].orphaned_blocks.add(orphan_id[1])
@@ -329,10 +329,10 @@ class DependencyGraph():
         self.task_states[block_id[0]].done_count += 1
         self.task_states[block_id[0]].processing_blocks.remove(block_id[1])
 
-        dependents = self.dependents[block_id]
+        dependents = self.downstream[block_id]
         for dep in dependents:
-            self.dependencies[dep].remove(block_id)
-            if len(self.dependencies[dep]) == 0:
+            self.upstream[dep].remove(block_id)
+            if len(self.upstream[dep]) == 0:
                 # ready to run
                 self.add_to_ready_queue(dep[0], dep)
 
