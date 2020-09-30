@@ -51,52 +51,54 @@ class Scheduler:
 
         self.last_prechecked = collections.defaultdict(lambda: (None, None))
 
-    def acquire_block(self, task):
+    def acquire_block(self, task_id):
         """
-        Get a block that is ready to process for task ``task``.
+        Get a block that is ready to process for task with given task_id.
 
         Args:
-            task(``Task``):
+            task_id(``int``):
                 The task for which you want a block
             
         Return:
-            ``Block``:
+            ``Block`` or None:
                 A block that can be run without worry of
                 conflicts.
+            ``TaskState``:
+                The state of the task.
         """
-        if task.task_id in self.available_blocks:
-            block = self.available_blocks[task.task_id]
-            if self.last_prechecked[task.task_id][0] != block:
+        if task_id in self.available_blocks:
+            block = self.available_blocks[task_id]
+            if self.last_prechecked[task_id][0] != block:
                 # pre-check and skip blocks if possible
                 try:
                     # pre_check can intermittently fail
                     # so we wrap it in a try block
-                    pre_check_ret = self.tasks[task.task_id]._daisy.pre_check(block)
+                    pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
                 except Exception as e:
                     logger.error(
                         "pre_check() exception for block %s of task %s. "
                         "Exception: %s",
                         block,
-                        task,
+                        task_id,
                         e,
                     )
                     pre_check_ret = False
                 finally:
-                    self.last_prechecked[task] = (block, pre_check_ret)
+                    self.last_prechecked[task_id] = (block, pre_check_ret)
 
-            pre_check_ret = self.last_prechecked[task][1]
+            pre_check_ret = self.last_prechecked[task_id][1]
 
             if pre_check_ret:
                 logger.debug(
-                    "Skipping %s block %d; already processed.",
-                    task,
+                    "Skipping task %s block %d; already processed.",
+                    task_id,
                     block.block_id,
                 )
-                self.available_blocks.pop(task)
-                return self.acquire_block(task)
+                self.available_blocks.pop(task_id)
+                return self.acquire_block(task_id)
 
             else:
-                return self.available_blocks.pop(task.task_id)
+                return self.available_blocks.pop(task_id)
 
         else:
             # INFINITE LOOP WARNING
@@ -109,9 +111,9 @@ class Scheduler:
             self.available_blocks = self.dependency_graph.next(
                 self.available_blocks
             )
-            if task.task_id not in self.available_blocks:
+            if task_id not in self.available_blocks:
                 raise Exception("No block available for this task!")
-            return self.acquire_block(task)
+            return self.acquire_block(task_id)
 
     def release_block(self, task, block, status):
         """
