@@ -1,10 +1,10 @@
 from contextlib import contextmanager
 import logging
 
-from daisy.tcp import TCPClient, StreamClosedError 
+from daisy.tcp import TCPClient
 
 from .context import Context
-from .messages import Message, ExceptionMessage
+from .messages import AcquireBlock, ReleaseBlock, SendBlock
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ Proposed API:
         client.acquire_block()?
 '''
 
+
 class Client():
     '''Client code that runs on a remote worker providing task management
     API for user code. It communicates with the scheduler through TCP/IP.
@@ -50,7 +51,7 @@ class Client():
                         break
                     blockwise_process(block)
                     block.state = Done (or Failed)
-                    
+
     '''
 
     def __init__(
@@ -71,34 +72,30 @@ class Client():
         self.context = context
         if self.context is None:
             self.context = Context.from_env()
-        
-        self.host = self.context.hostname
-        self.port = self.context.port
-        self.worker_id = self.context.worker_id
-        self.task_id = self.context.task_id
-        
+        logger.debug("Client context: %s", self.context)
+
+        self.host = self.context['hostname']
+        self.port = int(self.context['port'])
+        self.worker_id = int(self.context['worker_id'])
+        self.task_id = self.context['task_id']
+
         # Make TCP Connection
         self.tcp_client = TCPClient(self.host, self.port)
-        # send handshake
-        # TODO: Send handshake!
-        self.send(
-            Message("handshake!",
-                data=self.worker_id))
-    
+
     @contextmanager
     def acquire_block(self):
         '''API for client to get a new block.'''
-        self.tcp_client.send_message(Message()) #TODO: Fill in message
-        message = self.tcp_client.get_message() #TODO: timeout?
-        # TODO: Make sure message is a block and extract the block!
-        block = message.block
-        try:
-            yield block
-        finally:
-            self.release_block(block)
+        self.tcp_client.send_message(AcquireBlock(self.task_id))
+        message = self.tcp_client.get_message()
+        if isinstance(message, SendBlock):
+            try:
+                block = message.block
+                yield block
+            finally:
+                self.release_block(block)
+        else:
+            yield
 
     def release_block(self, block):
         logger.debug("Releasing block {}".format(block.block_id))
-        # TODO: create message
-        self.tcp_client.send_message(Message(block))
-        # TODO: Make sure all the appropriate info is in the message
+        self.tcp_client.send_message(ReleaseBlock(block))
