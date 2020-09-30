@@ -92,7 +92,7 @@ class Scheduler:
                 return None, self.dependency_graph.task_state(task_id)
             return self.acquire_block(task_id)
 
-    def release_block(self, task, block, status):
+    def release_block(self, task_id, block):
         """
         Update the dependency graph with the status
         of a given block ``block`` on task ``task``.
@@ -103,9 +103,6 @@ class Scheduler:
 
             block(``Block``):
                 Block of interest.
-
-            status(``Status``):
-                Result of processing given block on given task
 
         Return:
             ``list``(``Task``):
@@ -118,8 +115,7 @@ class Scheduler:
             waiting to Waiting to Ready and be returned.
         """
 
-        with self.lock:
-            self.dependency_graph.remove_and_update((task.task_id, block.block_id))
+        self.dependency_graph.remove_and_update((task_id, block.block_id))
 
     def precheck(self, task_id, block):
         if self.last_prechecked[task_id][0] != block:
