@@ -287,7 +287,7 @@ class DependencyGraph():
                 "Block %d is canceled but was not found", block_id)
             raise
 
-        self.retry_count[block_id] = self.retry_count[block_id] + 1
+        self.retry_count[block_id] += 1
 
         self.processing_blocks.remove(block_id)
         self.task_processing_blocks[block_id[0]].remove(block_id[1])
