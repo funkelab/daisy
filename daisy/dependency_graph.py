@@ -25,14 +25,11 @@ class TaskState:
         self.orphaned_blocks = set()
 
 
-class DependencyGraph:
-    """This class constructs a block-wise dependency graph of a given
-    ``Task`` and its dependencies.It provides an interface for the
-    scheduler to query for blocks ready to be computed, and also a
-    mechanism to retry blocks that have failed.
-
-    User can make a subgraph of certain ROIs of the full graph through
-    ``get_subgraph``.
+class PsuedoScheduler:
+    """This class is significantly more than just a dependency graph,
+    it keeps track of processing, failed, orphaned blocks etc.
+    DependencyGraph should just enumerate blocks and their
+    upstream/downstream dependencies.
     """
 
     def __init__(self):
