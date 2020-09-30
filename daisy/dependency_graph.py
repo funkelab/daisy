@@ -2,6 +2,8 @@ from __future__ import absolute_import
 
 import collections
 import logging
+import itertools
+
 from .blocks import create_dependency_graph, get_subgraph_blocks, \
     expand_request_roi_to_grid
 
@@ -15,7 +17,7 @@ class TaskState():
         self.total_block_count = 0
         self.done_count = 0
         self.failed_count = 0
-        self.processing_blocks = []
+        self.processing_blocks = set()
 
 
 class DependencyGraph():
@@ -45,9 +47,12 @@ class DependencyGraph():
 
         self.retry_count = collections.defaultdict(int)
 
-        self.processing_blocks = set()
         self.failed_blocks = set()
         self.orphaned_blocks = set()
+
+    @property
+    def processing_blocks(self):
+        set(itertools.chain(*[task_state.processing_blocks for task_state in self.task_states.values()]))
 
     def add(self, task, request_roi=None):
         '''Add a ``Task`` to the graph.
@@ -215,7 +220,6 @@ class DependencyGraph():
 
             else:
                 block_id = self.get_from_ready_queue(task_id)
-                self.processing_blocks.add(block_id)
                 self.task_states[block_id[0]].processing_blocks.add(
                     block_id[1])
                 return_blocks[block_id[0]] = self.blocks[block_id]
@@ -262,14 +266,13 @@ class DependencyGraph():
         '''Used to notify that a block has failed. The block will either
         be rescheduled if within the number of retries, or be marked
         as failed.'''
-        if block_id not in self.processing_blocks:
+        if block_id[1] not in self.task_states[block_id[0]]:
             logger.error(
                 "Block %d is canceled but was not found", block_id)
             raise
 
         self.retry_count[block_id] += 1
 
-        self.processing_blocks.remove(block_id)
         self.task_states[block_id[0]].processing_blocks.remove(block_id[1])
         task_id = block_id[0]
 
@@ -312,8 +315,12 @@ class DependencyGraph():
     def remove_and_update(self, block_id):
         '''Removing a finished block and update ready queue.'''
 
+        if block_id[1] not in self.task_states[block_id[0]]:
+            logger.error(
+                "Block %d is canceled but was not found", block_id)
+            raise
+
         self.task_states[block_id[0]].done_count += 1
-        self.processing_blocks.remove(block_id)
         self.task_states[block_id[0]].processing_blocks.remove(block_id[1])
 
         dependents = self.dependents[block_id]
