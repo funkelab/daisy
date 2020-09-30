@@ -80,13 +80,16 @@ class Scheduler:
                 return self.acquire_block(task_id)
 
             else:
-                return self.available_blocks.pop(task_id)
+                return (
+                    self.available_blocks.pop(task_id),
+                    self.dependency_graph.task_state(task_id),
+                )
 
         else:
-            # These cases should be handled by task STATE
+            # get next from dependency graph
             self.available_blocks = self.dependency_graph.next(self.available_blocks)
             if task_id not in self.available_blocks:
-                raise Exception("No block available for this task!")
+                return None, self.dependency_graph.task_state(task_id)
             return self.acquire_block(task_id)
 
     def release_block(self, task, block, status):
