@@ -26,7 +26,6 @@ class DependencyGraph():
         # self.leaf_task_id = None
         self.tasks = set()
         self.task_map = {}
-        self.prepared_tasks = set()
         self.created_tasks = set()
         self.task_dependency = collections.defaultdict(set)
 
@@ -78,7 +77,6 @@ class DependencyGraph():
         block-wise graph.'''
         assert(task_id in self.task_map)
         self.created_tasks = set()
-        self.__recursively_prepare(task_id)
         self.__recursively_create_dependency_graph(task_id, request_roi)
 
     def add_to_ready_queue(self, task_id, block_id):
