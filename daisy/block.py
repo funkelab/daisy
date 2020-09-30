@@ -102,7 +102,7 @@ class Block(Freezable):
         return copy.deepcopy(self)
 
     def set_status(self, status):
-        self.unfreeze()
+        self.thaw()
         self.status = status
         self.freeze()
 
