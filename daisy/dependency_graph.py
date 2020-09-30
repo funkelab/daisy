@@ -193,17 +193,6 @@ class DependencyGraph():
                 # queue immediately
                 self.add_to_ready_queue(task_id, block_id)
 
-    def __recursively_prepare(self, task):
-
-        if task in self.prepared_tasks:
-            return
-        self.prepared_tasks.add(task)
-
-        for dependency_task in self.task_dependency[task]:
-            self.__recursively_prepare(dependency_task)
-
-        self.task_map[task].prepare()
-
     def next(self, waiting_blocks):
         '''Called by the ``scheduler`` to get a `dict` of ready blocks.
         This function blocks when outstanding blocks are empty and
