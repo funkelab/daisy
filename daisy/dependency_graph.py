@@ -59,11 +59,11 @@ class DependencyGraph():
         if task.task_id not in self.task_map:
             self.tasks.add(task)
             self.task_map[task.task_id] = task
-            self.add_task_dependency(task)
+            self.add_task_dependencies(task)
 
             self.__recursively_create_dependency_graph(task.task_id, request_roi)
 
-    def add_task_dependency(self, task):
+    def add_task_dependencies(self, task):
         '''Recursively add dependencies of a task to the graph.'''
         for dependency_task in task.requires():
 
