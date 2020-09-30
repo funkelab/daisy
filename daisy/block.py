@@ -5,12 +5,13 @@ from .freezable import Freezable
 from funlib.math import cantor_number
 import copy
 
-BlockStatus = Enum(
-        'WAITING',
-        'READY',
-        'PROCESSING',
-        'DONE',
-        'FAILED')
+
+class BlockStatus(Enum):
+    WAITING = 1
+    READY = 2
+    PROCESSING = 3
+    DONE = 4
+    FAILED = 5
 
 
 class Block(Freezable):
