@@ -11,7 +11,9 @@ setup(
         packages=[
             'daisy',
             'daisy.ext',
-            'daisy.persistence'
+            'daisy.persistence',
+            'daisy.tcp',
+            'daisy.message'
         ],
         install_requires=[
             "numpy",
