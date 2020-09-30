@@ -26,7 +26,7 @@ class DependencyGraph():
         # self.leaf_task_id = None
         self.tasks = set()
         self.task_map = {}
-        self.created_tasks = set()
+        self.created_tasks = {}
         self.task_dependency = collections.defaultdict(set)
 
         self.dependents = collections.defaultdict(set)
@@ -48,7 +48,7 @@ class DependencyGraph():
         if self.use_z_order_scheduling:
             self.ready_queues = collections.defaultdict(list)
 
-    def add(self, task):
+    def add(self, task, request_roi=None):
         '''Add a ``Task`` to the graph.
 
         Args:
@@ -61,6 +61,8 @@ class DependencyGraph():
             self.task_map[task.task_id] = task
             self.add_task_dependency(task)
 
+            self.__recursively_create_dependency_graph(task.task_id, request_roi)
+
     def add_task_dependency(self, task):
         '''Recursively add dependencies of a task to the graph.'''
         for dependency_task in task.requires():
@@ -70,14 +72,6 @@ class DependencyGraph():
 
             # modify task dependency graph
             self.task_dependency[task.task_id].add(dependency_task.task_id)
-
-    def init(self, task_id, request_roi=None):
-        '''Called by the ``scheduler`` after all tasks have been added.
-        Call the prepare() of each task, and create the entire
-        block-wise graph.'''
-        assert(task_id in self.task_map)
-        self.created_tasks = set()
-        self.__recursively_create_dependency_graph(task_id, request_roi)
 
     def add_to_ready_queue(self, task_id, block_id):
         if self.use_z_order_scheduling:
@@ -97,9 +91,14 @@ class DependencyGraph():
         '''Create dependency graph for its dependencies first before
         its own'''
         if task_id in self.created_tasks:
-            return
+            if request_roi is None or self.created_tasks[task_id].contains(request_roi):
+                return
+            elif request_roi is not None:
+                raise NotImplementedError(
+                    "Just need to expand the dependency graph to contain extra blocks"
+                )
         else:
-            self.created_tasks.add(task_id)
+            self.created_tasks[task_id] = self.created_tasks[task_id].union(request_roi)
 
         task = self.task_map[task_id]
         dependency_request_roi = None
