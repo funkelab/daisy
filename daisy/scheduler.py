@@ -58,7 +58,7 @@ class Scheduler:
         Args:
             task_id(``int``):
                 The task for which you want a block
-            
+
         Return:
             ``Block`` or None:
                 A block that can be run without worry of
@@ -68,25 +68,7 @@ class Scheduler:
         """
         if task_id in self.available_blocks:
             block = self.available_blocks[task_id]
-            if self.last_prechecked[task_id][0] != block:
-                # pre-check and skip blocks if possible
-                try:
-                    # pre_check can intermittently fail
-                    # so we wrap it in a try block
-                    pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
-                except Exception as e:
-                    logger.error(
-                        "pre_check() exception for block %s of task %s. "
-                        "Exception: %s",
-                        block,
-                        task_id,
-                        e,
-                    )
-                    pre_check_ret = False
-                finally:
-                    self.last_prechecked[task_id] = (block, pre_check_ret)
-
-            pre_check_ret = self.last_prechecked[task_id][1]
+            pre_check_ret = self.precheck(task_id, block)
 
             if pre_check_ret:
                 logger.debug(
@@ -108,9 +90,7 @@ class Scheduler:
             # 3) Block is available and continue as normal
 
             # These cases should be handled by task STATE
-            self.available_blocks = self.dependency_graph.next(
-                self.available_blocks
-            )
+            self.available_blocks = self.dependency_graph.next(self.available_blocks)
             if task_id not in self.available_blocks:
                 raise Exception("No block available for this task!")
             return self.acquire_block(task_id)
@@ -143,6 +123,26 @@ class Scheduler:
 
         with self.lock:
             self.dependency_graph.remove_and_update((task.task_id, block.block_id))
+
+    def precheck(self, task_id, block):
+        if self.last_prechecked[task_id][0] != block:
+            # pre-check and skip blocks if possible
+            try:
+                # pre_check can intermittently fail
+                # so we wrap it in a try block
+                pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
+            except Exception as e:
+                logger.error(
+                    "pre_check() exception for block %s of task %s. " "Exception: %s",
+                    block,
+                    task_id,
+                    e,
+                )
+                pre_check_ret = False
+            finally:
+                self.last_prechecked[task_id] = (block, pre_check_ret)
+
+        return self.last_prechecked[task_id][1]
 
 
 def run_blockwise():
