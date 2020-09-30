@@ -44,10 +44,6 @@ class DependencyGraph():
         self.task_done_count = collections.defaultdict(int)
         self.task_total_block_count = collections.defaultdict(int)
 
-        self.use_z_order_scheduling = True
-        if self.use_z_order_scheduling:
-            self.ready_queues = collections.defaultdict(list)
-
     def add(self, task, request_roi=None):
         '''Add a ``Task`` to the graph.
 
@@ -74,18 +70,10 @@ class DependencyGraph():
             self.task_dependency[task.task_id].add(dependency_task.task_id)
 
     def add_to_ready_queue(self, task_id, block_id):
-        if self.use_z_order_scheduling:
-            heapq.heappush(self.ready_queues[task_id],
-                           (self.blocks[block_id].z_order_id, block_id))
-        else:
-            self.ready_queues[task_id].append(block_id)
+        self.ready_queues[task_id].append(block_id)
 
     def get_from_ready_queue(self, task_id):
-        if self.use_z_order_scheduling:
-            item = heapq.heappop(self.ready_queues[task_id])
-            return item[1]
-        else:
-            return self.ready_queues[task_id].popleft()
+        return self.ready_queues[task_id].popleft()
 
     def __recursively_create_dependency_graph(self, task_id, request_roi):
         '''Create dependency graph for its dependencies first before
