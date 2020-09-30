@@ -1,8 +1,15 @@
-import logging
-from queue import Queue
-from .scheduler import Scheduler
 from .context import Context
+from .scheduler import Scheduler
 from .tcp import TCPServer
+from .worker_pool import WorkerPool
+from .messages import (
+    AcquireBlock,
+    SendBlock,
+    ReleaseBlock,
+    TerminateClient,
+    ClientException)
+from queue import Queue
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -14,42 +21,44 @@ class Server:
         self.tcp_server = TCPServer()
         self.hostname, self.port = self.tcp_server.address
 
-    def run_blockwise(self, tasks):
+        logger.debug(
+            "Started server listening at %s:%s",
+            self.hostname,
+            self.port)
 
-        self.scheduler = Scheduler(tasks)
+    def run_blockwise(self, tasks, scheduler=None):
 
-        # create a worker pool per task
+        if scheduler is None:
+            self.scheduler = Scheduler(tasks)
+        else:
+            self.scheduler = scheduler
+
+        logger.debug("Creating worker pools")
         self.worker_pools = {
             task.task_id: WorkerPool(
                 task.spawn_worker_function,
                 Context(
                     hostname=self.hostname,
-                    post=self.port,
-                    task_id=task.task_id)
+                    port=self.port,
+                    task_id=task.task_id))
             for task in tasks
         }
 
         self.pending_requests = {
             task.task_id: Queue()
+            for task in tasks
         }
 
-        # enter server event loop
-        self.running = True
-
-        ready_tasks = self.scheduler.get_ready_tasks()
-        for task in ready_tasks:
-            self.worker_pools[task.task_id].set_num_workers(task.config.num_workers)
+        self._recruit_workers()
 
         try:
             self._event_loop()
-        except ...:
-            pass
         finally:
-            # tear down all worker pools
+            self._stop_workers()
 
     def _event_loop(self):
 
-        # TODO: keep number of workers in sync with scheduler requirements
+        self.running = True
 
         while self.running:
             self._handle_client_messages()
@@ -79,19 +88,23 @@ class Server:
                 # dependencies fullfilled
                 self.pending_requests[message.task_id].put(message)
 
+            else:
+
+                message.stream.send_message(SendBlock(block))
+
         elif isinstance(message, ReleaseBlock):
 
-            task_state = self.scheduler.release_block(message.block)
+            task_states = self.scheduler.release_block(message.block)
 
-            task_id = message.block.task_id
+            for task_id, task_state in task_states.items():
+                for _ in range(task_state.num_ready_blocks):
+                    if self.pending_requests[task_id].empty():
+                        break
 
-            for _ in range(task_state.num_ready_blocks):
+                    pending_request = self.pending_requests[task_id].get()
+                    self._handle_client_message(pending_request)
 
-                if self.pending_requests[task_id].empty():
-                    break
-
-                pending_request = self.pending_requests[task_id].get()
-                self._handle_client_message(pending_request)
+            self._recruit_workers()
 
         elif isinstance(message, ClientException):
 
@@ -102,6 +115,23 @@ class Server:
 
             logger.error("Server received unknown message: %s", type(message))
 
+    def _recruit_workers(self):
+
+        ready_tasks = self.scheduler.get_ready_tasks()
+        ready_tasks = {task.task_id: task for task in ready_tasks}
+
+        for task_id, worker_pool in self.worker_pools.items():
+            if task_id in ready_tasks:
+                worker_pool.set_num_workers(ready_tasks[task_id].num_workers)
+            else:
+                worker_pool.stop()
+
+    def _stop_workers(self):
+
+        for worker_pool in self.worker_pools.values():
+            worker_pool.stop()
+
     def _check_worker_health(self):
+
         for worker_pool in self.worker_pools.values():
             worker_pool.check_for_errors()
