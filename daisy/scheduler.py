@@ -1,20 +1,12 @@
 from __future__ import absolute_import
 
-from .context import Context
 from .dependency_graph import DependencyGraph
 from .task import Task
-
-from inspect import signature
+from .block import BlockStatus
 
 from typing import List
 import collections
-from datetime import timedelta
 import logging
-import os
-import queue
-import socket
-import threading
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +95,7 @@ class Scheduler:
                 Block of interest.
 
         Return:
-            ``list``(``Task``):
+            ``dict``(``task_id`` -> ``TaskStatus``):
             Each task returned had its
             state changed by updating the status of the given
             block on the given task. i.e. if a task B was
@@ -113,7 +105,8 @@ class Scheduler:
             waiting to Waiting to Ready and be returned.
         """
 
-        self.dependency_graph.remove_and_update((task_id, block.block_id))
+        if block.status == BlockStatus.SUCCESS:
+            self.dependency_graph.remove_and_update((task_id, block.block_id))
 
     def precheck(self, task_id, block):
         if self.last_prechecked[task_id][0] != block:
