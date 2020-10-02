@@ -99,9 +99,9 @@ class BlockwiseDependencyGraph:
         self.fit = fit
 
         # computed values
-        self.level_stride = self.compute_level_stride()
-        self.level_offsets = self.compute_level_offsets()
-        self.level_conflicts = self.compute_level_conflicts()
+        self._level_stride = self.compute_level_stride()
+        self._level_offsets = self.compute_level_offsets()
+        self._level_conflicts = self.compute_level_conflicts()
 
         self.dependencies = self.enumerate_all_dependencies()
 
@@ -123,7 +123,7 @@ class BlockwiseDependencyGraph:
         blocks = []
 
         for level_conflicts, level_block_offsets in zip(
-            self.level_conflicts, self.level_block_offsets
+            self._level_conflicts, self.level_block_offsets
         ):
             blocks += self.enumerate_level_dependencies(
                 level_conflicts,
@@ -182,12 +182,12 @@ class BlockwiseDependencyGraph:
 
         logger.debug(
             "Compute level offsets for level stride %s and write stride %s.",
-            self.level_stride,
+            self._level_stride,
             write_stride,
         )
 
         dim_offsets = [
-            range(0, e, step) for e, step in zip(self.level_stride, write_stride)
+            range(0, e, step) for e, step in zip(self._level_stride, write_stride)
         ]
 
         level_offsets = list(reversed([Coordinate(o) for o in product(*dim_offsets)]))
@@ -204,12 +204,12 @@ class BlockwiseDependencyGraph:
         level_conflict_offsets = []
         prev_level_offset = None
 
-        for level, level_offset in enumerate(self.level_offsets):
+        for level, level_offset in enumerate(self._level_offsets):
 
             # get conflicts to previous level
             if prev_level_offset is not None and self.read_write_conflict:
                 conflict_offsets = self.get_conflict_offsets(
-                    level_offset, prev_level_offset, self.level_stride
+                    level_offset, prev_level_offset, self._level_stride
                 )
             else:
                 conflict_offsets = []
@@ -227,14 +227,14 @@ class BlockwiseDependencyGraph:
         level_block_offsets = []
 
         for level_offset, level_conflicts in zip(
-            self.level_offsets, self.level_conflicts
+            self._level_offsets, self._level_conflicts
         ):
 
             # all block offsets of the current level (relative to total ROI start)
             block_dim_offsets = [
                 range(lo, e, s)
                 for lo, e, s in zip(
-                    level_offset, self.total_roi.get_shape(), self.level_stride
+                    level_offset, self.total_roi.get_shape(), self._level_stride
                 )
             ]
             # TODO: can we do this part lazily? This might be a lot of Coordinates
