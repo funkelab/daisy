@@ -1,7 +1,6 @@
 from __future__ import absolute_import
 from .block import Block
 from .coordinate import Coordinate
-from .roi import Roi
 
 from itertools import product
 import logging
@@ -420,24 +419,34 @@ class DependencyGraph:
                     continue
 
                 self.blocks[block.block_id] = block
+                
+                for upstream_block in upstream_blocks:
+                    if upstream_block.block_id not in self.blocks:
+                        raise RuntimeError(
+                            "Block dependency %s is not found for task %s."
+                            % (upstream_block.block_id, task_id)
+                        )
+                    self.downstream[upstream_block.block_id].add(block.block_id)
+                    self.upstream[block.block_id].add(upstream_block.block_id)
 
         # enumerate all of the upstream / downstream dependencies
         for task_id in self.task_ids:
             # add inter-task read-write dependency
             if len(self.task_dependency[task_id]):
-                roi = block.read_roi
-                for upstream_task_id in self.task_dependency[task_id]:
-                    upstream_task_blocks = self.task_dependency_graphs[
-                        upstream_task_id
-                    ].get_subgraph_blocks(roi)
-                    upstream_blocks.extend([upstream_task_blocks])
+                for block in self.task_dependency_graphs[task_id].blocks:
+                    roi = block.read_roi
+                    upstream_blocks = []
+                    for upstream_task_id in self.task_dependency[task_id]:
+                        upstream_task_blocks = self.task_dependency_graphs[
+                            upstream_task_id
+                        ].get_subgraph_blocks(roi)
+                        upstream_blocks.extend([upstream_task_blocks])
 
-            for upstream_block in upstream_blocks:
-                if upstream_block.block_id not in self.blocks:
-                    raise RuntimeError(
-                        "Block dependency %s is not found for task %s."
-                        % (dep_id, task_id)
-                    )
-                    continue
-                self.downstream[dep_id].add(block_id)
-                self.upstream[block_id].add(dep_id)
+                    for upstream_block in upstream_blocks:
+                        if upstream_block.block_id not in self.blocks:
+                            raise RuntimeError(
+                                "Block dependency %s is not found for task %s."
+                                % (upstream_block.block_id, task_id)
+                            )
+                        self.downstream[upstream_block.block_id].add(block.block_id)
+                        self.upstream[block.block_id].add(upstream_block.block_id)
