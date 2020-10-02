@@ -1,10 +1,12 @@
 from __future__ import absolute_import
 from .block import Block
 from .coordinate import Coordinate
+from .roi import Roi
 
 from itertools import product
 import logging
 import collections
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -80,13 +82,26 @@ class BlockwiseDependencyGraph:
                             |rrrr|www|rrrr|     block 3 (shrunk)
     """
 
-    def __init__(self, task):
-        self.task_id = task.task_id
-        self.total_roi = task.total_roi
-        self.block_read_roi = task.read_roi
-        self.block_write_roi = task.write_roi
-        self.read_write_conflict = task.read_write_conflict
-        self.fit = task.fit
+    def __init__(
+        self,
+        task_id: str,
+        total_roi: Roi,
+        read_roi: Roi,
+        write_roi: Roi,
+        read_write_conflict: bool,
+        fit: str,
+    ):
+        self.task_id = task_id
+        self.total_roi = total_roi
+        self.block_read_roi = read_roi
+        self.block_write_roi = write_roi
+        self.read_write_conflict = read_write_conflict
+        self.fit = fit
+
+        # computed values
+        self.level_stride = self.compute_level_stride()
+        self.level_offsets = self.compute_level_offsets()
+        self.level_conflicts = self.compute_level_conflicts()
 
         self.dependencies = self.enumerate_all_dependencies()
 
@@ -103,9 +118,6 @@ class BlockwiseDependencyGraph:
 
     def enumerate_all_dependencies(self):
 
-        self.level_stride = self.compute_level_stride()
-        self.level_offsets = self.compute_level_offsets()
-        self.level_conflicts = self.compute_level_conflicts()
         self.level_block_offsets = self.compute_level_block_offsets()
 
         blocks = []
@@ -120,8 +132,10 @@ class BlockwiseDependencyGraph:
 
         return blocks
 
-    def compute_level_stride(self):
-        """Get the stride that separates independent blocks in one level."""
+    def compute_level_stride(self) -> Coordinate:
+        """
+        Get the stride that separates independent blocks in one level.
+        """
 
         logger.debug(
             "Compute level stride for read ROI %s and write ROI %s.",
@@ -141,8 +155,8 @@ class BlockwiseDependencyGraph:
         )
         logger.debug("max context per dimension is %s", max_context)
 
-        # this stride guarantees that blocks are independent, not be a
-        # multiple of the write_roi shape. It would be difficult to tile
+        # this stride guarantees that blocks are independent, but not a
+        # multiple of the write_roi shape. It would be impossible to tile
         # the output roi with blocks shifted by this min_level_stride
         min_level_stride = max_context + self.block_write_roi.get_shape()
 
@@ -159,9 +173,10 @@ class BlockwiseDependencyGraph:
 
         return level_stride
 
-    def compute_level_offsets(self):
-        """Create a list of all offsets, such that blocks started with these
-        offsets plus a multiple of level stride are mutually independent."""
+    def compute_level_offsets(self) -> List[Coordinate]:
+        """
+        compute an offset for each level.
+        """
 
         write_stride = self.block_write_roi.get_shape()
 
@@ -181,9 +196,10 @@ class BlockwiseDependencyGraph:
 
         return level_offsets
 
-    def compute_level_conflicts(self):
-        # create a list of conflict offsets for each level, that span the total
-        # ROI
+    def compute_level_conflicts(self) -> List[List[Coordinate]]:
+        """
+        For each level, compute the set of conflicts from previous levels.
+        """
 
         level_conflict_offsets = []
         prev_level_offset = None
@@ -203,7 +219,11 @@ class BlockwiseDependencyGraph:
 
         return level_conflict_offsets
 
-    def compute_level_block_offsets(self):
+    def compute_level_block_offsets(self) -> List[List[Coordinate]]:
+        """
+        For each level, get the set of all offsets corresponding to blocks in
+        this level.
+        """
         level_block_offsets = []
 
         for level_offset, level_conflicts in zip(
@@ -443,7 +463,14 @@ class DependencyGraph:
         """Create dependency graph a specific task"""
 
         # create intra task dependency graph
-        self.task_dependency_graphs[task.task_id] = BlockwiseDependencyGraph(task)
+        self.task_dependency_graphs[task.task_id] = BlockwiseDependencyGraph(
+            task.task_id,
+            task.total_roi,
+            task.read_roi,
+            task.write_roi,
+            task.read_write_conflict,
+            task.fit,
+        )
 
     def __enumerate_all_dependencies(self):
         # enumerate all the blocks
