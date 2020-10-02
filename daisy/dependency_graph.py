@@ -395,17 +395,13 @@ class DependencyGraph:
             if len(upstream_blocks) == 0:
                 yield block_id
 
-    def __add_class(self, task):
+    def __add_task(self, task):
         if task.task_id not in self.task_map:
             self.tasks.add(task)
             self.task_map[task.task_id] = task
-            self.__add_task_dependencies(task)
-
-    def __add_task_dependencies(self, task):
-        """Recursively add dependencies of a task to the graph."""
-        for dependency_task in task.requires():
-            self.add(dependency_task)
-            self.task_dependency[task.task_id].add(dependency_task.task_id)
+            for upstream_task in task.requires():
+                self.add(upstream_task)
+                self.task_dependency[task.task_id].add(upstream_task.task_id)
 
     def __add_task_dependency_graph(self, task):
         """Create dependency graph a specific task"""
