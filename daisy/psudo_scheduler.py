@@ -32,20 +32,14 @@ class PsuedoScheduler:
     upstream/downstream dependencies.
     """
 
-    def __init__(self):
-
-        # self.leaf_task_id = None
-        self.tasks = set()
-        self.task_map = {}
-        self.created_tasks = {}
-        self.task_dependency = collections.defaultdict(set)
+    def __init__(self, tasks):
 
         # task states:
         self.task_states = collections.defaultdict(TaskState)
+        self.block_states = collections.defaultdict(BlockState)
 
-        self.downstream = collections.defaultdict(set)
-        self.upstream = collections.defaultdict(set)
-        self.blocks = {}
+        # dependency graph
+        self.dependency_graph = DependencyGraph(tasks)
 
         self.retry_count = collections.defaultdict(int)
 
@@ -76,153 +70,11 @@ class PsuedoScheduler:
             ]
         )
 
-    def add(self, task, request_roi=None):
-        """Add a ``Task`` to the graph.
-
-        Args:
-            task(``Task``):
-                Task to be added to the graph. Its dependencies are
-                automatically and recursively added to the graph.
-        """
-        if task.task_id not in self.task_map:
-            self.tasks.add(task)
-            self.task_map[task.task_id] = task
-            self.add_task_dependencies(task)
-
-            self.__recursively_create_dependency_graph(task.task_id, request_roi)
-
-    def add_task_dependencies(self, task):
-        """Recursively add dependencies of a task to the graph."""
-        for dependency_task in task.requires():
-
-            # Add the required task to tasks and task_map
-            self.add(dependency_task)
-
-            # modify task dependency graph
-            self.task_dependency[task.task_id].add(dependency_task.task_id)
-
     def add_to_ready_queue(self, task_id, block_id):
         self.task_states[task_id].ready_queue.append(block_id)
 
     def get_from_ready_queue(self, task_id):
         return self.task_states[task_id].ready_queue.popleft()
-
-    def __recursively_create_dependency_graph(self, task_id, request_roi):
-        """Create dependency graph for its dependencies first before
-        its own"""
-        if task_id in self.created_tasks:
-            if request_roi is None or self.created_tasks[task_id].contains(request_roi):
-                return
-            elif request_roi is not None:
-                raise NotImplementedError(
-                    "Just need to expand the dependency graph to contain extra blocks"
-                )
-        else:
-            self.created_tasks[task_id] = self.created_tasks[task_id].union(request_roi)
-
-        task = self.task_map[task_id]
-        dependency_request_roi = None
-
-        # restore original total_roi before modification
-        # (second time this task is processed)
-        task._daisy.total_roi = task._daisy.orig_total_roi
-
-        if request_roi:
-            # request has to be within the total_write_roi
-            # TODO: make sure this is correct given the fitting strategy
-            # of the dependent task
-            if not task._daisy.total_write_roi.contains(request_roi):
-
-                new_request_roi = request_roi.intersect(task._daisy.total_write_roi)
-                logger.info(
-                    "Reducing request_roi for Task %s from %s to %s because "
-                    "total_write_roi is only %s",
-                    task_id,
-                    request_roi,
-                    new_request_roi,
-                    task._daisy.total_write_roi,
-                )
-                request_roi = new_request_roi
-
-            # reduce total_roi to match request_roi
-            # and calculate request_roi for its dependencies
-            total_roi = expand_request_roi_to_grid(
-                request_roi,
-                task._daisy.orig_total_roi,
-                task._daisy.read_roi,
-                task._daisy.write_roi,
-            )
-
-            logger.info(
-                "Reducing total_roi for Task %s from %s to %s because of " "request %s",
-                task_id,
-                task._daisy.orig_total_roi,
-                total_roi,
-                request_roi,
-            )
-
-            task._daisy.total_roi = total_roi
-            dependency_request_roi = total_roi
-
-        for dependency_task in self.task_dependency[task_id]:
-            self.__recursively_create_dependency_graph(
-                dependency_task, dependency_request_roi
-            )
-
-        # finally create graph for this task
-        # first create the self-contained dependency graph
-        blocks = create_dependency_graph(
-            task._daisy.total_roi,
-            task._daisy.read_roi,
-            task._daisy.write_roi,
-            task._daisy.read_write_conflict,
-            task._daisy.fit,
-        )
-
-        self.task_states[task_id].total_block_count += len(blocks)
-        self.task_states[task_id].done_count = 0
-
-        # add tasks to block-wise graph, while accounting for intra-task
-        # and inter-task dependencies
-        for block, block_dependencies in blocks:
-
-            block_id = block.block_id
-            assert (
-                isinstance(block_id, tuple) and len(block_id) == 2
-            ), "block_id should be a unique (task_id, block_index) identifier for a specific block"
-
-            if block_id in self.blocks:
-                continue
-
-            self.blocks[block_id] = block
-
-            dependencies = [
-                b.block_id for b in block_dependencies if b.block_id in self.blocks
-            ]
-
-            # add inter-task read-write dependency
-            if len(self.task_dependency[task_id]):
-                roi = block.read_roi
-                for dependent_task in self.task_dependency[task_id]:
-                    block_ids = self._get_subgraph_blocks(dependent_task, roi)
-                    dependencies.extend(
-                        [(dependent_task, block_id) for block_id in block_ids]
-                    )
-
-            for dep_id in dependencies:
-                if dep_id not in self.blocks:
-                    raise RuntimeError(
-                        "Block dependency %s is not found for task %s."
-                        % (dep_id, task_id)
-                    )
-                    continue
-                self.downstream[dep_id].add(block_id)
-                self.upstream[block_id].add(dep_id)
-
-            if len(dependencies) == 0:
-                # if this block has no dependencies, add it to the ready
-                # queue immediately
-                self.add_to_ready_queue(task_id, block_id)
 
     def next(self, waiting_blocks):
         """Called by the ``scheduler`` to get a `dict` of ready blocks.
@@ -257,10 +109,6 @@ class PsuedoScheduler:
 
         return return_blocks
 
-    def get_tasks(self):
-        """Get all tasks in the graph."""
-        return self.tasks
-
     def empty(self):
         """Return ``True`` if there is no more blocks to be executed,
         either because all blocks have been completed, or because there
@@ -277,10 +125,6 @@ class PsuedoScheduler:
         for task in self.task_states:
             count += len(self.task_states[task].ready_queue)
         return count
-
-    def get_block(self, block_id):
-        """Return a specific block."""
-        return self.blocks[block_id]
 
     def cancel_and_reschedule(self, block_id):
         """Used to notify that a block has failed. The block will either
