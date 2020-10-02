@@ -13,18 +13,6 @@ from .blocks import (
 logger = logging.getLogger(__name__)
 
 
-class TaskState:
-    def __init__(self):
-        self.ready_queue = []
-        self.created = False
-        self.total_block_count = 0
-        self.done_count = 0
-        self.failed_count = 0
-        self.processing_blocks = set()
-        self.failed_blocks = set()
-        self.orphaned_blocks = set()
-
-
 class PsuedoScheduler:
     """This class is significantly more than just a dependency graph,
     it keeps track of processing, failed, orphaned blocks etc.
