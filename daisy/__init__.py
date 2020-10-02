@@ -2,7 +2,6 @@ from __future__ import absolute_import
 from . import persistence # noqa
 from .array import Array # noqa
 from .block import Block, BlockStatus # noqa
-from .blocks import create_dependency_graph # noqa
 from .blocks import expand_roi_to_grid # noqa
 from .blocks import expand_write_roi_to_grid # noqa
 from .client import Client # noqa
