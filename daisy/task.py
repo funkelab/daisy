@@ -1,6 +1,7 @@
 class Task:
     def __init__(
         self,
+        task_id,
         total_roi,
         read_roi,
         write_roi,
@@ -13,7 +14,7 @@ class Task:
         timeout=None,
         upstream_tasks=None,
     ):
-
+        self.task_id = task_id
         self.total_roi = total_roi
         self.orig_total_roi = total_roi
         self.read_roi = read_roi
@@ -33,5 +34,5 @@ class Task:
         if upstream_tasks is not None:
             self.upstream_tasks.extend(upstream_tasks)
 
-    def deps(self):
+    def requires(self):
         return self.upstream_tasks

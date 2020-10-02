@@ -18,16 +18,23 @@ _NO_SPAWN_STATUS_THREAD = False
 class TaskState:
     def __init__(self):
         self.started = False
+        self.ready_count = 0
         self.total_block_count = 0
         self.completed_count = 0
         self.failed_count = 0
         self.orphaned_count = 0
         self.processing_count = 0
 
+    def __str__(self):
+        return f"{self.started}, {self.ready_count}"
+
+    def __repr__(self):
+        return str(self)
+
 
 class TaskBlocks:
     def __init__(self):
-        self.ready_queue = []
+        self.ready_queue = collections.deque()
         self.processing_blocks = set()
         self.failed_blocks = set()
         self.orphaned_blocks = set()
@@ -56,10 +63,11 @@ class Scheduler:
         self.task_map = {}
         self.task_states = collections.defaultdict(TaskState)
         self.task_blocks = collections.defaultdict(TaskBlocks)
+
+        self.root_tasks = self.dependency_graph.roots()
+
         for task in tasks:
             self.__init_task(task)
-
-        self.roots, self.root_task = self.dependency_graph.roots()
 
         self.completed_surface = set()
         self.block_statuses = collections.defaultdict(BlockStatus)
@@ -72,20 +80,31 @@ class Scheduler:
             self.task_states[
                 task.task_id
             ].total_block_count = self.dependency_graph.num_blocks(task.task_id)
+
+            if task.task_id in self.root_tasks:
+                self.task_states[task.task_id].ready_count = self.root_tasks[
+                    task.task_id
+                ][0]
+
             for upstream_task in task.requires():
                 self.add(upstream_task)
 
     def has_next(self, task_id):
-        has_ready_block = len(self.task_blocks.ready_queue) > 0
+        has_ready_block = len(self.task_blocks[task_id].ready_queue) > 0
         if has_ready_block:
             return True
-        elif task_id == self.root_task:
+        elif self.task_states[task_id].ready_count > 0:
+            # a task should only have ready blocks that are not in the queue
+            # if it is a root task and roots have been provided as a generator
             try:
-                next_block = next(self.roots)
-                self.task_blocks.ready_queue.append(next_block)
+                next_block = next(self.root_tasks[task_id][1])
+                self.task_blocks[task_id].ready_queue.append(next_block)
                 return True
             except StopIteration:
-                return False
+                raise NotImplementedError("This should not be reachable!")
+        else:
+            # There are no blocks ready for processing
+            return False
 
     def acquire_block(self, task_id):
         """
@@ -103,7 +122,7 @@ class Scheduler:
                 The state of the task.
         """
         if self.has_next(task_id):
-            block = self.task_blocks.ready_queue.popleft()
+            block = self.task_blocks[task_id].ready_queue.popleft()
             pre_check_ret = self.precheck(task_id, block)
 
             if pre_check_ret:
@@ -122,13 +141,10 @@ class Scheduler:
                 )
                 self.task_blocks[task_id].processing_blocks.add(block.block_id)
                 self.task_states[task_id].processing_count += 1
-                return (
-                    block,
-                    self.task_states[task_id],
-                )
+                return block
 
         else:
-            return None, self.task_states[task_id]
+            return None
 
     def release_block(self, block):
         """
@@ -185,10 +201,10 @@ class Scheduler:
         updated_tasks = {}
         downstream_blocks = self.dependency_graph.downstream(block_id)
         for down in downstream_blocks:
-            upstream_blocks = self.dependency_graph.upstream(down)
-            if all(up in self.completed_surface for up in upstream_blocks):
-                self.task_blocks[down[0]].ready_queue.add(down)
-                updated_tasks[down[0]] = self.task_states[down[0]]
+            upstream_blocks = self.dependency_graph.upstream(down.block_id)
+            if all(up.block_id in self.completed_surface for up in upstream_blocks):
+                self.task_blocks[down.task_id].ready_queue.append(down)
+                updated_tasks[down.task_id] = self.task_states[down.task_id]
         return updated_tasks
 
     def update_failed_surface(self, block_id):
@@ -197,8 +213,8 @@ class Scheduler:
         downstream = set(self.dependency_graph.downstream(block_id))
         while len(downstream) > 0:
             orphan = downstream.pop()
-            self.task_blocks[orphan[0]].add(orphan)
-            self.task_states[orphan[0]].orphaned_count += 1
+            self.task_blocks[orphan.task_id].add(orphan.block_id)
+            self.task_states[orphan.task_id].orphaned_count += 1
             downstream = downstream.union(set(self.dependency_graph.downstream(orphan)))
 
     def precheck(self, task_id, block):

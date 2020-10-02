@@ -83,15 +83,28 @@ class BlockwiseDependencyGraph:
     def __init__(self, task):
         self.task_id = task.task_id
         self.total_roi = task.total_roi
-        self.block_read_roi = task.block_read_roi
-        self.block_write_roi = task.block_write_roi
+        self.block_read_roi = task.read_roi
+        self.block_write_roi = task.write_roi
         self.read_write_conflict = task.read_write_conflict
         self.fit = task.fit
+
+        self.dependencies = self.enumerate_all_dependencies()
+
+    @property
+    def num_blocks(self):
+        return len(self.dependencies)
+
+    def num_roots(self):
+        return len(self.level_block_offsets[0])
+
+    def root_gen(self):
+        for block, _ in self.dependencies[: self.num_roots()]:
+            yield block
 
     def enumerate_all_dependencies(self):
 
         self.level_stride = self.compute_level_stride()
-        self.level_offset = self.compute_level_offset()
+        self.level_offsets = self.compute_level_offsets()
         self.level_conflicts = self.compute_level_conflicts()
         self.level_block_offsets = self.compute_level_block_offsets()
 
@@ -253,10 +266,10 @@ class BlockwiseDependencyGraph:
 
             # create a block shifted by the current offset
             block = Block(
-                self.task_id,
                 self.total_roi,
                 self.block_read_roi + block_offset,
                 self.block_write_roi + block_offset,
+                task_id=self.task_id,
             )
 
             logger.debug("considering block: %s", block)
@@ -269,10 +282,10 @@ class BlockwiseDependencyGraph:
             for conflict_offset in conflict_offsets:
 
                 conflict = Block(
-                    self.task_id,
                     self.total_roi,
                     block.read_roi + conflict_offset,
                     block.write_roi + conflict_offset,
+                    task_id=self.task_id,
                 )
 
                 if not inclusion_criteria(conflict):
@@ -366,7 +379,7 @@ class DependencyGraph:
         tasks,
     ):
         self.task_map = {}
-        self.task_dependencies = {}
+        self.task_dependencies = collections.defaultdict(set)
         for task in tasks:
             self.__add_task(task)
 
@@ -374,8 +387,8 @@ class DependencyGraph:
         for task in self.task_map.values():
             self.__add_task_dependency_graph(task)
 
-        self.downstream = collections.defaultdict(set)
-        self.upstream = collections.defaultdict(set)
+        self._downstream = collections.defaultdict(set)
+        self._upstream = collections.defaultdict(set)
         self.blocks = {}
 
         self.__enumerate_all_dependencies()
@@ -384,43 +397,58 @@ class DependencyGraph:
     def task_ids(self):
         return self.task_map.keys()
 
+    def num_blocks(self, task_id):
+        self.task_dependency_graphs[task_id].num_blocks
+
     def upstream(self, block_id):
-        return self.upstream[block_id]
+        return sorted(
+            [self.blocks[up] for up in self._upstream[block_id]],
+            key=lambda b: b.block_id[1],
+        )
 
     def downstream(self, block_id):
-        return self.downstream[block_id]
+        return sorted(
+            [self.blocks[down] for down in self._downstream[block_id]],
+            key=lambda b: b.block_id[1],
+        )
+
+    def root_tasks(self):
+        return [
+            task_id
+            for task_id, upstream_tasks in self.task_dependencies.items()
+            if len(upstream_tasks) == 0
+        ]
+
+    def num_roots(self, task_id):
+        return self.task_dependency_graphs[task_id].num_roots()
+
+    def root_gen(self, task_id):
+        return self.task_dependency_graphs[task_id].root_gen()
 
     def roots(self):
-        for block_id, upstream_blocks in self.upstream.items():
-            if len(upstream_blocks) == 0:
-                yield block_id
+        root_tasks = self.root_tasks()
+        return {
+            task_id: (self.num_roots(task_id), self.root_gen(task_id))
+            for task_id in root_tasks
+        }
 
     def __add_task(self, task):
         if task.task_id not in self.task_map:
-            self.tasks.add(task)
             self.task_map[task.task_id] = task
             for upstream_task in task.requires():
                 self.add(upstream_task)
-                self.task_dependency[task.task_id].add(upstream_task.task_id)
+                self.task_dependencies[task.task_id].add(upstream_task.task_id)
 
     def __add_task_dependency_graph(self, task):
         """Create dependency graph a specific task"""
 
         # create intra task dependency graph
-        self.task_dependency_graphs[task.task_id] = BlockwiseDependencyGraph(
-            task._daisy.total_roi,
-            task._daisy.read_roi,
-            task._daisy.write_roi,
-            task._daisy.read_write_conflict,
-            task._daisy.fit,
-        )
+        self.task_dependency_graphs[task.task_id] = BlockwiseDependencyGraph(task)
 
     def __enumerate_all_dependencies(self):
         # enumerate all the blocks
         for task_id in self.task_ids:
-            block_dependencies = (
-                self.task_dependency_graphs.enumerate_all_dependencies()
-            )
+            block_dependencies = self.task_dependency_graphs[task_id].dependencies
             for block, upstream_blocks in block_dependencies:
                 if block.block_id in self.blocks:
                     continue
@@ -433,17 +461,17 @@ class DependencyGraph:
                             "Block dependency %s is not found for task %s."
                             % (upstream_block.block_id, task_id)
                         )
-                    self.downstream[upstream_block.block_id].add(block.block_id)
-                    self.upstream[block.block_id].add(upstream_block.block_id)
+                    self._downstream[upstream_block.block_id].add(block.block_id)
+                    self._upstream[block.block_id].add(upstream_block.block_id)
 
         # enumerate all of the upstream / downstream dependencies
         for task_id in self.task_ids:
             # add inter-task read-write dependency
-            if len(self.task_dependency[task_id]):
+            if len(self.task_dependencies[task_id]):
                 for block in self.task_dependency_graphs[task_id].blocks:
                     roi = block.read_roi
                     upstream_blocks = []
-                    for upstream_task_id in self.task_dependency[task_id]:
+                    for upstream_task_id in self.task_dependencies[task_id]:
                         upstream_task_blocks = self.task_dependency_graphs[
                             upstream_task_id
                         ].get_subgraph_blocks(roi)
@@ -455,5 +483,5 @@ class DependencyGraph:
                                 "Block dependency %s is not found for task %s."
                                 % (upstream_block.block_id, task_id)
                             )
-                        self.downstream[upstream_block.block_id].add(block.block_id)
-                        self.upstream[block.block_id].add(upstream_block.block_id)
+                        self._downstream[upstream_block.block_id].add(block.block_id)
+                        self._upstream[block.block_id].add(upstream_block.block_id)
