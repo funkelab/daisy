@@ -384,6 +384,17 @@ class DependencyGraph:
     def task_ids(self):
         return self.task_map.keys()
 
+    def upstream(self, block_id):
+        return self.upstream[block_id]
+
+    def downstream(self, block_id):
+        return self.downstream[block_id]
+
+    def roots(self):
+        for block_id, upstream_blocks in self.upstream.items():
+            if len(upstream_blocks) == 0:
+                yield block_id
+
     def __add_class(self, task):
         if task.task_id not in self.task_map:
             self.tasks.add(task)
@@ -419,7 +430,7 @@ class DependencyGraph:
                     continue
 
                 self.blocks[block.block_id] = block
-                
+
                 for upstream_block in upstream_blocks:
                     if upstream_block.block_id not in self.blocks:
                         raise RuntimeError(
