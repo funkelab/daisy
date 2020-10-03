@@ -1,11 +1,13 @@
+from .exceptions import NoFreePort
+from .internal_messages import (
+    AckClientDisconnect,
+    NotifyClientDisconnect)
+from .io_looper import IOLooper
+from .tcp_stream import TCPStream
 import logging
 import queue
 import socket
 import tornado.tcpserver
-
-from .io_looper import IOLooper
-from .tcp_stream import TCPStream
-from daisy.messages import ExceptionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -26,18 +28,23 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         IOLooper.__init__(self)
 
         self.message_queue = queue.Queue()
+        self.exception_queue = queue.Queue()
 
         # find empty port, start listening
         for i in range(max_port_tries):
+
             try:
+
                 self.listen(0)  # 0 == random port
                 break
+
             except OSError:
+
                 if i == self.max_port_tries - 1:
-                    raise RuntimeError(
+                    raise NoFreePort(
                         "Could not find a free port after %d tries " %
                         self.max_port_tries)
-                pass
+
         self.address = self._get_address()
 
     def get_message(self, timeout=None):
@@ -51,12 +58,12 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 If no message is available after the timeout, returns ``None``.
                 If not set, wait until a message arrived.
         '''
+
+        self._check_for_errors()
+
         try:
 
-            message = self.message_queue.get(block=True, timeout=timeout)
-            if isinstance(message, ExceptionMessage):
-                raise message.exception
-            return message
+            return self.message_queue.get(block=True, timeout=timeout)
 
         except queue.Empty:
 
@@ -68,29 +75,62 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         whenever there is new data in the IOStream).
 
         Args:
+
             stream (:class:`tornado.iostream.IOStream`):
+
                 the incoming stream
+
             address (tuple):
+
                 host, port that new connection comes from
         '''
+
         logger.debug("Received new connection from %s:%d", *address)
-        tcpstream = TCPStream(stream)
+        stream = TCPStream(stream)
 
         while True:
+
             try:
 
-                message = await tcpstream._get_message()
-                if message is None:
-                    break
-                self.message_queue.put(message)
+                message = await stream._get_message()
+
+                if isinstance(message, NotifyClientDisconnect):
+
+                    # client notifies that it disconnects, send a response
+                    # indicating we are no longer using this stream and break
+                    # out of event loop
+                    stream.send_message(AckClientDisconnect())
+                    return
+
+                else:
+
+                    self.message_queue.put(message)
 
             except Exception as e:
 
-                logger.error("TCPServer %s got Exception %s", self, e)
-                break
+                try:
+                    self.exception_queue.put(e)
+                finally:
+                    return
+
+    def stop(self):
+        '''Stop this server. This exits the IOLoop and stops listening to
+        connected clients.'''
+
+        logger.debug("Stopping IOLoop")
+        self.ioloop.add_callback(self.ioloop.stop)
+
+    def _check_for_errors(self):
+
+        try:
+            exception = self.exception_queue.get(block=False)
+            raise exception
+        except queue.Empty:
+            return
 
     def _get_address(self):
         '''Get the host and port of the tcp server'''
+
         sock = self._sockets[list(self._sockets.keys())[0]]
         port = sock.getsockname()[1]
         outside_sock = None
