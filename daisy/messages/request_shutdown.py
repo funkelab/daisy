@@ -1,5 +1,5 @@
 from .message import Message
 
 
-class TerminateClient(Message):
+class RequestShutdown(Message):
     pass

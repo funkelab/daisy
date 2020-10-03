@@ -4,10 +4,11 @@ from .tcp import TCPServer
 from .worker_pool import WorkerPool
 from .messages import (
     AcquireBlock,
-    SendBlock,
+    ClientException,
     ReleaseBlock,
-    TerminateClient,
-    ClientException)
+    SendBlock,
+    RequestShutdown,
+    UnexpectedMessage)
 from queue import Queue
 import logging
 
@@ -77,32 +78,72 @@ class Server:
 
         if isinstance(message, AcquireBlock):
 
-            block, task_state = self.scheduler.acquire_block(message.task_id)
+            logger.debug("Received block request for task %s", message.task_id)
 
-            if block is None:
+            task_state = self.scheduler.get_task_states()[message.task_id]
+
+            if task_state.num_ready_blocks == 0:
 
                 if task_state.num_pending_blocks == 0:
-                    message.stream.send_message(TerminateClient())
+                    log.debug(
+                        "No more pending blocks for task %s, terminating "
+                        "client", message.task_id)
+                    message.stream.send_message(RequestShutdown())
+                    return
 
                 # there are more blocks for this task, but none of them has its
                 # dependencies fullfilled
+                logger.debug(
+                    "No currently ready blocks for task %s, delaying "
+                    "request", message.task_id)
                 self.pending_requests[message.task_id].put(message)
 
             else:
 
+                # now we know there is at least one ready block
+                block = self.scheduler.acquire_block(message.task_id)
+                assert block is not None
+
+                logger.debug("Sending block %s to client", block)
                 message.stream.send_message(SendBlock(block))
 
         elif isinstance(message, ReleaseBlock):
 
-            task_states = self.scheduler.release_block(message.block)
+            logger.debug("Client releases block %s", message.block)
+
+            self.scheduler.release_block(message.block)
+            task_states = self.scheduler.get_task_states()
+
+            all_done = True
 
             for task_id, task_state in task_states.items():
+
+                if task_state.is_done():
+                    logger.debug("Task %s is done", task_id)
+                    continue
+
+                all_done = False
+
+                logger.debug(
+                    "Task %s has %d ready blocks",
+                    task_id,
+                    task_state.num_ready_blocks)
+
                 for _ in range(task_state.num_ready_blocks):
+
                     if self.pending_requests[task_id].empty():
                         break
 
+                    logger.debug(
+                        "Answering delayed request for task %s",
+                        task_id)
                     pending_request = self.pending_requests[task_id].get()
                     self._handle_client_message(pending_request)
+
+            if all_done:
+                logger.debug("All tasks finished")
+                self.tcp_server.stop()
+                self.running = False
 
             self._recruit_workers()
 
@@ -113,7 +154,7 @@ class Server:
 
         else:
 
-            logger.error("Server received unknown message: %s", type(message))
+            raise UnexpectedMessage(message)
 
     def _recruit_workers(self):
 
