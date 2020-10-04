@@ -64,6 +64,7 @@ class Scheduler:
         self.task_states = collections.defaultdict(TaskState)
         self.task_blocks = collections.defaultdict(TaskBlocks)
 
+        # root tasks is a mapping from task_id -> (num_roots, root_generator)
         self.root_tasks = self.dependency_graph.roots()
 
         for task in tasks:
