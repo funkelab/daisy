@@ -107,6 +107,16 @@ class Scheduler:
             has_next = False
         return has_next
 
+    def _get_block(self, task_id):
+        block = self.task_blocks[task_id].ready_queue.popleft()
+        self.task_states[task_id].ready_count -= 1
+        self.task_states[task_id].processing_count += 1
+        return block
+
+    def _queue_ready_block(self, down):
+        self.task_blocks[down.task_id].ready_queue.append(down)
+        self.task_states[down.task_id].ready_count += 1
+
     def acquire_block(self, task_id):
         """
         Get a block that is ready to process for task with given task_id.
@@ -123,7 +133,7 @@ class Scheduler:
                 The state of the task.
         """
         if self.has_next(task_id):
-            block = self.task_blocks[task_id].ready_queue.popleft()
+            block = self._get_block(task_id)
             pre_check_ret = self.precheck(task_id, block)
 
             if pre_check_ret:
@@ -208,12 +218,21 @@ class Scheduler:
                     self.completed_surface.remove(upstream_block.block_id)
 
     def update_ready_queue(self, block_id):
+        """
+        Given a newly completed block_id, all of its downstream blocks are
+        checked to see if their upstream dependencies have now been completed.
+        If so, they are added to the ready queue.
+
+        It is not possible that two
+        block_id's both complete the upstream dependencies of a single downstream
+        block, thus each block can be added to the ready queue only once.
+        """
         updated_tasks = {}
         downstream_blocks = self.dependency_graph.downstream(block_id)
         for down in downstream_blocks:
             upstream_blocks = self.dependency_graph.upstream(down.block_id)
             if all(up.block_id in self.completed_surface for up in upstream_blocks):
-                self.task_blocks[down.task_id].ready_queue.append(down)
+                self._queue_ready_block(down)
                 updated_tasks[down.task_id] = self.task_states[down.task_id]
         return updated_tasks
 
