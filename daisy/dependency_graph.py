@@ -110,10 +110,18 @@ class BlockwiseDependencyGraph:
         return len(self.dependencies)
 
     def num_roots(self):
-        return len(self.level_block_offsets[0])
+        root_deps = self.enumerate_level_dependencies(
+            self._level_conflicts[0],
+            self.level_block_offsets[0],
+        )
+        return len(root_deps)
 
     def root_gen(self):
-        for block, _ in self.dependencies[: self.num_roots()]:
+        root_deps = self.enumerate_level_dependencies(
+            self._level_conflicts[0],
+            self.level_block_offsets[0],
+        )
+        for block, deps in root_deps:
             yield block
 
     def enumerate_all_dependencies(self):
