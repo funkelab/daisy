@@ -24,6 +24,7 @@ class Task:
             -(read_roi.get_end() - write_roi.get_end()),
         )
         self.process_function = process_function
+        self.check_function = check_function
         self.read_write_conflict = read_write_conflict
         self.fit = fit
         self.num_workers = num_workers
