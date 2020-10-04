@@ -8,5 +8,9 @@ install-dev:
 
 .PHONY: tests
 tests:
-	PY_MAJOR_VERSION=py`python -c 'import sys; print(sys.version_info[0])'` pytest -v --cov=daisy --cov-config=.coveragerc daisy
+	PY_MAJOR_VERSION=py`python -c 'import sys; print(sys.version_info[0])'` pytest -v --benchmark-skip --cov=daisy --cov-config=.coveragerc daisy
 	flake8 daisy
+benchmark:
+	PY_MAJOR_VERSION=py`python -c 'import sys; print(sys.version_info[0])'` pytest -v --benchmark-only daisy
+	flake8 daisy
+
