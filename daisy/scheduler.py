@@ -182,6 +182,8 @@ class Scheduler:
         task_id = block.task_id
         if block.status == BlockStatus.SUCCESS:
             self.task_blocks[task_id].processing_blocks.remove(block.block_id)
+            if block.block_id in self.task_blocks[task_id].completed_blocks:
+                raise NotImplementedError("Should not be reachable!")
             self.task_blocks[task_id].completed_blocks.add(block.block_id)
             self.task_states[task_id].processing_count -= 1
             self.task_states[task_id].completed_count += 1
