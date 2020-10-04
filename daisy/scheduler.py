@@ -90,21 +90,22 @@ class Scheduler:
                 self.add(upstream_task)
 
     def has_next(self, task_id):
-        has_ready_block = len(self.task_blocks[task_id].ready_queue) > 0
-        if has_ready_block:
-            return True
-        elif self.task_states[task_id].ready_count > 0:
-            # a task should only have ready blocks that are not in the queue
-            # if it is a root task and roots have been provided as a generator
-            try:
-                next_block = next(self.root_tasks[task_id][1])
-                self.task_blocks[task_id].ready_queue.append(next_block)
-                return True
-            except StopIteration:
-                raise NotImplementedError("This should not be reachable!")
+        if self.task_states[task_id].ready_count >= 1:
+            has_next = True
+            if len(self.task_blocks[task_id].ready_queue) == 0:
+                try:
+                    next_block = next(self.root_tasks[task_id][1])
+                    assert len(self.dependency_graph.upstream(next_block.block_id)) == 0
+                    self.task_blocks[task_id].ready_queue.append(next_block)
+                    return True
+                except StopIteration:
+                    raise NotImplementedError(
+                        f"This should not be reachable! There are apparently {self.task_states[task_id].ready_count} blocks left!"
+                    )
+
         else:
-            # There are no blocks ready for processing
-            return False
+            has_next = False
+        return has_next
 
     def acquire_block(self, task_id):
         """
