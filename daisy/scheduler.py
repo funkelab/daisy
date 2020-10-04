@@ -188,15 +188,24 @@ class Scheduler:
             return {}
 
     def update_complete_surface(self, block_id):
+        """
+        The complete surface is comprised of all blocks, that are both completed
+        and whose dependencies have not yet all been completed.
+        """
         upstream_blocks = self.dependency_graph.upstream(block_id)
         self.completed_surface.add(block_id)
         for upstream_block in upstream_blocks:
-            if upstream_block not in self.completed_surface:
+            if upstream_block.block_id not in self.completed_surface:
                 continue
             else:
-                downstream_blocks = self.dependency_graph.downstream(upstream_block)
-                if all(down in self.completed_surface for down in downstream_blocks):
-                    self.completed_surface.remove(upstream_block)
+                downstream_blocks = self.dependency_graph.downstream(
+                    upstream_block.block_id
+                )
+                if all(
+                    down.block_id in self.completed_surface
+                    for down in downstream_blocks
+                ):
+                    self.completed_surface.remove(upstream_block.block_id)
 
     def update_ready_queue(self, block_id):
         updated_tasks = {}
