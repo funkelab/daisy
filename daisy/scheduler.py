@@ -254,7 +254,10 @@ class Scheduler:
             try:
                 # pre_check can intermittently fail
                 # so we wrap it in a try block
-                pre_check_ret = self.tasks[task_id]._daisy.pre_check(block)
+                if self.task_map[task_id].check_function is not None:
+                    pre_check_ret = self.task_map[task_id].check_function(block)
+                else:
+                    pre_check_ret = False
             except Exception as e:
                 logger.error(
                     "pre_check() exception for block %s of task %s. " "Exception: %s",
