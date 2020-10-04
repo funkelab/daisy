@@ -120,17 +120,18 @@ class BlockwiseDependencyGraph:
 
         self.level_block_offsets = self.compute_level_block_offsets()
 
-        blocks = []
+        dependencies = []
 
         for level_conflicts, level_block_offsets in zip(
             self._level_conflicts, self.level_block_offsets
         ):
-            blocks += self.enumerate_level_dependencies(
+            level_deps = self.enumerate_level_dependencies(
                 level_conflicts,
                 level_block_offsets,
             )
+            dependencies += level_deps
 
-        return blocks
+        return dependencies
 
     def compute_level_stride(self) -> Coordinate:
         """
