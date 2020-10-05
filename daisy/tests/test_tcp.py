@@ -1,38 +1,54 @@
 import unittest
-
-from daisy import Message
-from daisy.tcp import TCPServer, TCPClient, StreamClosedError
+from daisy.tcp import TCPServer, TCPClient, TCPMessage
+from daisy.tcp.exceptions import NotConnected
 
 
 class TestTCPConnections(unittest.TestCase):
 
     def test_single_connection(self):
-        self.sent = False
+
+        # create a server
         server = TCPServer()
         host, port = server.address
+
+        # create a client and connect to server
         client = TCPClient(host, port)
-        client.send_message(Message("test worked"))
 
+        # send a message to the server
+        client.send_message(TCPMessage("test worked"))
+
+        # receive a message at server
         message = server.get_message()
-        self.assertTrue(isinstance(message, Message))
+        self.assertTrue(isinstance(message, TCPMessage))
         self.assertTrue("test" in message.payload)
-        message.stream.send_message(Message("okay thanks bye"))
 
+        # send a reply to client
+        message.stream.send_message(TCPMessage("okay thanks bye"))
+
+        # receive the reply
         reply = client.get_message()
-        self.assertTrue(isinstance(reply, Message))
+        self.assertTrue(isinstance(reply, TCPMessage))
         self.assertTrue("thanks" in reply.payload)
 
+        # try to receive another message at server
         message = server.get_message(timeout=0)
         self.assertTrue(message is None)
 
+        # try to receive another message at client
         reply = client.get_message(timeout=0)
         self.assertTrue(reply is None)
 
-        # close the stream connecting server and client
-        client.stream.stream.close()
+        # disconnect from server
+        client.disconnect()
 
-        with self.assertRaises(StreamClosedError):
+        # assert that client can no longer send messages
+        with self.assertRaises(NotConnected):
+            client.send_message(TCPMessage("this message can not arrive"))
+
+        # assert that client can no longer receive messages
+        with self.assertRaises(NotConnected):
             reply = client.get_message()
 
-        with self.assertRaises(StreamClosedError):
-            message = server.get_message()
+        # try to receive a message at server and assert there is none
+        message = server.get_message(timeout=0)
+        self.assertTrue(message is None)
