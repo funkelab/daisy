@@ -18,12 +18,27 @@ _NO_SPAWN_STATUS_THREAD = False
 class TaskState:
     def __init__(self):
         self.started = False
-        self.ready_count = 0
         self.total_block_count = 0
+
+        # counts correspond with BlockStatus
+        # self.pending_count = 0
+        self.ready_count = 0
+        self.processing_count = 0
         self.completed_count = 0
         self.failed_count = 0
         self.orphaned_count = 0
-        self.processing_count = 0
+
+    @property
+    def pending_count(self):
+        # No need to update pending count as we go since
+        # it is the last category
+        return self.total_block_count - (
+            self.ready_count
+            + self.completed_count
+            + self.failed_count
+            + self.orphaned_count
+            + self.processing_count
+        )
 
     def is_done(self):
         return (
