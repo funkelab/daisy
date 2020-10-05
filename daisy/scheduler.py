@@ -10,10 +10,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# used for automated testing to speed up tests as the status thread takes a
-# long time to shutdown
-_NO_SPAWN_STATUS_THREAD = False
-
 
 class TaskState:
     def __init__(self):
