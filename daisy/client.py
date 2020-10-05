@@ -1,33 +1,17 @@
+from .block import BlockStatus
+from .context import Context
+from .messages import (
+    AcquireBlock,
+    ClientException,
+    ReleaseBlock,
+    RequestShutdown,
+    SendBlock,
+    UnexpectedMessage)
 from contextlib import contextmanager
+from daisy.tcp import TCPClient
 import logging
 
-from daisy.tcp import TCPClient
-
-from .context import Context
-from .messages import AcquireBlock, ReleaseBlock, SendBlock
-
 logger = logging.getLogger(__name__)
-
-
-'''
-Proposed API:
-
-    External:
-        A context for acquire_block/release_block. To be used like `with
-        acquire_block() as b:`
-
-    Internal:
-        acquire_block()
-        release_block()
-        worker_id()
-        task_id()
-
-        TODO: should there be a __del__ function to close the stream?
-        TODO: Should there be some sort of async thing reading messages and
-        queueing up blocks as well as handling other messages like "close"?
-        Or are we okay waiting to close until the user calls
-        client.acquire_block()?
-'''
 
 
 class Client():
@@ -47,17 +31,16 @@ class Client():
             client = Client()
             while True:
                 with client.acquire_block() as block:
-                    if block == None:
+                    if block is None:
                         break
                     blockwise_process(block)
-                    block.state = Done (or Failed)
-
+                    block.state = BlockStatus.SUCCESS  # (or FAILED)
     '''
 
     def __init__(
             self,
             context=None):
-        '''Initialize TCP connection with the scheduler.
+        '''Initialize a client and connect to the server.
 
         Args:
 
@@ -88,14 +71,23 @@ class Client():
         self.tcp_client.send_message(AcquireBlock(self.task_id))
         message = self.tcp_client.get_message()
         if isinstance(message, SendBlock):
+            logger.debug("Received block %s", message.block.block_id)
             try:
                 block = message.block
                 yield block
+            except Exception as e:
+                self.tcp_client.send_message(ClientException(e))
+                block.status = BlockStatus.FAILED
+                raise e
             finally:
                 self.release_block(block)
-        else:
+        elif isinstance(message, RequestShutdown):
+            logger.debug("No more blocks for this client, disconnecting")
+            self.tcp_client.disconnect()
             yield
+        else:
+            raise UnexpectedMessage(message)
 
     def release_block(self, block):
-        logger.debug("Releasing block {}".format(block.block_id))
+        logger.debug("Releasing block %s", block.block_id)
         self.tcp_client.send_message(ReleaseBlock(block))
