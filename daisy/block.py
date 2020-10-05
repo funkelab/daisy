@@ -1,21 +1,18 @@
 from __future__ import absolute_import
-from .coordinate import Coordinate
-from enum import Enum
 from .freezable import Freezable
+from enum import Enum
 from funlib.math import cantor_number
 import copy
 
 
 class BlockStatus(Enum):
-    WAITING = 1
-    READY = 2
-    PROCESSING = 3
-    DONE = 4
-    FAILED = 5
+    CREATED = 0
+    SUCCESS = 1
+    FAILED = 2
 
 
 class Block(Freezable):
-    '''Describes a block to process with attributes:
+    """Describes a block to process with attributes:
 
     Attributes:
 
@@ -57,12 +54,6 @@ class Block(Freezable):
 
             The region of interest (ROI) to write to.
 
-        status (``BlockStatus``):
-
-            Stores the processing status of the block. Block status should be
-            updated as it goes through the lifecycle of scheduler to client and
-            back.
-
         block_id (``int``, optional):
 
             The ID to assign to this block. The ID is normally computed from
@@ -73,38 +64,28 @@ class Block(Freezable):
 
             The id of the Task that this block belongs to. Defaults to None.
 
-    '''
-
+    """
     def __init__(
             self,
             total_roi,
             read_roi,
             write_roi,
-            status,
             block_id=None,
             task_id=None):
 
         self.read_roi = read_roi
         self.write_roi = write_roi
 
-        if block_id is None:
-            self.block_id, self.z_order_id = self.__compute_block_id(
-                    total_roi, write_roi)
-        else:
-            self.block_id = block_id
-            self.z_order_id = block_id  # for compatibility
         self.task_id = task_id
-        self.status = status
+        if block_id is None:
+            block_id = self.__compute_block_id(total_roi, write_roi)
+        self.block_id = (task_id, block_id)
+        self.status = BlockStatus.CREATED
         self.freeze()
 
     def copy(self):
 
         return copy.deepcopy(self)
-
-    def set_status(self, status):
-        self.unfreeze()
-        self.status = status
-        self.freeze()
 
     def __compute_block_id(self, total_roi, write_roi, shift=None):
         block_index = write_roi.get_offset() / write_roi.get_shape()
@@ -112,29 +93,12 @@ class Block(Freezable):
         # block_id will be the cantor number for this block index
         block_id = int(cantor_number(block_index))
 
-        # calculating Z-order index
-        # this index is inexact and is shape agnostic to promote maximum
-        # parallelism across tasks
-        block_index_z = (write_roi.get_offset() /
-                         Coordinate([2048 for _ in range(total_roi.dims())]))
-        bit32_constant = 1 << 31
-        indices = [int(block_index_z[i]) for i in range(total_roi.dims())]
-
-        n = 0
-        z_order_id = 0
-        while n < 32:
-            for i in range(total_roi.dims()):
-                z_order_id = z_order_id >> 1
-                if indices[i] & 1:
-                    z_order_id += bit32_constant
-                indices[i] = indices[i] >> 1
-                n += 1
-
-        return block_id, z_order_id
+        return block_id
 
     def __repr__(self):
 
-        return "id: %d (read_roi: %s, write_roi %s)" % (
+        return "id: %s (read_roi: %s, write_roi %s)" % (
             self.block_id,
             self.read_roi,
-            self.write_roi)
+            self.write_roi,
+        )

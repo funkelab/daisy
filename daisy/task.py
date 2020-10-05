@@ -114,25 +114,30 @@ class Task:
             The worker is killed (and the block retried) if this time is
             exceeded.
     '''
-
     def __init__(
-            self,
-            name,
-            total_roi,
-            read_roi,
-            write_roi,
-            process_function,
-            check_function=None,
-            read_write_conflict=True,
-            fit='valid',
-            num_workers=1,
-            max_retries=2,
-            timeout=None):
-
-        self.task_id = name
+        self,
+        task_id,
+        total_roi,
+        read_roi,
+        write_roi,
+        process_function,
+        check_function=None,
+        read_write_conflict=True,
+        num_workers=1,
+        max_retries=2,
+        fit="valid",
+        timeout=None,
+        upstream_tasks=None,
+    ):
+        self.task_id = task_id
         self.total_roi = total_roi
+        self.orig_total_roi = total_roi
         self.read_roi = read_roi
         self.write_roi = write_roi
+        self.total_write_roi = self.total_roi.grow(
+            -(write_roi.get_begin() - read_roi.get_begin()),
+            -(read_roi.get_end() - write_roi.get_end()),
+        )
         self.process_function = process_function
         self.check_function = check_function
         self.read_write_conflict = read_write_conflict
@@ -140,16 +145,14 @@ class Task:
         self.num_workers = num_workers
         self.max_retries = max_retries
         self.timeout = timeout
-        self.dependencies = []
+        self.upstream_tasks = []
+        if upstream_tasks is not None:
+            self.upstream_tasks.extend(upstream_tasks)
 
         if len(signature(process_function).parameters) == 0:
             self.spawn_worker_function = process_function
         else:
             self.spawn_worker_function = lambda: self._process_blocks()
-
-    def set_dependencies(self, tasks):
-
-        self.dependencies = tasks
 
     def _process_blocks(self):
 
@@ -159,3 +162,6 @@ class Task:
                 if block is None:
                     break
                 self.process_function(block)
+
+    def requires(self):
+        return self.upstream_tasks
