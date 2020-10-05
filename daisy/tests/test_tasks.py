@@ -3,8 +3,6 @@ from daisy import Task, Roi, Parameter
 
 import pytest
 
-daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
-
 
 class TestTask(Task):
     a = Parameter(default=True)

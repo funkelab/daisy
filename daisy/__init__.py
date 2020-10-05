@@ -12,7 +12,6 @@ from .graph import Graph # noqa
 from .parameter import Parameter # noqa
 from .roi import Roi # noqa
 from .scheduler import Scheduler # noqa
-from .scheduler import _NO_SPAWN_STATUS_THREAD # noqa
 from .scheduler import distribute # noqa
 from .scheduler import run_blockwise # noqa
 from .server import Server # noqa
