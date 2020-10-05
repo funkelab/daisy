@@ -80,11 +80,11 @@ class Server:
 
             logger.debug("Received block request for task %s", message.task_id)
 
-            task_state = self.scheduler.get_task_states()[message.task_id]
+            task_state = self.scheduler.task_states[message.task_id]
 
-            if task_state.num_ready_blocks == 0:
+            if task_state.ready_count == 0:
 
-                if task_state.num_pending_blocks == 0:
+                if task_state.pending_count == 0:
                     log.debug(
                         "No more pending blocks for task %s, terminating "
                         "client", message.task_id)
@@ -112,7 +112,7 @@ class Server:
             logger.debug("Client releases block %s", message.block)
 
             self.scheduler.release_block(message.block)
-            task_states = self.scheduler.get_task_states()
+            task_states = self.scheduler.task_states
 
             all_done = True
 
@@ -127,9 +127,9 @@ class Server:
                 logger.debug(
                     "Task %s has %d ready blocks",
                     task_id,
-                    task_state.num_ready_blocks)
+                    task_state.ready_count)
 
-                for _ in range(task_state.num_ready_blocks):
+                for _ in range(task_state.ready_count):
 
                     if self.pending_requests[task_id].empty():
                         break
