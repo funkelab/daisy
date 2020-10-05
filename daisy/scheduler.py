@@ -28,12 +28,11 @@ class TaskState:
     def is_done(self):
         return (
             self.total_block_count
-            - self.ready_count
             - self.completed_count
             - self.failed_count
             - self.orphaned_count
             - self.processing_count
-        )
+        ) == 0
 
     def __str__(self):
         return f"{self.started}, {self.ready_count}"
