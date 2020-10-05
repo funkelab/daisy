@@ -427,7 +427,7 @@ class DependencyGraph:
         return self.task_map.keys()
 
     def num_blocks(self, task_id):
-        self.task_dependency_graphs[task_id].num_blocks
+        return self.task_dependency_graphs[task_id].num_blocks
 
     def upstream(self, block_id):
         return sorted(
