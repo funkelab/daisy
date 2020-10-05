@@ -70,6 +70,7 @@ def test_simple_acquire_block(task_1d):
 def test_simple_release_block(task_1d):
     scheduler = Scheduler([task_1d])
     block = scheduler.acquire_block(task_1d.task_id)
+    block.status = BlockStatus.SUCCESS
     scheduler.release_block(block)
     block = scheduler.acquire_block(task_1d.task_id)
 
