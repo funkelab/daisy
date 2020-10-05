@@ -10,6 +10,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def process_block(block):
+    pass
+
+
 @pytest.fixture
 def task_1d(tmpdir):
     # block ids:
@@ -22,7 +26,7 @@ def task_1d(tmpdir):
         total_roi=Roi((0,), (4,)),
         read_roi=Roi((0,), (3,)),
         write_roi=Roi((1,), (1,)),
-        process_function=None,
+        process_function=process_block,
         check_function=None,
     )
 
@@ -46,7 +50,7 @@ def task_2d(tmpdir):
         total_roi=Roi((0, 0), (6, 6)),
         read_roi=Roi((0, 0), (3, 3)),
         write_roi=Roi((1, 1), (1, 1)),
-        process_function=None,
+        process_function=process_block,
         check_function=None,
     )
 
