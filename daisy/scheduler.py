@@ -118,6 +118,13 @@ class Scheduler:
         self.task_blocks[down.task_id].ready_queue.append(down)
         self.task_states[down.task_id].ready_count += 1
 
+    def get_ready_tasks(self):
+        ready_tasks = {}
+        for task_id, task_state in self.task_states.items():
+            if task_state.ready_count > 0:
+                ready_tasks[task_id] = task_state
+        return ready_tasks
+
     def acquire_block(self, task_id):
         """
         Get a block that is ready to process for task with given task_id.
