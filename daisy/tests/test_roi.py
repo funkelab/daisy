@@ -1,8 +1,6 @@
 import daisy
 import unittest
 
-daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
-
 
 class TestRoi(unittest.TestCase):
 

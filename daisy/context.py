@@ -1,47 +1,64 @@
-import os
+import copy
 import logging
+import os
 
 logger = logging.getLogger(__name__)
 
 
 class Context():
 
-    def __init__(self, hostname, port, task_id, worker_id, num_workers):
-        self.hostname = hostname
-        self.port = port
-        self.task_id = task_id
-        self.worker_id = worker_id
-        self.num_workers = num_workers
+    ENV_VARIABLE = 'DAISY_CONTEXT'
+
+    def __init__(self, **kwargs):
+
+        self.__dict = dict(**kwargs)
+
+    def copy(self):
+
+        return copy.deepcopy(self)
 
     def to_env(self):
 
-        return '%s:%d:%s:%d:%d' % (
-            self.hostname,
-            self.port,
-            self.task_id,
-            self.worker_id,
-            self.num_workers
-        )
+        return ':'.join('%s=%s' % (k, v) for k, v in self.__dict.items())
+
+    def __setitem__(self, k, v):
+
+        k = str(k)
+        v = str(v)
+
+        if '=' in k or ':' in k:
+            raise RuntimeError("Context variables must not contain = or :.")
+        if '=' in v or ':' in v:
+            raise RuntimeError("Context values must not contain = or :.")
+
+        self.__dict[k] = v
+
+    def __getitem__(self, k):
+
+        return self.__dict[k]
+
+    def __repr__(self):
+
+        return self.to_env()
 
     @staticmethod
     def from_env():
 
         try:
-            tokens = os.environ['DAISY_CONTEXT'].split(':')
+
+            tokens = os.environ[Context.ENV_VARIABLE].split(':')
+
         except KeyError:
+
             logger.error(
-                "DAISY_CONTEXT environment variable not found!")
+                "%s environment variable not found!",
+                Context.ENV_VARIABLE)
             raise
 
-        try:
+        context = Context()
 
-            return Context(
-                tokens[0],
-                int(tokens[1]),
-                tokens[2],
-                int(tokens[3]),
-                int(tokens[4]))
+        for token in tokens:
+            k, v = token.split('=')
+            context[k] = v
 
-        except KeyError:
-            logger.error("DAISY_CONTEXT malformed")
-            raise
+        return context

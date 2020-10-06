@@ -1,32 +1,45 @@
 import daisy
-from .tmpdir_test import TmpDirTestCase
+from daisy import Task, Roi, Parameter
 
-daisy.scheduler._NO_SPAWN_STATUS_THREAD = True
+import pytest
 
 
-class TestBlockwiseBasics(TmpDirTestCase):
+class TestTask(Task):
+    a = Parameter(default=True)
+    b = Parameter(default=False)
+    c = Parameter()
 
-    def test_parameters(self):
+    def __init__(self, **kwargs):
+        super().__init__(
+            "TestTask",
+            total_roi=Roi((0,), (4,)),
+            read_roi=Roi((0,), (3,)),
+            write_roi=Roi((0,), (1,)),
+            process_function=None,
+            check_function=None,
+            **kwargs
+        )
 
-        class TestTask(daisy.Task):
-            a = daisy.Parameter(default=True)
-            b = daisy.Parameter(default=False)
-            c = daisy.Parameter()
+    def requires(self):
+        return []
 
-        with self.assertRaises(RuntimeError):
-            t = TestTask()
 
-        with self.assertRaises(RuntimeError):
-            t = TestTask(d=42)
+def test_task_creation():
 
-        t = TestTask(c=42)
+    with pytest.raises(RuntimeError):
+        t = TestTask()
 
-        assert t.a is True
-        assert t.b is False
-        assert t.c == 42
+    with pytest.raises(RuntimeError):
+        t = TestTask(d=42)
 
-        t = TestTask(global_config={'TestTask': {'a': 23, 'b': 42, 'c': 3.14}})
+    t = TestTask(c=42)
 
-        assert t.a == 23
-        assert t.b == 42
-        assert t.c == 3.14
+    assert t.a is True
+    assert t.b is False
+    assert t.c == 42
+
+    t = TestTask(global_config={"TestTask": {"a": 23, "b": 42, "c": 3.14}})
+
+    assert t.a == 23
+    assert t.b == 42
+    assert t.c == 3.14

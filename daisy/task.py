@@ -1,206 +1,167 @@
-import copy
-from .parameter import Parameter, UNDEFINED_DAISY_PARAMETER
+from .client import Client
+from inspect import signature
 
 
-class Task():
-    '''``daisy.Task`` takes inspiration from ``luigi.Task``, where
-    users can define a task (or a stage in the pipeline) and chain
-    multiple tasks together to create a bigger dependency graph for
-    Daisy to execute block-wise.
+class Task:
+    '''Definition of a ``daisy`` task that is to be run in a block-wise
+    fashion.
 
-    One key difference with the ``daisy.Task`` framework is that it
-    allows current task's blocks to execute based on partial results
-    of the previous tasks, unlike in ``luigi`` where each task must
-    fully completed before the next can be run.
+    Args:
 
-    Key methods that should be implemented in subclasses are:
+        name (``string``):
 
-        prepare():
+            The unique name of the task.
 
-            Here a task prepares and acquires all resources it would
-            need to run, such as reading config, opening inputs and
-            creating output folders.
+        total_roi (`class:daisy.Roi`):
 
-            This function will be run for all tasks prior to making
-            the dependency graph, in the order of dependency.
+            The region of interest (ROI) of the complete volume to process.
 
-            Within this function, the task must call ``schedule(args)``
-            to setup and schedule key block-wise processing parameters.
-            See ``schedule()`` below for more details.
+        read_roi (`class:daisy.Roi`):
 
-        requires():
+            The ROI every block needs to read data from. Will be shifted over
+            the ``total_roi`` to cover the whole volume.
 
-            Override this to define dependencies of this task. Should
-            return a list of ``Task``s that this one depends on.
+        write_roi (`class:daisy.Roi`):
+
+            The ROI every block writes data from. Will be shifted over the
+            ``total_roi`` to cover the whole volume.
+
+        process_function (function):
+
+            A function that will be called as::
+
+                process_function(block)
+
+            with ``block`` being the shifted read and write ROI for each
+            location in the volume.
+
+            If ``read_write_conflict`` is ``True`, the callee can assume that
+            there are no read/write concurencies, i.e., at any given point in
+            time the ``read_roi`` does not overlap with the ``write_roi`` of
+            another process.
+
+        check_function (function, optional):
+
+            A function that will be called as::
+
+                check_function(block)
+
+            This function should return ``True`` if the block was completed.
+            This is used internally to avoid processing blocks that are already
+            done and to check if a block was correctly processed.
+
+            If a tuple of two functions is given, the first one will be called
+            to check if the block needs to be run, and if so, the second one
+            will be called after it was run to check if the run succeeded.
+
+        read_write_conflict (``bool``, optional):
+
+            Whether the read and write ROIs are conflicting, i.e., accessing
+            the same resource. If set to ``False``, all blocks can run at the
+            same time in parallel. In this case, providing a ``read_roi`` is
+            simply a means of convenience to ensure no out-of-bound accesses
+            and to avoid re-computation of it in each block.
+
+        fit (``string``, optional):
+
+            How to handle cases where shifting blocks by the size of
+            ``write_roi`` does not tile the ``total_roi``. Possible options
+            are:
+
+            "valid": Skip blocks that would lie outside of ``total_roi``. This
+            is the default::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                                                  no further block
+
+            "overhang": Add all blocks that overlap with ``total_roi``, even if
+            they leave it. Client code has to take care of save access beyond
+            ``total_roi`` in this case.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|wwwwww|rrrr|  block 3 (overhanging)
+
+            "shrink": Like "overhang", but shrink the boundary blocks' read and
+            write ROIs such that they are guaranteed to lie within
+            ``total_roi``. The shrinking will preserve the context, i.e., the
+            difference between the read ROI and write ROI stays the same.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|www|rrrr|     block 3 (shrunk)
+
+        num_workers (int, optional):
+
+            The number of parallel processes to run.
+
+        max_retries (int, optional):
+
+            The maximum number of times a task will be retried if failed
+            (either due to failed post check or application crashes or network
+            failure)
+
+        timeout (int, optional):
+
+            Time in seconds to wait for a block to be returned from a worker.
+            The worker is killed (and the block retried) if this time is
+            exceeded.
     '''
+    def __init__(
+        self,
+        task_id,
+        total_roi,
+        read_roi,
+        write_roi,
+        process_function,
+        check_function=None,
+        read_write_conflict=True,
+        num_workers=1,
+        max_retries=2,
+        fit="valid",
+        timeout=None,
+        upstream_tasks=None,
+    ):
+        self.task_id = task_id
+        self.total_roi = total_roi
+        self.orig_total_roi = total_roi
+        self.read_roi = read_roi
+        self.write_roi = write_roi
+        self.total_write_roi = self.total_roi.grow(
+            -(write_roi.get_begin() - read_roi.get_begin()),
+            -(read_roi.get_end() - write_roi.get_end()),
+        )
+        self.process_function = process_function
+        self.check_function = check_function
+        self.read_write_conflict = read_write_conflict
+        self.fit = fit
+        self.num_workers = num_workers
+        self.max_retries = max_retries
+        self.timeout = timeout
+        self.upstream_tasks = []
+        if upstream_tasks is not None:
+            self.upstream_tasks.extend(upstream_tasks)
 
-    log_to_files = Parameter(default=False)
-    log_to_stdout = Parameter(default=True)
-
-    def inheritParameters(self, current_class):
-        '''Recursively query and inherit `Parameter`s from base `Task`s.
-        Parameters are copied to self.__daisy_params__ to be processed
-        downstream.
-
-        If duplicated, `Parameter`s of derived `Task`s will override ones
-        from base `Task`s, even if it clears any default. This lets
-        inherited `Task` to unset defaults and force user to input new
-        values.'''
-        for b in current_class.__bases__:
-            self.inheritParameters(b)
-
-        for param in current_class.__dict__:
-            if isinstance(current_class.__dict__[param], Parameter):
-                if (current_class.__dict__[param].val is not
-                        UNDEFINED_DAISY_PARAMETER):
-                    self.__daisy_params__[param] = copy.deepcopy(
-                                                current_class.__dict__[param])
-                else:
-                    self.__daisy_params__[param] = (
-                                                current_class.__dict__[param])
-
-    def __init__(self, task_id=None, global_config=None, **kwargs):
-        '''Constructor for ``Task``. Should not be overridden by
-        subclasses.
-
-        Args:
-
-            task_id(``string``, optional):
-
-                Unique identifier of the task. Tasks that have the
-                same ID are exactly the same task in the dependency
-                graph.
-
-            global_config (``dict``, optional):
-
-                If given, parameters of this task will be initialized with
-                values from the given dictionary. Named arguments will have
-                precedence. The dictionary should map task IDs to dictionaries
-                with the parameter names and values. Example::
-
-                    class FooTask(daisy.Task):
-                        a = daisy.Parameter()
-
-                    f = FooTask(global_config={'FooTask': { 'a': 42 } })
-
-                would be equivalent to::
-
-                    f = FooTask(a=42)
-
-            kwargs:
-
-                Initializing ``Parameter``s of the task. These have
-                the highest priority, namely higher than global
-                configurations.
-
-        '''
-        if task_id:
-            self.task_id = task_id
+        if len(signature(process_function).parameters) == 0:
+            self.spawn_worker_function = process_function
         else:
-            # default task ID is the class name
-            self.task_id = type(self).__name__
+            self.spawn_worker_function = lambda: self._process_blocks()
 
-        self.global_config = global_config
-        self.__init_parameters(**kwargs)
+    def _process_blocks(self):
 
-    def __init_parameters(self, **kwargs):
-
-        self.__daisy_params__ = {}
-        self.inheritParameters(self.__class__)
-
-        # apply global configuration (if given)
-        if self.global_config and self.task_id in self.global_config:
-            config = self.global_config[self.task_id]
-            for key in config:
-                if key in self.__daisy_params__:
-                    self.__daisy_params__[key].set(config[key])
-                else:
-                    raise RuntimeError(
-                            "Key %s is not in the Parameter list for Task %s" %
-                            (key, self.task_id))
-
-        # applying user input parameters
-        for key in kwargs:
-            if key in self.__daisy_params__:
-                self.__daisy_params__[key].set(kwargs[key])
-            else:
-                raise RuntimeError(
-                        "Key %s not found in "
-                        "Parameter list for Task %s" %
-                        (key, self.task_id))
-
-        # finalize parameters
-        for param in self.__daisy_params__:
-            val = self.__daisy_params__[param].val
-            if val is UNDEFINED_DAISY_PARAMETER:
-                raise RuntimeError(
-                    "Parameter %s of %s is unassigned! You can probably fix "
-                    "this by passing in `default` such as `None`" %
-                    (param, self.task_id))
-            setattr(self, param, val)
-
-    def prepare(self):
-        '''Subclasses override this to perform setup actions'''
-        raise NotImplementedError("Client task needs to implement prepare()")
-
-    def schedule(
-            self,
-            total_roi,
-            read_roi,
-            write_roi,
-            process_function,
-            check_function=None,
-            read_write_conflict=True,
-            num_workers=1,
-            max_retries=2,
-            fit='valid',
-            timeout=None
-            ):
-        '''Configure necessary parameters for the scheduler to run this
-        task. The arguments are the same as those in
-        ```scheduler.run_blockwise()```'''
-
-        class Object(object):
-            pass
-
-        # avoid naming conflict with user
-        self._daisy = Object()
-        self._daisy.total_roi = total_roi
-        self._daisy.orig_total_roi = total_roi
-        self._daisy.read_roi = read_roi
-        self._daisy.write_roi = write_roi
-        self._daisy.total_write_roi = self._daisy.total_roi.grow(
-                                -(write_roi.get_begin()-read_roi.get_begin()),
-                                -(read_roi.get_end()-write_roi.get_end()),
-                                )
-        self._daisy.process_function = process_function
-        self._daisy.read_write_conflict = read_write_conflict
-        self._daisy.fit = fit
-        self._daisy.num_workers = num_workers
-        self._daisy.max_retries = max_retries
-        self._daisy.timeout = timeout
-
-        if check_function is not None:
-            try:
-                self._daisy.pre_check, self._daisy.post_check = check_function
-            except TypeError:
-                self._daisy.pre_check = check_function
-                self._daisy.post_check = check_function
-
-        else:
-            self._daisy.pre_check = lambda _: False
-            self._daisy.post_check = lambda _: True
-
-    def cleanup(self):
-        '''Override this to perform any post-task cleanup action'''
-        pass
+        client = Client()
+        while True:
+            with client.acquire_block() as block:
+                if block is None:
+                    break
+                self.process_function(block)
 
     def requires(self):
-        '''Subclasses override this to specify its dependencies as a
-        list of ``Task``s'''
-        return []
-
-    def _periodic_callback(self):
-        '''Daisy calls this function periodically while checking for status.
-        Override it to perform periodic bookkeeping.'''
-        pass
+        return self.upstream_tasks

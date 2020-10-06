@@ -1,434 +1,523 @@
 from __future__ import absolute_import
+from .block import Block
+from .coordinate import Coordinate
+from .roi import Roi
 
-import collections
-import copy
-import heapq
+from itertools import product
 import logging
-import threading
-from .blocks import create_dependency_graph, get_subgraph_blocks, \
-    expand_request_roi_to_grid
+import collections
+from typing import List
 
 logger = logging.getLogger(__name__)
 
 
-class DependencyGraph():
-    '''This class constructs a block-wise dependency graph of a given
-    ``Task`` and its dependencies.It provides an interface for the
-    scheduler to query for blocks ready to be computed, and also a
-    mechanism to retry blocks that have failed.
+class BlockwiseDependencyGraph:
+    """Create a dependency graph as a list with elements::
 
-    User can make a subgraph of certain ROIs of the full graph through
-    ``get_subgraph``.
-    '''
+        (block, [upstream_blocks])
 
-    def __init__(self, global_config):
-        self.global_config = global_config
+    per block, where ``block`` is the block with exclusive write access to its
+    ``write_roi`` (and save read access to its ``read_roi``), and
+    ``upstream_blocks`` is a list of blocks that need to finish before this
+    block can start (``[]`` if there are no upstream dependencies``).
 
-        # self.leaf_task_id = None
-        self.tasks = set()
+    Args:
+
+        total_roi (`class:daisy.Roi`):
+
+            The region of interest (ROI) of the complete volume to process.
+
+        block_read_roi (`class:daisy.Roi`):
+
+            The ROI every block needs to read data from. Will be shifted over
+            the ``total_roi``.
+
+        block_write_roi (`class:daisy.Roi`):
+
+            The ROI every block writes data from. Will be shifted over the
+            ``total_roi`` in synchrony with ``block_read_roi``.
+
+        read_write_conflict (``bool``, optional):
+
+            Whether the read and write ROIs are conflicting, i.e., accessing
+            the same resource. If set to ``False``, all blocks can run at the
+            same time in parallel. In this case, providing a ``read_roi`` is
+            simply a means of convenience to ensure no out-of-bound accesses
+            and to avoid re-computation of it in each block.
+
+        fit (``string``, optional):
+
+            How to handle cases where shifting blocks by the size of
+            ``block_write_roi`` does not tile the ``total_roi``. Possible
+            options are:
+
+            "valid": Skip blocks that would lie outside of ``total_roi``. This
+            is the default::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                    |rrrr|wwwwww|rrrr|         block 2
+                                                no further block
+
+            "overhang": Add all blocks that overlap with ``total_roi``, even if
+            they leave it. Client code has to take care of save access beyond
+            ``total_roi`` in this case.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                    |rrrr|wwwwww|rrrr|         block 2
+                            |rrrr|wwwwww|rrrr|  block 3 (overhanging)
+
+            "shrink": Like "overhang", but shrink the boundary blocks' read and
+            write ROIs such that they are guaranteed to lie within
+            ``total_roi``. The shrinking will preserve the context, i.e., the
+            difference between the read ROI and write ROI stays the same.::
+
+                |---------------------------|     total ROI
+
+                |rrrr|wwwwww|rrrr|                block 1
+                    |rrrr|wwwwww|rrrr|         block 2
+                            |rrrr|www|rrrr|     block 3 (shrunk)
+    """
+
+    def __init__(
+        self,
+        task_id: str,
+        total_roi: Roi,
+        read_roi: Roi,
+        write_roi: Roi,
+        read_write_conflict: bool,
+        fit: str,
+    ):
+        self.task_id = task_id
+        self.total_roi = total_roi
+        self.block_read_roi = read_roi
+        self.block_write_roi = write_roi
+        self.read_write_conflict = read_write_conflict
+        self.fit = fit
+
+        # computed values
+        self._level_stride = self.compute_level_stride()
+        self._level_offsets = self.compute_level_offsets()
+        self._level_conflicts = self.compute_level_conflicts()
+
+        self.dependencies = self.enumerate_all_dependencies()
+
+    @property
+    def num_blocks(self):
+        return len(self.dependencies)
+
+    def num_roots(self):
+        root_deps = self.enumerate_level_dependencies(
+            self._level_conflicts[0],
+            self.level_block_offsets[0],
+        )
+        return len(root_deps)
+
+    def root_gen(self):
+        root_deps = self.enumerate_level_dependencies(
+            self._level_conflicts[0],
+            self.level_block_offsets[0],
+        )
+        for block, deps in root_deps:
+            yield block
+
+    def enumerate_all_dependencies(self):
+
+        self.level_block_offsets = self.compute_level_block_offsets()
+
+        dependencies = []
+
+        for level_conflicts, level_block_offsets in zip(
+            self._level_conflicts, self.level_block_offsets
+        ):
+            level_deps = self.enumerate_level_dependencies(
+                level_conflicts,
+                level_block_offsets,
+            )
+            dependencies += level_deps
+
+        return dependencies
+
+    def compute_level_stride(self) -> Coordinate:
+        """
+        Get the stride that separates independent blocks in one level.
+        """
+
+        logger.debug(
+            "Compute level stride for read ROI %s and write ROI %s.",
+            self.block_read_roi,
+            self.block_write_roi,
+        )
+
+        assert self.block_read_roi.contains(
+            self.block_write_roi
+        ), "Read ROI must contain write ROI."
+
+        context_ul = self.block_write_roi.get_begin() - self.block_read_roi.get_begin()
+        context_lr = self.block_read_roi.get_end() - self.block_write_roi.get_end()
+
+        max_context = Coordinate(
+            (max(ul, lr) for ul, lr in zip(context_ul, context_lr))
+        )
+        logger.debug("max context per dimension is %s", max_context)
+
+        # this stride guarantees that blocks are independent, but not a
+        # multiple of the write_roi shape. It would be impossible to tile
+        # the output roi with blocks shifted by this min_level_stride
+        min_level_stride = max_context + self.block_write_roi.get_shape()
+
+        logger.debug("min level stride is %s", min_level_stride)
+
+        # to avoid overlapping write ROIs, increase the stride to the next
+        # multiple of write shape
+        write_shape = self.block_write_roi.get_shape()
+        level_stride = Coordinate(
+            (((l - 1) // w + 1) * w for l, w in zip(min_level_stride, write_shape))
+        )
+
+        logger.debug("final level stride (multiples of write size) is %s", level_stride)
+
+        return level_stride
+
+    def compute_level_offsets(self) -> List[Coordinate]:
+        """
+        compute an offset for each level.
+        """
+
+        write_stride = self.block_write_roi.get_shape()
+
+        logger.debug(
+            "Compute level offsets for level stride %s and write stride %s.",
+            self._level_stride,
+            write_stride,
+        )
+
+        dim_offsets = [
+            range(0, e, step) for e, step in zip(self._level_stride, write_stride)
+        ]
+
+        level_offsets = list(reversed([Coordinate(o) for o in product(*dim_offsets)]))
+
+        logger.debug("level offsets: %s", level_offsets)
+
+        return level_offsets
+
+    def compute_level_conflicts(self) -> List[List[Coordinate]]:
+        """
+        For each level, compute the set of conflicts from previous levels.
+        """
+
+        level_conflict_offsets = []
+        prev_level_offset = None
+
+        for level, level_offset in enumerate(self._level_offsets):
+
+            # get conflicts to previous level
+            if prev_level_offset is not None and self.read_write_conflict:
+                conflict_offsets = self.get_conflict_offsets(
+                    level_offset, prev_level_offset, self._level_stride
+                )
+            else:
+                conflict_offsets = []
+            prev_level_offset = level_offset
+
+            level_conflict_offsets.append(conflict_offsets)
+
+        return level_conflict_offsets
+
+    def compute_level_block_offsets(self) -> List[List[Coordinate]]:
+        """
+        For each level, get the set of all offsets corresponding to blocks in
+        this level.
+        """
+        level_block_offsets = []
+
+        for level_offset, level_conflicts in zip(
+            self._level_offsets, self._level_conflicts
+        ):
+
+            # all block offsets of the current level (relative to total ROI start)
+            block_dim_offsets = [
+                range(lo, e, s)
+                for lo, e, s in zip(
+                    level_offset, self.total_roi.get_shape(), self._level_stride
+                )
+            ]
+            # TODO: can we do this part lazily? This might be a lot of Coordinates
+            block_offsets = [Coordinate(o) for o in product(*block_dim_offsets)]
+
+            # convert to global coordinates
+            block_offsets = [
+                o + (self.total_roi.get_begin() - self.block_read_roi.get_begin())
+                for o in block_offsets
+            ]
+            level_block_offsets.append(block_offsets)
+
+        return level_block_offsets
+
+    def get_conflict_offsets(self, level_offset, prev_level_offset, level_stride):
+        """Get the offsets to all previous level blocks that are in conflict
+        with the current level blocks."""
+
+        offset_to_prev = prev_level_offset - level_offset
+        logger.debug("offset to previous level: %s", offset_to_prev)
+
+        conflict_dim_offsets = [
+            [op, op + ls] if op < 0 else [op - ls, op]
+            for op, ls in zip(offset_to_prev, level_stride)
+        ]
+
+        conflict_offsets = [Coordinate(o) for o in product(*conflict_dim_offsets)]
+        logger.debug("conflict offsets to previous level: %s", conflict_offsets)
+
+        return conflict_offsets
+
+    def enumerate_level_dependencies(self, conflict_offsets, block_offsets):
+
+        inclusion_criteria = {
+            "valid": lambda b: self.total_roi.contains(b.read_roi),
+            "overhang": lambda b: self.total_roi.contains(b.write_roi.get_begin()),
+            "shrink": lambda b: self.shrink_possible(b),
+        }[self.fit]
+
+        fit_block = {
+            "valid": lambda b: b,  # noop
+            "overhang": lambda b: b,  # noop
+            "shrink": lambda b: self.shrink(b),
+        }[self.fit]
+
+        blocks = []
+
+        for block_offset in block_offsets:
+
+            # create a block shifted by the current offset
+            block = Block(
+                self.total_roi,
+                self.block_read_roi + block_offset,
+                self.block_write_roi + block_offset,
+                task_id=self.task_id,
+            )
+
+            logger.debug("considering block: %s", block)
+
+            if not inclusion_criteria(block):
+                continue
+
+            # get all blocks in conflict with the current block
+            conflicts = []
+            for conflict_offset in conflict_offsets:
+
+                conflict = Block(
+                    self.total_roi,
+                    block.read_roi + conflict_offset,
+                    block.write_roi + conflict_offset,
+                    task_id=self.task_id,
+                )
+
+                if not inclusion_criteria(conflict):
+                    continue
+
+                logger.debug("in conflict with block: %s", conflict)
+                conflicts.append(fit_block(conflict))
+
+            blocks.append((fit_block(block), conflicts))
+
+        logger.debug("found blocks: %s", blocks)
+
+        return blocks
+
+    def shrink_possible(self, block):
+
+        if not self.total_roi.contains(block.write_roi.get_begin()):
+            return False
+
+        # test if write roi would be non-empty
+        b = self.shrink(self.total_roi, block)
+        return all([s > 0 for s in b.write_roi.get_shape()])
+
+    def shrink(self, block):
+        """Ensure that read and write ROI are within total ROI by shrinking both.
+        Size of context will be preserved."""
+
+        r = self.total_roi.intersect(block.read_roi)
+        w = block.write_roi.grow(
+            block.read_roi.get_begin() - r.get_begin(),
+            r.get_end() - block.read_roi.get_end(),
+        )
+
+        shrunk_block = block.copy()
+        shrunk_block.read_roi = r
+        shrunk_block.write_roi = w
+
+        return shrunk_block
+
+    def get_subgraph_blocks(self, sub_roi):
+        """Return ids of blocks, as instantiated in the full graph, such that
+        their total write rois fully cover `sub_roi`.
+        The function API assumes that `sub_roi` and `total_roi` use absolute
+        coordinates and `block_read_roi` and `block_write_roi` use relative
+        coordinates.
+        """
+
+        # first align sub_roi to write roi shape
+        full_graph_offset = (
+            self.block_write_roi.get_begin()
+            + self.total_roi.get_begin()
+            - self.block_read_roi.get_begin()
+        )
+
+        begin = sub_roi.get_begin() - full_graph_offset
+        end = sub_roi.get_end() - full_graph_offset
+
+        # due to the way blocks are enumerated, write_roi can never be negative
+        # relative to total_roi and block_read_roi
+        begin = Coordinate([max(n, 0) for n in begin])
+
+        aligned_subroi = (
+            begin // self.block_write_roi.get_shape(),  # `floordiv`
+            -(-end // self.block_write_roi.get_shape()),  # `ceildiv`
+        )
+        # generate relative offsets of relevant write blocks
+        block_dim_offsets = [
+            range(lo, e, s)
+            for lo, e, s in zip(
+                aligned_subroi[0] * self.block_write_roi.get_shape(),
+                aligned_subroi[1] * self.block_write_roi.get_shape(),
+                self.block_write_roi.get_shape(),
+            )
+        ]
+        # generate absolute offsets
+        block_offsets = [
+            Coordinate(o)
+            + (self.total_roi.get_begin() - self.block_read_roi.get_begin())
+            for o in product(*block_dim_offsets)
+        ]
+        blocks = self.enumerate_dependencies(
+            conflict_offsets=[],
+            block_offsets=block_offsets,
+        )
+        return [block.block_id for block, _ in blocks]
+
+
+class DependencyGraph:
+    def __init__(
+        self,
+        tasks,
+    ):
         self.task_map = {}
-        self.prepared_tasks = set()
-        self.created_tasks = set()
-        self.task_dependency = collections.defaultdict(set)
+        self.task_dependencies = collections.defaultdict(set)
+        for task in tasks:
+            self.__add_task(task)
 
-        self.dependents = collections.defaultdict(set)
-        self.dependencies = collections.defaultdict(set)
-        self.ready_queues = collections.defaultdict(collections.deque)
-        self.ready_queue_cv = threading.Condition()
-        self.processing_blocks = set()
-        self.task_processing_blocks = collections.defaultdict(set)
+        self.task_dependency_graphs = {}
+        for task in self.task_map.values():
+            self.__add_task_dependency_graph(task)
+
+        self._downstream = collections.defaultdict(set)
+        self._upstream = collections.defaultdict(set)
         self.blocks = {}
 
-        self.retry_count = collections.defaultdict(int)
-        self.failed_blocks = set()
-        self.orphaned_blocks = set()
-        self.task_failed_count = collections.defaultdict(int)
+        self.__enumerate_all_dependencies()
 
-        self.task_done_count = collections.defaultdict(int)
-        self.task_total_block_count = collections.defaultdict(int)
+    @property
+    def task_ids(self):
+        return self.task_map.keys()
 
-        self.use_z_order_scheduling = True
-        if self.use_z_order_scheduling:
-            self.ready_queues = collections.defaultdict(list)
+    def num_blocks(self, task_id):
+        return self.task_dependency_graphs[task_id].num_blocks
 
-    def add(self, task):
-        '''Add a ``Task`` to the graph.
+    def upstream(self, block_id):
+        return sorted(
+            [self.blocks[up] for up in self._upstream[block_id]],
+            key=lambda b: b.block_id[1],
+        )
 
-        Args:
-            task(``Task``):
-                Task to be added to the graph. Its dependencies are
-                automatically and recursively added to the graph.
-        '''
+    def downstream(self, block_id):
+        return sorted(
+            [self.blocks[down] for down in self._downstream[block_id]],
+            key=lambda b: b.block_id[1],
+        )
+
+    def root_tasks(self):
+        return [
+            task_id
+            for task_id, upstream_tasks in self.task_dependencies.items()
+            if len(upstream_tasks) == 0
+        ]
+
+    def num_roots(self, task_id):
+        return self.task_dependency_graphs[task_id].num_roots()
+
+    def root_gen(self, task_id):
+        return self.task_dependency_graphs[task_id].root_gen()
+
+    def roots(self):
+        root_tasks = self.root_tasks()
+        return {
+            task_id: (self.num_roots(task_id), self.root_gen(task_id))
+            for task_id in root_tasks
+        }
+
+    def __add_task(self, task):
         if task.task_id not in self.task_map:
-            self.tasks.add(task)
             self.task_map[task.task_id] = task
-            self.add_task_dependency(task)
+            for upstream_task in task.requires():
+                self.add(upstream_task)
+                self.task_dependencies[task.task_id].add(upstream_task.task_id)
 
-    def add_task_dependency(self, task):
-        '''Recursively add dependencies of a task to the graph.'''
-        for dependency_task in task.requires():
+    def __add_task_dependency_graph(self, task):
+        """Create dependency graph a specific task"""
 
-            if dependency_task.task_id not in self.task_map:
-                self.tasks.add(dependency_task)
-                self.task_map[dependency_task.task_id] = dependency_task
-                # recursively add dependency
-                self.add_task_dependency(dependency_task)
+        # create intra task dependency graph
+        self.task_dependency_graphs[task.task_id] = BlockwiseDependencyGraph(
+            task.task_id,
+            task.total_roi,
+            task.read_roi,
+            task.write_roi,
+            task.read_write_conflict,
+            task.fit,
+        )
 
-            # modify task dependency graph
-            self.task_dependency[task.task_id].add(dependency_task.task_id)
-
-    def init(self, task_id, request_roi=None):
-        '''Called by the ``scheduler`` after all tasks have been added.
-        Call the prepare() of each task, and create the entire
-        block-wise graph.'''
-        assert(task_id in self.task_map)
-        self.created_tasks = set()
-        self.__recursively_prepare(task_id)
-        self.__recursively_create_dependency_graph(task_id, request_roi)
-
-    def add_to_ready_queue(self, task_id, block_id):
-        if self.use_z_order_scheduling:
-            heapq.heappush(self.ready_queues[task_id],
-                           (self.blocks[block_id].z_order_id, block_id))
-        else:
-            self.ready_queues[task_id].append(block_id)
-
-    def get_from_ready_queue(self, task_id):
-        if self.use_z_order_scheduling:
-            item = heapq.heappop(self.ready_queues[task_id])
-            return item[1]
-        else:
-            return self.ready_queues[task_id].popleft()
-
-    def __recursively_create_dependency_graph(self, task_id, request_roi):
-        '''Create dependency graph for its dependencies first before
-        its own'''
-        if task_id in self.created_tasks:
-            return
-        else:
-            self.created_tasks.add(task_id)
-
-        task = self.task_map[task_id]
-        dependency_request_roi = None
-
-        # restore original total_roi before modification
-        # (second time this task is processed)
-        task._daisy.total_roi = task._daisy.orig_total_roi
-
-        if request_roi:
-            # request has to be within the total_write_roi
-            # TODO: make sure this is correct given the fitting strategy
-            # of the dependent task
-            if not task._daisy.total_write_roi.contains(request_roi):
-
-                new_request_roi = request_roi.intersect(
-                                                task._daisy.total_write_roi)
-                logger.info(
-                    "Reducing request_roi for Task %s from %s to %s because "
-                    "total_write_roi is only %s",
-                    task_id, request_roi, new_request_roi,
-                    task._daisy.total_write_roi)
-                request_roi = new_request_roi
-
-            # reduce total_roi to match request_roi
-            # and calculate request_roi for its dependencies
-            total_roi = expand_request_roi_to_grid(
-                request_roi,
-                task._daisy.orig_total_roi,
-                task._daisy.read_roi,
-                task._daisy.write_roi)
-
-            logger.info(
-                "Reducing total_roi for Task %s from %s to %s because of "
-                "request %s",
-                task_id, task._daisy.orig_total_roi, total_roi, request_roi)
-
-            task._daisy.total_roi = total_roi
-            dependency_request_roi = total_roi
-
-        for dependency_task in self.task_dependency[task_id]:
-            self.__recursively_create_dependency_graph(dependency_task,
-                                                       dependency_request_roi)
-
-        # finally create graph for this task
-        # first create the self-contained dependency graph
-        blocks = create_dependency_graph(
-            task._daisy.total_roi,
-            task._daisy.read_roi,
-            task._daisy.write_roi,
-            task._daisy.read_write_conflict,
-            task._daisy.fit)
-
-        self.task_total_block_count[task_id] += len(blocks)
-        self.task_done_count[task_id] = 0
-
-        # some sanity checks
-        assert(task._daisy.max_retries >= 0)
-
-        # add tasks to block-wise graph, while accounting for intra-task
-        # and inter-task dependencies
-        for block, block_dependencies in blocks:
-
-            block_id = (task_id, block.block_id)
-
-            if block_id in self.blocks:
-                continue
-
-            self.blocks[block_id] = block
-
-            dependencies = [
-                (task_id, b.block_id) for b in block_dependencies
-                if (task_id, b.block_id) in self.blocks]
-
-            # add inter-task read-write dependency
-            if len(self.task_dependency[task_id]):
-                roi = block.read_roi
-                for dependent_task in self.task_dependency[task_id]:
-                    block_ids = self._get_subgraph_blocks(dependent_task, roi)
-                    dependencies.extend([
-                        (dependent_task, block_id)
-                        for block_id in block_ids
-                    ])
-
-            for dep_id in dependencies:
-                if dep_id not in self.blocks:
-                    raise RuntimeError(
-                        "Block dependency %s is not found for task %s." % (
-                            dep_id, task_id))
+    def __enumerate_all_dependencies(self):
+        # enumerate all the blocks
+        for task_id in self.task_ids:
+            block_dependencies = self.task_dependency_graphs[task_id].dependencies
+            for block, upstream_blocks in block_dependencies:
+                if block.block_id in self.blocks:
                     continue
-                self.dependents[dep_id].add(block_id)
-                self.dependencies[block_id].add(dep_id)
 
-            if len(dependencies) == 0:
-                # if this block has no dependencies, add it to the ready
-                # queue immediately
-                self.add_to_ready_queue(task_id, block_id)
+                self.blocks[block.block_id] = block
 
-    def __recursively_prepare(self, task):
+                for upstream_block in upstream_blocks:
+                    if upstream_block.block_id not in self.blocks:
+                        raise RuntimeError(
+                            "Block dependency %s is not found for task %s."
+                            % (upstream_block.block_id, task_id)
+                        )
+                    self._downstream[upstream_block.block_id].add(block.block_id)
+                    self._upstream[block.block_id].add(upstream_block.block_id)
 
-        if task in self.prepared_tasks:
-            return
-        self.prepared_tasks.add(task)
+        # enumerate all of the upstream / downstream dependencies
+        for task_id in self.task_ids:
+            # add inter-task read-write dependency
+            if len(self.task_dependencies[task_id]):
+                for block in self.task_dependency_graphs[task_id].blocks:
+                    roi = block.read_roi
+                    upstream_blocks = []
+                    for upstream_task_id in self.task_dependencies[task_id]:
+                        upstream_task_blocks = self.task_dependency_graphs[
+                            upstream_task_id
+                        ].get_subgraph_blocks(roi)
+                        upstream_blocks.extend([upstream_task_blocks])
 
-        for dependency_task in self.task_dependency[task]:
-            self.__recursively_prepare(dependency_task)
-
-        self.task_map[task].prepare()
-
-    def next(self, waiting_blocks):
-        '''Called by the ``scheduler`` to get a `dict` of ready blocks.
-        This function blocks when outstanding blocks are empty and
-        there is no further ready blocks to issue. This (only) happens
-        when there are outstanding, currently executing blocks.
-
-        Return:
-            `dict` {task_id: block} for ready task blocks.
-            Empty `dict` does not necessarily mean that there is
-            no more blocks to be run (though it is the case currently).
-            The scheduler should call empty() to really make sure that
-            there is no more blocks to run.
-        '''
-
-        return_blocks = waiting_blocks
-        while True:
-            with self.ready_queue_cv:
-
-                if self.empty():
-                    return return_blocks
-
-                for task_type in self.ready_queues:
-
-                    if task_type in return_blocks:
-                        pass
-
-                    elif len(self.ready_queues[task_type]) == 0:
-                        pass
-
-                    else:
-                        block_id = self.get_from_ready_queue(task_type)
-                        self.processing_blocks.add(block_id)
-                        self.task_processing_blocks[block_id[0]].add(
-                            block_id[1])
-                        return_blocks[block_id[0]] = self.blocks[block_id]
-
-                if len(return_blocks):
-                    return return_blocks
-
-                # empty work list; blocks until more blocks are returned
-                while not self.empty() and self.ready_size() == 0:
-                    self.ready_queue_cv.wait()
-
-    def get_tasks(self):
-        '''Get all tasks in the graph.'''
-        return self.tasks
-
-    def empty(self):
-        '''Return ``True`` if there is no more blocks to be executed,
-        either because all blocks have been completed, or because there
-        are failed blocks that prevent other blocks from running.'''
-        return (
-            (self.ready_size() == 0) and
-            (len(self.processing_blocks) == 0))
-
-    def size(self):
-        '''Return the size of the block-wise graph.'''
-        return len(self.blocks)
-
-    def ready_size(self):
-        '''Return the number of blocks ready to be run.'''
-        count = 0
-        for task in self.ready_queues:
-            count += len(self.ready_queues[task])
-        return count
-
-    def get_orphans(self):
-        '''Return the number of blocks cannot be issued due to failed
-        dependencies.'''
-        return self.orphaned_blocks
-
-    def get_failed_blocks(self):
-        '''Return blocks that have failed and won't be retried.'''
-        return self.failed_blocks
-
-    def get_block(self, block_id):
-        '''Return a specific block.'''
-        return self.blocks[block_id]
-
-    def cancel_and_reschedule(self, block_id):
-        '''Used to notify that a block has failed. The block will either
-        be rescheduled if within the number of retries, or be marked
-        as failed.'''
-        if block_id not in self.processing_blocks:
-            logger.error(
-                "Block %d is canceled but was not found", block_id)
-            raise
-
-        self.retry_count[block_id] = self.retry_count[block_id] + 1
-
-        with self.ready_queue_cv:
-
-            self.processing_blocks.remove(block_id)
-            self.task_processing_blocks[block_id[0]].remove(block_id[1])
-            task_id = block_id[0]
-
-            if (
-                    self.retry_count[block_id] >
-                    self.task_map[task_id]._daisy.max_retries):
-
-                self.failed_blocks.add(block_id)
-                self.task_failed_count[block_id[0]] += 1
-                logger.error(
-                    "Block {} is canceled and will not be rescheduled."
-                    .format(block_id))
-
-                if len(self.dependents[block_id]):
-                    logger.error(
-                        "The following blocks are then orphaned and "
-                        "cannot be run: {}".format(self.dependents[block_id]))
-
-                self.recursively_check_orphans(block_id)
-                # simply leave it canceled at this point
-
-            else:
-
-                self.add_to_ready_queue(task_id, block_id)
-                logger.info("Block {} will be rescheduled.".format(block_id))
-
-            self.ready_queue_cv.notify()  # in either case, unblock next()
-
-    def recursively_check_orphans(self, block_id):
-        '''Check and mark children of the given block as orphans.'''
-        for orphan_id in self.dependents[block_id]:
-
-            if (orphan_id in self.orphaned_blocks
-                    or orphan_id in self.failed_blocks):
-                return
-
-            self.orphaned_blocks.add(orphan_id)
-            self.recursively_check_orphans(orphan_id)
-
-    def remove_and_update(self, block_id):
-        '''Removing a finished block and update ready queue.'''
-        with self.ready_queue_cv:
-
-            self.task_done_count[block_id[0]] += 1
-            self.processing_blocks.remove(block_id)
-            self.task_processing_blocks[block_id[0]].remove(block_id[1])
-
-            dependents = self.dependents[block_id]
-            for dep in dependents:
-                self.dependencies[dep].remove(block_id)
-                if len(self.dependencies[dep]) == 0:
-                    # ready to run
-                    self.add_to_ready_queue(dep[0], dep)
-
-            # Unblock next() regardless. If we only unblock for new
-            # elements in ready_queue, the program might lock up if
-            # this block is the last
-            self.ready_queue_cv.notify()
-
-    def get_subgraph(self, roi):
-        '''Create a subgraph given a ROI, assuming this ROI is that
-        of the leaf task.'''
-        raise RuntimeError("Deprecated function.")  # deprecated function
-        subgraph = copy.deepcopy(self)
-        subgraph.__create_subgraph(roi)
-        return subgraph
-
-    def __create_subgraph(self, roi):
-        '''Modify existing graph so that only the minimum number of
-        blocks will be computed to cover the given ROI. This is achieved
-        by simply recomputing the ready_queue as computed for the full
-        graph.'''
-        raise RuntimeError("Deprecated function.")  # deprecated function
-
-        self.ready_queues.clear()
-
-        # get blocks of the leaf task that writes to the given ROI
-        to_check = collections.deque()
-        to_check.extend([
-            (self.leaf_task_id, block)
-            for block in self._get_subgraph_blocks(self.leaf_task_id, roi)
-        ])
-
-        processed = set()
-        while len(to_check) > 0:
-
-            block = to_check.popleft()
-
-            if block in processed:
-                continue
-            else:
-                processed.add(block)
-
-            if len(self.dependencies[block]) == 0:
-                self.ready_queues[block[0]].append(block)
-            else:
-                to_check.extend(self.dependencies[block])
-
-    def _get_subgraph_blocks(self, task_id, roi):
-        '''Return blocks of this task that write to given ROI.'''
-        task = self.task_map[task_id]
-        return get_subgraph_blocks(
-            roi,
-            task._daisy.total_roi,
-            task._daisy.read_roi,
-            task._daisy.write_roi,
-            task._daisy.fit)
-
-    def is_task_done(self, task_id):
-        '''Return ``True`` if all blocks of a task have completed.'''
-        return (self.task_done_count[task_id]
-                == self.task_total_block_count[task_id])
-
-    def get_task_size(self, task_id):
-        return self.task_total_block_count[task_id]
-
-    def get_task_done_count(self, task_id):
-        return self.task_done_count[task_id]
-
-    def get_task_failed_count(self, task_id):
-        return self.task_failed_count[task_id]
-
-    def get_task_processing_blocks(self, task_id):
-        return self.task_processing_blocks[task_id]
+                    for upstream_block in upstream_blocks:
+                        if upstream_block.block_id not in self.blocks:
+                            raise RuntimeError(
+                                "Block dependency %s is not found for task %s."
+                                % (upstream_block.block_id, task_id)
+                            )
+                        self._downstream[upstream_block.block_id].add(block.block_id)
+                        self._upstream[block.block_id].add(upstream_block.block_id)

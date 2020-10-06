@@ -1,12 +1,104 @@
-class Worker():
+from .context import Context
+import logging
+import multiprocessing
+import os
+import queue
+import sys
 
-    def __init__(self, worker_id, address, stream):
-        self.worker_id = worker_id
-        self.address = address
-        self.stream = stream
+logger = logging.getLogger(__name__)
+
+
+class Worker():
+    '''Create and start a worker, running a user-specified function in its own
+    process.
+
+    Args:
+
+        spawn_function (function):
+
+              A function taking no arguments used to spawn a worker. This
+              function will be executed inside its own process (i.e., there is
+              no need to spawn a process in this function).
+
+        context (:class:`daisy.Context`, optional):
+
+              If given, the context will be passed on to the worker via
+              environment variables.
+    '''
+
+    __next_id = multiprocessing.Value('L')
+
+    @staticmethod
+    def get_next_id():
+        with Worker.__next_id.get_lock():
+            next_id = Worker.__next_id.value
+            Worker.__next_id.value += 1
+        return next_id
+
+    def __init__(self, spawn_function, context=None, error_queue=None):
+
+        self.spawn_function = spawn_function
+        self.worker_id = Worker.get_next_id()
+        if context is None:
+            self.context = Context()
+        else:
+            self.context = context.copy()
+        self.context['worker_id'] = self.worker_id
+        self.error_queue = error_queue
+        self.process = None
+
+        self.start()
+
+    def start(self):
+        '''Start this worker. Note that workers are automatically started when
+        created. Use this function to re-start a stopped worker.'''
+
+        if self.process is not None:
+            return
+
+        self.process = multiprocessing.Process(
+            target=lambda: self.__spawn_wrapper())
+        self.process.start()
+
+    def stop(self):
+        '''Stop this worker.'''
+
+        if self.process is None:
+            return
+
+        logger.debug("Terminating %s", self)
+        self.process.terminate()
+
+        logger.debug("Joining %s", self)
+        self.process.join()
+
+        logger.debug("%s terminated", self)
+        self.process = None
+
+    def __spawn_wrapper(self):
+        '''Thin wrapper around the user-specified spawn function to set
+        environment variables and to capture exceptions.'''
+
+        try:
+
+            os.environ[self.context.ENV_VARIABLE] = self.context.to_env()
+            self.spawn_function()
+
+        except Exception as e:
+
+            logger.error("%s received exception: %s", self, e)
+            if self.error_queue:
+                try:
+                    self.error_queue.put(e, timeout=1)
+                except queue.Full:
+                    logger.error(
+                        "%s failed to forward exception, error queue is full",
+                        self)
+
+        except KeyboardInterrupt:
+
+            logger.error("%s received ^C", self)
 
     def __repr__(self):
-        return "%d at %s:%d" % (
-            self.worker_id,
-            self.address[0],
-            self.address[1])
+
+        return "worker (%s)" % self.context
