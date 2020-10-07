@@ -15,7 +15,7 @@ small_task = Task(
     total_roi=total_rois[0],
     read_roi=read_roi,
     write_roi=write_roi,
-    process_function=None,
+    process_function=lambda: None,
     check_function=None,
 )
 
@@ -24,7 +24,7 @@ medium_task = Task(
     total_roi=total_rois[1],
     read_roi=read_roi,
     write_roi=write_roi,
-    process_function=None,
+    process_function=lambda: None,
     check_function=None,
 )
 
@@ -33,35 +33,37 @@ large_task = Task(
     total_roi=total_rois[2],
     read_roi=read_roi,
     write_roi=write_roi,
-    process_function=None,
+    process_function=lambda: None,
     check_function=None,
 )
 
-
-@pytest.mark.parametrize("task", [small_task, medium_task, large_task])
-def test_startup_time(benchmark, task):
-    def init_and_request_first_block(task):
-        scheduler = Scheduler([task])
-        return scheduler.acquire_block(task.task_id)
-
-    benchmark(init_and_request_first_block, task)
+tasks = {
+    "small": (small_task, 64),
+    "medium": (medium_task, 729),
+    "large": (large_task, 2_744),
+}
 
 
-tasks = [(small_task, 64), (medium_task, 729), (large_task, 2_744)]
+@pytest.mark.parametrize("test", ["iterate", "init"])
+@pytest.mark.parametrize("size", ["small", "medium", "large"])
+@pytest.mark.parametrize("block_gen", ["lazy", "enumerated"])
+def test_dep_graph(benchmark, test, size, block_gen):
+    task = tasks[size]
+    lazy = block_gen == "lazy"
+    iterate = test == "iterate"
 
-
-@pytest.mark.parametrize("task", tasks)
-def test_iterate_time(benchmark, task):
-    def init_and_iterate_all_blocks(task, block_count):
-        scheduler = Scheduler([task])
+    def benchmark_scheduler(task, block_count):
+        scheduler = Scheduler([task], lazy=lazy)
         for i in range(block_count):
             block = scheduler.acquire_block(task.task_id)
             assert block is not None, f"Failed to get the {i}'th block!"
             block.status = BlockStatus.SUCCESS
             scheduler.release_block(block)
+            if not iterate:
+                return
 
         extra_block = scheduler.acquire_block(task.task_id)
         assert extra_block is None, f"{i+1}'th block is not None!"
 
     task, block_count = task
-    benchmark(init_and_iterate_all_blocks, task, block_count)
+    benchmark(benchmark_scheduler, task, block_count)
