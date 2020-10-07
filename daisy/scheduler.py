@@ -77,8 +77,8 @@ class Scheduler:
     See the DependencyGraph class for more information.
     """
 
-    def __init__(self, tasks: List[Task]):
-        self.dependency_graph = DependencyGraph(tasks)
+    def __init__(self, tasks: List[Task], lazy=True):
+        self.dependency_graph = DependencyGraph(tasks, lazy=lazy)
 
         self.task_map = {}
         self.task_states = collections.defaultdict(TaskState)
@@ -116,7 +116,8 @@ class Scheduler:
             if len(self.task_blocks[task_id].ready_queue) == 0:
                 try:
                     next_block = next(self.root_tasks[task_id][1])
-                    assert len(self.dependency_graph.upstream(next_block.block_id)) == 0
+                    upstreams = self.dependency_graph.upstream(next_block)
+                    assert len(upstreams) == 0, f"Upstreams of {next_block}: {upstreams}"
                     self.task_blocks[task_id].ready_queue.append(next_block)
                     return True
                 except StopIteration:
@@ -215,31 +216,31 @@ class Scheduler:
             self.task_blocks[task_id].completed_blocks.add(block.block_id)
             self.task_states[task_id].processing_count -= 1
             self.task_states[task_id].completed_count += 1
-            self.update_complete_surface(block.block_id)
-            updated_tasks = self.update_ready_queue(block.block_id)
+            self.update_complete_surface(block)
+            updated_tasks = self.update_ready_queue(block)
             return updated_tasks
         if block.status == BlockStatus.FAILED:
             self.task_blocks[task_id].processing_blocks.remove(block.block_id)
             self.task_blocks[task_id].failed_blocks.add(block.block_id)
             self.task_states[task_id].processing_count -= 1
             self.task_states[task_id].failed_count += 1
-            self.update_failed_surface(block.block_id)
+            self.update_failed_surface(block)
             # No new blocks can be freed by failing a block.
             return {}
 
-    def update_complete_surface(self, block_id):
+    def update_complete_surface(self, block):
         """
         The complete surface is comprised of all blocks, that are both completed
         and whose dependencies have not yet all been completed.
         """
-        upstream_blocks = self.dependency_graph.upstream(block_id)
-        self.completed_surface.add(block_id)
+        upstream_blocks = self.dependency_graph.upstream(block)
+        self.completed_surface.add(block.block_id)
         for upstream_block in upstream_blocks:
             if upstream_block.block_id not in self.completed_surface:
                 continue
             else:
                 downstream_blocks = self.dependency_graph.downstream(
-                    upstream_block.block_id
+                    upstream_block
                 )
                 if all(
                     down.block_id in self.completed_surface
@@ -247,7 +248,7 @@ class Scheduler:
                 ):
                     self.completed_surface.remove(upstream_block.block_id)
 
-    def update_ready_queue(self, block_id):
+    def update_ready_queue(self, block):
         """
         Given a newly completed block_id, all of its downstream blocks are
         checked to see if their upstream dependencies have now been completed.
@@ -258,21 +259,21 @@ class Scheduler:
         block, thus each block can be added to the ready queue only once.
         """
         updated_tasks = {}
-        downstream_blocks = self.dependency_graph.downstream(block_id)
+        downstream_blocks = self.dependency_graph.downstream(block)
         for down in downstream_blocks:
-            upstream_blocks = self.dependency_graph.upstream(down.block_id)
+            upstream_blocks = self.dependency_graph.upstream(down)
             if all(up.block_id in self.completed_surface for up in upstream_blocks):
                 self._queue_ready_block(down)
                 updated_tasks[down.task_id] = self.task_states[down.task_id]
         return updated_tasks
 
-    def update_failed_surface(self, block_id):
-        self.task_blocks[block_id[0]].failed_blocks.append(block_id)
+    def update_failed_surface(self, block):
+        self.task_blocks[block.task_id].failed_blocks.append(block.block_id)
 
-        downstream = set(self.dependency_graph.downstream(block_id))
+        downstream = set(self.dependency_graph.downstream(block))
         while len(downstream) > 0:
             orphan = downstream.pop()
-            self.task_blocks[orphan.task_id].add(orphan.block_id)
+            self.task_blocks[orphan.task_id].orphaned_blocks.add(orphan.block_id)
             self.task_states[orphan.task_id].orphaned_count += 1
             downstream = downstream.union(set(self.dependency_graph.downstream(orphan)))
 

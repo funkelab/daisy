@@ -3,10 +3,14 @@ from .block import Block
 from .coordinate import Coordinate
 from .roi import Roi
 
+import numpy as np
+
 from itertools import product
 import logging
 import collections
 from typing import List
+
+from funlib.math import inv_cantor_number
 
 logger = logging.getLogger(__name__)
 
@@ -103,43 +107,153 @@ class BlockwiseDependencyGraph:
         self._level_offsets = self.compute_level_offsets()
         self._level_conflicts = self.compute_level_conflicts()
 
-        self.dependencies = self.enumerate_all_dependencies()
+    @property
+    def num_levels(self):
+        return len(self._level_offsets)
 
     @property
     def num_blocks(self):
-        return len(self.dependencies)
+        num_blocks = 0
+        for level in range(self.num_levels):
+            num_blocks += self._num_level_blocks(level)
+        return num_blocks
+
+    @property
+    def inclusion_criteria(self):
+        inclusion_criteria = {
+            "valid": lambda b: self.total_roi.contains(b.read_roi),
+            "overhang": lambda b: self.total_roi.contains(b.write_roi.get_begin()),
+            "shrink": lambda b: self.shrink_possible(b),
+        }[self.fit]
+        return inclusion_criteria
+
+    @property
+    def fit_block(self):
+        fit_block = {
+            "valid": lambda b: b,  # noop
+            "overhang": lambda b: b,  # noop
+            "shrink": lambda b: self.shrink(b),
+        }[self.fit]
+        return fit_block
 
     def num_roots(self):
-        root_deps = self.enumerate_level_dependencies(
-            self._level_conflicts[0],
-            self.level_block_offsets[0],
-        )
-        return len(root_deps)
+        return self._num_level_blocks(0)
+
+    def _num_level_blocks(self, level):
+        level_offset = self._level_offsets[level]
+
+        # all block offsets of the current level (relative to total ROI start)
+        axis_blocks = [
+            (e - lo) // s
+            for lo, e, s in zip(
+                level_offset, self.total_roi.get_shape(), self._level_stride
+            )
+        ]
+
+        return np.prod(axis_blocks)
+
+    def level_blocks(self, level):
+        level_offset = self._level_offsets[level]
+        # all block offsets of the current level (relative to total ROI start)
+        block_dim_offsets = [
+            range(lo, e, s)
+            for lo, e, s in zip(
+                level_offset, self.total_roi.get_shape(), self._level_stride
+            )
+        ]
+        for block_offset in product(*block_dim_offsets):
+            block_offset = Coordinate(block_offset)
+
+            # convert to global coordinates
+            block_offset += self.total_roi.get_begin() - self.block_read_roi.get_begin()
+            block = Block(
+                self.total_roi,
+                self.block_read_roi + block_offset,
+                self.block_write_roi + block_offset,
+                task_id=self.task_id,
+            )
+            # TODO: We probably don't need to check every block for inclusion and fit,
+            # but rather just the blocks on the total roi boundary
+            if self.inclusion_criteria(block):
+                yield self.fit_block(block)
 
     def root_gen(self):
-        root_deps = self.enumerate_level_dependencies(
-            self._level_conflicts[0],
-            self.level_block_offsets[0],
+        blocks = self.level_blocks(level=0)
+        for block in blocks:
+
+            yield self.fit_block(block)
+
+    def _block_offset(self, block):
+        # The block offset is the offset of the read roi relative to total roi
+        block_offset = block.read_roi.get_offset() - self.total_roi.get_offset()
+        return block_offset
+
+    def _level(self, block):
+        block_offset = self._block_offset(block)
+        level_offset = block_offset % self._level_stride
+        for i, offset in enumerate(self._level_offsets):
+            if level_offset == offset:
+                return i
+        raise NotImplementedError(
+            f"Should not be reachable! {level_offset} not in {self._level_offsets}, "
+            f"stride: {self._level_stride}"
         )
-        for block, deps in root_deps:
-            yield block
+
+    def downstream(self, block):
+        """
+        get all block_id's that are directly dependent on this block_id
+        i.e. this block offset by all conflict offsets in the next level
+        """
+        level = self._level(block)
+        next_level = level + 1
+        if next_level >= self.num_levels:
+            return []
+
+        conflicts = []
+        for conflict in self._level_conflicts[next_level]:
+            conflict_block = Block(
+                total_roi=self.total_roi,
+                read_roi=block.read_roi - conflict,
+                write_roi=block.write_roi - conflict,
+                task_id=self.task_id,
+            )
+            # TODO: We probably don't need to check every block for inclusion and fit,
+            # but rather just the blocks on the total roi boundary
+            if self.inclusion_criteria(conflict_block):
+                conflicts.append(self.fit_block(conflict_block))
+        return conflicts
+
+    def upstream(self, block):
+        """
+        get all upstream block id's for a given block_id
+        i.e. this block offset by all conflict offsets in this level
+        """
+        level = self._level(block)
+        if level >= self.num_levels:
+            return []
+
+        conflicts = []
+        for conflict in self._level_conflicts[level]:
+            conflict_block = Block(
+                total_roi=self.total_roi,
+                read_roi=block.read_roi + conflict,
+                write_roi=block.write_roi + conflict,
+                task_id=self.task_id,
+            )
+            # TODO: We probably don't need to check every block for inclusion and fit,
+            # but rather just the blocks on the total roi boundary
+            if self.inclusion_criteria(conflict_block):
+                conflicts.append(self.fit_block(conflict_block))
+        return conflicts
 
     def enumerate_all_dependencies(self):
 
-        self.level_block_offsets = self.compute_level_block_offsets()
+        self._level_block_offsets = self.compute_level_block_offsets()
 
-        dependencies = []
-
-        for level_conflicts, level_block_offsets in zip(
-            self._level_conflicts, self.level_block_offsets
-        ):
-            level_deps = self.enumerate_level_dependencies(
-                level_conflicts,
-                level_block_offsets,
-            )
-            dependencies += level_deps
-
-        return dependencies
+        for level in range(self.num_levels):
+            level_blocks = self.level_blocks(level)
+            for block in level_blocks:
+                yield (block, self.upstream(block))
 
     def compute_level_stride(self) -> Coordinate:
         """
@@ -228,6 +342,23 @@ class BlockwiseDependencyGraph:
 
         return level_conflict_offsets
 
+    def _compute_level_block_offsets(self, level):
+        level_offset = self._level_offsets[level]
+        # all block offsets of the current level (relative to total ROI start)
+        block_dim_offsets = [
+            range(lo, e, s)
+            for lo, e, s in zip(
+                level_offset, self.total_roi.get_shape(), self._level_stride
+            )
+        ]
+        for offset in product(*block_dim_offsets):
+            # TODO: can we do this part lazily? This might be a lot of Coordinates
+            block_offset = Coordinate(offset)
+
+            # convert to global coordinates
+            block_offset += self.total_roi.get_begin() - self.block_read_roi.get_begin()
+            yield block_offset
+
     def compute_level_block_offsets(self) -> List[List[Coordinate]]:
         """
         For each level, get the set of all offsets corresponding to blocks in
@@ -235,26 +366,9 @@ class BlockwiseDependencyGraph:
         """
         level_block_offsets = []
 
-        for level_offset, level_conflicts in zip(
-            self._level_offsets, self._level_conflicts
-        ):
+        for level in range(self.num_levels):
 
-            # all block offsets of the current level (relative to total ROI start)
-            block_dim_offsets = [
-                range(lo, e, s)
-                for lo, e, s in zip(
-                    level_offset, self.total_roi.get_shape(), self._level_stride
-                )
-            ]
-            # TODO: can we do this part lazily? This might be a lot of Coordinates
-            block_offsets = [Coordinate(o) for o in product(*block_dim_offsets)]
-
-            # convert to global coordinates
-            block_offsets = [
-                o + (self.total_roi.get_begin() - self.block_read_roi.get_begin())
-                for o in block_offsets
-            ]
-            level_block_offsets.append(block_offsets)
+            level_block_offsets.append(list(self._compute_level_block_offsets(level)))
 
         return level_block_offsets
 
@@ -265,69 +379,22 @@ class BlockwiseDependencyGraph:
         offset_to_prev = prev_level_offset - level_offset
         logger.debug("offset to previous level: %s", offset_to_prev)
 
+        def get_offsets(op, ls):
+            if op < 0:
+                return [op, op + ls]
+            elif op == 0:
+                return [op]
+            else:
+                return [op - ls, op]
+
         conflict_dim_offsets = [
-            [op, op + ls] if op < 0 else [op - ls, op]
-            for op, ls in zip(offset_to_prev, level_stride)
+            get_offsets(op, ls) for op, ls in zip(offset_to_prev, level_stride)
         ]
 
         conflict_offsets = [Coordinate(o) for o in product(*conflict_dim_offsets)]
         logger.debug("conflict offsets to previous level: %s", conflict_offsets)
 
         return conflict_offsets
-
-    def enumerate_level_dependencies(self, conflict_offsets, block_offsets):
-
-        inclusion_criteria = {
-            "valid": lambda b: self.total_roi.contains(b.read_roi),
-            "overhang": lambda b: self.total_roi.contains(b.write_roi.get_begin()),
-            "shrink": lambda b: self.shrink_possible(b),
-        }[self.fit]
-
-        fit_block = {
-            "valid": lambda b: b,  # noop
-            "overhang": lambda b: b,  # noop
-            "shrink": lambda b: self.shrink(b),
-        }[self.fit]
-
-        blocks = []
-
-        for block_offset in block_offsets:
-
-            # create a block shifted by the current offset
-            block = Block(
-                self.total_roi,
-                self.block_read_roi + block_offset,
-                self.block_write_roi + block_offset,
-                task_id=self.task_id,
-            )
-
-            logger.debug("considering block: %s", block)
-
-            if not inclusion_criteria(block):
-                continue
-
-            # get all blocks in conflict with the current block
-            conflicts = []
-            for conflict_offset in conflict_offsets:
-
-                conflict = Block(
-                    self.total_roi,
-                    block.read_roi + conflict_offset,
-                    block.write_roi + conflict_offset,
-                    task_id=self.task_id,
-                )
-
-                if not inclusion_criteria(conflict):
-                    continue
-
-                logger.debug("in conflict with block: %s", conflict)
-                conflicts.append(fit_block(conflict))
-
-            blocks.append((fit_block(block), conflicts))
-
-        logger.debug("found blocks: %s", blocks)
-
-        return blocks
 
     def shrink_possible(self, block):
 
@@ -403,10 +470,7 @@ class BlockwiseDependencyGraph:
 
 
 class DependencyGraph:
-    def __init__(
-        self,
-        tasks,
-    ):
+    def __init__(self, tasks, lazy=True):
         self.task_map = {}
         self.task_dependencies = collections.defaultdict(set)
         for task in tasks:
@@ -416,11 +480,12 @@ class DependencyGraph:
         for task in self.task_map.values():
             self.__add_task_dependency_graph(task)
 
-        self._downstream = collections.defaultdict(set)
-        self._upstream = collections.defaultdict(set)
-        self.blocks = {}
-
-        self.__enumerate_all_dependencies()
+        self.lazy = lazy
+        if not self.lazy:
+            self._downstream = collections.defaultdict(set)
+            self._upstream = collections.defaultdict(set)
+            self.blocks = {}
+            self.__enumerate_all_dependencies()
 
     @property
     def task_ids(self):
@@ -429,23 +494,31 @@ class DependencyGraph:
     def num_blocks(self, task_id):
         return self.task_dependency_graphs[task_id].num_blocks
 
-    def upstream(self, block_id):
+    def upstream(self, block):
+        if not self.lazy:
+            upstream = [self.blocks[up] for up in self._upstream[block.block_id]]
+        else:
+            upstream = self.task_dependency_graphs[block.task_id].upstream(block)
         return sorted(
-            [self.blocks[up] for up in self._upstream[block_id]],
+            upstream,
             key=lambda b: b.block_id[1],
         )
 
-    def downstream(self, block_id):
+    def downstream(self, block):
+        if not self.lazy:
+            downstream = [self.blocks[up] for up in self._downstream[block.block_id]]
+        else:
+            downstream = self.task_dependency_graphs[block.task_id].downstream(block)
         return sorted(
-            [self.blocks[down] for down in self._downstream[block_id]],
+            downstream,
             key=lambda b: b.block_id[1],
         )
 
     def root_tasks(self):
         return [
             task_id
-            for task_id, upstream_tasks in self.task_dependencies.items()
-            if len(upstream_tasks) == 0
+            for task_id in self.task_map.keys()
+            if len(self.task_dependencies[task_id]) == 0
         ]
 
     def num_roots(self, task_id):
@@ -462,6 +535,7 @@ class DependencyGraph:
         }
 
     def __add_task(self, task):
+        logger.warning(task)
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
             for upstream_task in task.requires():
@@ -484,7 +558,7 @@ class DependencyGraph:
     def __enumerate_all_dependencies(self):
         # enumerate all the blocks
         for task_id in self.task_ids:
-            block_dependencies = self.task_dependency_graphs[task_id].dependencies
+            block_dependencies = self.task_dependency_graphs[task_id].enumerate_all_dependencies()
             for block, upstream_blocks in block_dependencies:
                 if block.block_id in self.blocks:
                     continue
