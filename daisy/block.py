@@ -88,7 +88,9 @@ class Block(Freezable):
         return copy.deepcopy(self)
 
     def __compute_block_id(self, total_roi, write_roi, shift=None):
-        block_index = write_roi.get_offset() / write_roi.get_shape()
+        block_index = (
+            write_roi.get_offset() - total_roi.get_offset()
+        ) / write_roi.get_shape()
 
         # block_id will be the cantor number for this block index
         block_id = int(cantor_number(block_index))
