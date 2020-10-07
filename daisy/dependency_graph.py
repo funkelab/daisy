@@ -143,6 +143,8 @@ class BlockwiseDependencyGraph:
         level_offset = self._level_offsets[level]
 
         # all block offsets of the current level (relative to total ROI start)
+        # TODO: Handle boundaries properly. The number of blocks can vary based on
+        # the fit choice "valid" / "overhang" / "shrink". This is not accounted for
         axis_blocks = [
             (e - lo) // s
             for lo, e, s in zip(
@@ -155,6 +157,8 @@ class BlockwiseDependencyGraph:
     def level_blocks(self, level):
         level_offset = self._level_offsets[level]
         # all block offsets of the current level (relative to total ROI start)
+
+        # TODO: Should be able to handle boundary cases here!
         block_dim_offsets = [
             range(lo, e, s)
             for lo, e, s in zip(
@@ -173,9 +177,12 @@ class BlockwiseDependencyGraph:
                 task_id=self.task_id,
             )
             # TODO: We probably don't need to check every block for inclusion and fit,
-            # but rather just the blocks on the total roi boundary
+            # but rather just the blocks on the total roi boundary. can probably be handled
+            # when we calculate the block_dim_offsets
             if self.inclusion_criteria(block):
                 yield self.fit_block(block)
+            else:
+                logger.warning(f"This case is not accounted for when calculating number of nodes!")
 
     def root_gen(self):
         blocks = self.level_blocks(level=0)
