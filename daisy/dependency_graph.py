@@ -535,7 +535,6 @@ class DependencyGraph:
         }
 
     def __add_task(self, task):
-        logger.warning(task)
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
             for upstream_task in task.requires():
