@@ -60,6 +60,10 @@ class Coordinate(tuple):
             else None
             for a, b in zip(self, other))
 
+    def __radd__(self, other):
+
+        return self.__add__(other)
+
     def __sub__(self, other):
 
         if not isinstance(other, tuple):
@@ -100,6 +104,10 @@ class Coordinate(tuple):
             raise TypeError(
                 "multiplication of Coordinate with type %s not supported" %
                 type(other))
+
+    def __rmul__(self, other):
+
+        return self.__mul__(other)
 
     def __div__(self, other):  # pragma: py3 no cover
 
