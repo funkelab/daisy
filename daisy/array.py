@@ -98,7 +98,7 @@ class Array(Freezable):
         '''
 
         view_shape = (self.roi/self.voxel_size).get_shape()
-        return self.data.shape[:self.n_channel_dims] + view_shape
+        return self.data.shape[:self.n_channel_dims] + tuple(view_shape)
 
     @property
     def dtype(self):
@@ -237,7 +237,7 @@ class Array(Freezable):
 
         shape = (roi/self.voxel_size).get_shape()
         data = np.zeros(
-            self.data.shape[:self.n_channel_dims] + shape,
+            self.data.shape[:self.n_channel_dims] + tuple(shape),
             dtype=self.data.dtype)
         if fill_value != 0:
             data[:] = fill_value
@@ -297,5 +297,5 @@ class Array(Freezable):
 
         index = (coordinate - self.data_roi.get_begin())/self.voxel_size
         if self.n_channel_dims > 0:
-            index = (Ellipsis,) + index
+            index = (Ellipsis,) + tuple(index)
         return index
