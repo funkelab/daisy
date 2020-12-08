@@ -93,6 +93,8 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
         A :class:`daisy.Array` pointing to the dataset.
     '''
 
+    filename = filename.rstrip('/')
+
     if filename.endswith('.zarr'):
 
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
