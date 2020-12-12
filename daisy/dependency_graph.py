@@ -151,6 +151,11 @@ class BlockwiseDependencyGraph:
                 level_offset, self.total_roi.get_shape(), self._level_stride
             )
         ]
+        logger.warning(
+            f"axis_blocks for level ({level}), offset ({level_offset}), "
+            f"and stride ({self._level_stride}): "
+            f"({axis_blocks}, {np.prod(axis_blocks)}"
+        )
 
         return np.prod(axis_blocks)
 
@@ -182,7 +187,9 @@ class BlockwiseDependencyGraph:
             if self.inclusion_criteria(block):
                 yield self.fit_block(block)
             else:
-                logger.warning(f"This case is not accounted for when calculating number of nodes!")
+                logger.warning(
+                    f"This case is not accounted for when calculating number of nodes!"
+                )
 
     def root_gen(self):
         blocks = self.level_blocks(level=0)
@@ -409,7 +416,7 @@ class BlockwiseDependencyGraph:
             return False
 
         # test if write roi would be non-empty
-        b = self.shrink(self.total_roi, block)
+        b = self.shrink(block)
         return all([s > 0 for s in b.write_roi.get_shape()])
 
     def shrink(self, block):
@@ -564,7 +571,9 @@ class DependencyGraph:
     def __enumerate_all_dependencies(self):
         # enumerate all the blocks
         for task_id in self.task_ids:
-            block_dependencies = self.task_dependency_graphs[task_id].enumerate_all_dependencies()
+            block_dependencies = self.task_dependency_graphs[
+                task_id
+            ].enumerate_all_dependencies()
             for block, upstream_blocks in block_dependencies:
                 if block.block_id in self.blocks:
                     continue
