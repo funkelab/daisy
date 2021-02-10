@@ -114,7 +114,7 @@ class Scheduler:
                 ][0]
 
             for upstream_task in task.requires():
-                self.add(upstream_task)
+                self.__init_task(upstream_task)
 
     def has_next(self, task_id):
         if self.task_states[task_id].ready_count >= 1:
@@ -186,7 +186,6 @@ class Scheduler:
                     self.task_states[task_id].started or True
                 )
                 self.task_blocks[task_id].processing_blocks.add(block.block_id)
-                self.task_states[task_id].processing_count += 1
                 return block
 
         else:

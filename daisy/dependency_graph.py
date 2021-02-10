@@ -593,7 +593,7 @@ class DependencyGraph:
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
             for upstream_task in task.requires():
-                self.add(upstream_task)
+                self.__add_task(upstream_task)
                 self.task_dependencies[task.task_id].add(upstream_task.task_id)
 
     def __add_task_dependency_graph(self, task):
