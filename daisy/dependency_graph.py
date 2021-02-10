@@ -525,7 +525,7 @@ class BlockwiseDependencyGraph:
 
 
 class DependencyGraph:
-    def __init__(self, tasks, lazy=True):
+    def __init__(self, tasks):
         self.task_map = {}
         self.task_dependencies = collections.defaultdict(set)
         for task in tasks:
@@ -534,13 +534,6 @@ class DependencyGraph:
         self.task_dependency_graphs = {}
         for task in self.task_map.values():
             self.__add_task_dependency_graph(task)
-
-        self.lazy = lazy
-        if not self.lazy:
-            self._downstream = collections.defaultdict(set)
-            self._upstream = collections.defaultdict(set)
-            self.blocks = {}
-            self.__enumerate_all_dependencies()
 
     @property
     def task_ids(self):
