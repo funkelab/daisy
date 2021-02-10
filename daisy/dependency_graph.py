@@ -61,7 +61,7 @@ class BlockwiseDependencyGraph:
                 |---------------------------|     total ROI
 
                 |rrrr|wwwwww|rrrr|                block 1
-                    |rrrr|wwwwww|rrrr|         block 2
+                       |rrrr|wwwwww|rrrr|         block 2
                                                 no further block
 
             "overhang": Add all blocks that overlap with ``total_roi``, even if
@@ -71,8 +71,8 @@ class BlockwiseDependencyGraph:
                 |---------------------------|     total ROI
 
                 |rrrr|wwwwww|rrrr|                block 1
-                    |rrrr|wwwwww|rrrr|         block 2
-                            |rrrr|wwwwww|rrrr|  block 3 (overhanging)
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|wwwwww|rrrr|  block 3 (overhanging)
 
             "shrink": Like "overhang", but shrink the boundary blocks' read and
             write ROIs such that they are guaranteed to lie within
@@ -82,8 +82,8 @@ class BlockwiseDependencyGraph:
                 |---------------------------|     total ROI
 
                 |rrrr|wwwwww|rrrr|                block 1
-                    |rrrr|wwwwww|rrrr|         block 2
-                            |rrrr|www|rrrr|     block 3 (shrunk)
+                       |rrrr|wwwwww|rrrr|         block 2
+                              |rrrr|www|rrrr|     block 3 (shrunk)
     """
 
     def __init__(
@@ -128,11 +128,17 @@ class BlockwiseDependencyGraph:
             )
 
         self.task_id = task_id
-        self.total_roi = total_roi
-        self.block_read_roi = read_roi
-        self.block_write_roi = write_roi
         self.read_write_conflict = read_write_conflict
         self.fit = fit
+        
+        # when computing block offsets, make sure to include blocks
+        # on the upper boundary with a rounding term
+        if self.fit == "overhang" or self.fit == "shrink":
+            # want to round up if there is any write roi left
+            self.rounding_term = (1,) * self.block_write_roi.dims()
+        else:
+            # want to round up only if there is a full write block left.
+            self.rounding_term = self.block_write_roi.get_shape()
 
         # computed values
         self._level_stride = self.compute_level_stride()
@@ -152,6 +158,7 @@ class BlockwiseDependencyGraph:
 
     @property
     def inclusion_criteria(self):
+        # TODO: Can't we remove this entirely by pre computing the write_roi
         inclusion_criteria = {
             "valid": lambda b: self.total_write_roi.contains(b.write_roi),
             "overhang": lambda b: self.total_write_roi.contains(
@@ -163,6 +170,8 @@ class BlockwiseDependencyGraph:
 
     @property
     def fit_block(self):
+        # TODO: Can't we remove this by pre computing the write_roi and intersecting
+        # edge blocks with the write roi while making them?
         fit_block = {
             "valid": lambda b: b,  # noop
             "overhang": lambda b: b,  # noop
@@ -176,41 +185,28 @@ class BlockwiseDependencyGraph:
     def _num_level_blocks(self, level):
         level_offset = self._level_offsets[level]
 
-        # all block offsets of the current level (relative to total ROI start)
-        # TODO: Handle boundaries properly. The number of blocks can vary based on
-        # the fit choice "valid" / "overhang" / "shrink". This is not accounted for
         axis_blocks = [
-            (e - lo) // s
-            for lo, e, s in zip(
-                level_offset, self.total_roi.get_shape(), self._level_stride
+            (e - lo + s - r) // s
+            for lo, e, s, r in zip(
+                level_offset,
+                self.total_write_roi.get_shape(),
+                self._level_stride,
+                self.rounding_term,
             )
         ]
         logger.warning(
-            f"axis_blocks for level ({level}), offset ({level_offset}), "
-            f"and stride ({self._level_stride}): "
-            f"({axis_blocks}, {np.prod(axis_blocks)}"
+            f"blocks for write_roi: {self.total_write_roi}, level ({level}), "
+            f"offset ({level_offset}), and stride ({self._level_stride}): "
+            f"({axis_blocks}, {np.prod(axis_blocks)})"
         )
 
         return np.prod(axis_blocks)
 
     def level_blocks(self, level):
-        level_offset = self._level_offsets[level]
-        # all block offsets of the current level (relative to total ROI start)
 
-        # TODO: Should be able to handle boundary cases here!
-        block_dim_offsets = [
-            range(lo, e, s)
-            for lo, e, s in zip(
-                level_offset, self.total_roi.get_shape(), self._level_stride
-            )
-        ]
-        for block_offset in product(*block_dim_offsets):
-            block_offset = Coordinate(block_offset)
-
-            # convert to global coordinates
-            block_offset += self.total_roi.get_begin() - self.block_read_roi.get_begin()
+        for block_offset in self._compute_level_block_offsets(level):
             block = Block(
-                self.total_roi,
+                self.total_read_roi,
                 self.block_read_roi + block_offset,
                 self.block_write_roi + block_offset,
                 task_id=self.task_id,
@@ -222,7 +218,7 @@ class BlockwiseDependencyGraph:
                 yield self.fit_block(block)
             else:
                 logger.warning(
-                    f"This case is not accounted for when calculating number of nodes!"
+                    f"This offset {block_offset} is invalid!"
                 )
 
     def root_gen(self):
@@ -269,6 +265,11 @@ class BlockwiseDependencyGraph:
             # but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
+            else:
+                logger.warning(
+                    f"This should not be reachable! block: {conflict_block} "
+                    f"is not valid for write_roi: {self.total_write_roi} and fit: {self.fit}"
+                )
         return conflicts
 
     def upstream(self, block):
@@ -292,6 +293,11 @@ class BlockwiseDependencyGraph:
             # but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
+            else:
+                logger.warning(
+                    f"This should not be reachable! block: {conflict_block} "
+                    f"is not valid for write_roi: {self.total_write_roi} and fit: {self.fit}"
+                )
         return conflicts
 
     def enumerate_all_dependencies(self):
@@ -393,10 +399,14 @@ class BlockwiseDependencyGraph:
     def _compute_level_block_offsets(self, level):
         level_offset = self._level_offsets[level]
         # all block offsets of the current level (relative to total ROI start)
+
         block_dim_offsets = [
-            range(lo, e, s)
-            for lo, e, s in zip(
-                level_offset, self.total_roi.get_shape(), self._level_stride
+            range(lo, e + s - r, s)
+            for lo, e, s, r in zip(
+                level_offset,
+                self.total_write_roi.get_shape(),
+                self._level_stride,
+                self.rounding_term,
             )
         ]
         for offset in product(*block_dim_offsets):
