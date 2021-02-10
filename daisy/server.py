@@ -117,7 +117,8 @@ class Server:
             all_done = True
 
             for task_id, task_state in task_states.items():
-
+                logger.debug("Task state for task %s: %s", task_id,
+                        str(task_state))
                 if task_state.is_done():
                     logger.debug("Task %s is done", task_id)
                     continue

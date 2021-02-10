@@ -46,7 +46,13 @@ class TaskState:
         ) == 0
 
     def __str__(self):
-        return f"{self.started}, {self.ready_count}"
+        return (f"Started: {self.started}\n"
+                f"Total Blocks: {self.total_block_count}\n"
+                f"Ready: {self.ready_count}\n"
+                f"Processing: {self.processing_count}\n"
+                f"Completed: {self.completed_count}\n"
+                f"Failed: {self.failed_count}\n"
+                f"Orphaned: {self.orphaned_count}\n")
 
     def __repr__(self):
         return str(self)
