@@ -8,7 +8,7 @@ import numpy as np
 from itertools import product
 import logging
 import collections
-from typing import List
+from typing import List, Optional
 
 from funlib.math import inv_cantor_number
 
@@ -89,12 +89,44 @@ class BlockwiseDependencyGraph:
     def __init__(
         self,
         task_id: str,
-        total_roi: Roi,
-        read_roi: Roi,
-        write_roi: Roi,
+        block_read_roi: Roi,
+        block_write_roi: Roi,
         read_write_conflict: bool,
         fit: str,
+        total_read_roi: Optional[Roi] = None,
+        total_write_roi: Optional[Roi] = None,
     ):
+        self.block_read_roi = block_read_roi
+        self.block_write_roi = block_write_roi
+        self.read_write_context = (
+            block_write_roi.get_begin() - block_read_roi.get_begin(),
+            block_read_roi.get_end() - block_write_roi.get_end(),
+        )
+
+        if total_read_roi is not None and total_write_roi is not None:
+            total_context = (
+                total_write_roi.get_begin() - total_read_roi.get_begin(),
+                total_read_roi.get_end() - total_write_roi.get_end(),
+            )
+            assert total_context == self.read_write_context, (
+                f"total_read_roi and total_write_roi have context: {total_context} "
+                f"which is unequal to the block context: {self.read_write_context}"
+            )
+        if total_read_roi is not None:
+            self.total_read_roi = total_read_roi
+            self.total_write_roi = self.total_read_roi.grow(
+                -self.read_write_context[0], -self.read_write_context[1]
+            )
+        elif total_write_roi is not None:
+            self.total_write_roi = total_write_roi
+            self.total_read_roi = self.total_write_roi.grow(
+                self.read_write_context[0], self.read_write_context[1]
+            )
+        else:
+            raise ValueError(
+                "Either total_read_roi or total_write_roi must be provided!"
+            )
+
         self.task_id = task_id
         self.total_roi = total_roi
         self.block_read_roi = read_roi
@@ -121,8 +153,10 @@ class BlockwiseDependencyGraph:
     @property
     def inclusion_criteria(self):
         inclusion_criteria = {
-            "valid": lambda b: self.total_roi.contains(b.read_roi),
-            "overhang": lambda b: self.total_roi.contains(b.write_roi.get_begin()),
+            "valid": lambda b: self.total_write_roi.contains(b.write_roi),
+            "overhang": lambda b: self.total_write_roi.contains(
+                b.write_roi.get_begin()
+            ),
             "shrink": lambda b: self.shrink_possible(b),
         }[self.fit]
         return inclusion_criteria
@@ -199,7 +233,7 @@ class BlockwiseDependencyGraph:
 
     def _block_offset(self, block):
         # The block offset is the offset of the read roi relative to total roi
-        block_offset = block.read_roi.get_offset() - self.total_roi.get_offset()
+        block_offset = block.read_roi.get_offset() - self.total_read_roi.get_offset()
         return block_offset
 
     def _level(self, block):
@@ -226,7 +260,7 @@ class BlockwiseDependencyGraph:
         conflicts = []
         for conflict in self._level_conflicts[next_level]:
             conflict_block = Block(
-                total_roi=self.total_roi,
+                total_roi=self.total_read_roi,
                 read_roi=block.read_roi - conflict,
                 write_roi=block.write_roi - conflict,
                 task_id=self.task_id,
@@ -249,7 +283,7 @@ class BlockwiseDependencyGraph:
         conflicts = []
         for conflict in self._level_conflicts[level]:
             conflict_block = Block(
-                total_roi=self.total_roi,
+                total_roi=self.total_read_roi,
                 read_roi=block.read_roi + conflict,
                 write_roi=block.write_roi + conflict,
                 task_id=self.task_id,
@@ -370,7 +404,7 @@ class BlockwiseDependencyGraph:
             block_offset = Coordinate(offset)
 
             # convert to global coordinates
-            block_offset += self.total_roi.get_begin() - self.block_read_roi.get_begin()
+            block_offset += self.total_read_roi.get_begin() - self.block_read_roi.get_begin()
             yield block_offset
 
     def compute_level_block_offsets(self) -> List[List[Coordinate]]:
@@ -412,7 +446,7 @@ class BlockwiseDependencyGraph:
 
     def shrink_possible(self, block):
 
-        if not self.total_roi.contains(block.write_roi.get_begin()):
+        if not self.total_write_roi.contains(block.write_roi.get_begin()):
             return False
 
         # test if write roi would be non-empty
@@ -423,11 +457,8 @@ class BlockwiseDependencyGraph:
         """Ensure that read and write ROI are within total ROI by shrinking both.
         Size of context will be preserved."""
 
-        r = self.total_roi.intersect(block.read_roi)
-        w = block.write_roi.grow(
-            block.read_roi.get_begin() - r.get_begin(),
-            r.get_end() - block.read_roi.get_end(),
-        )
+        w = self.total_write_roi.intersect(block.write_roi)
+        r = self.total_read_roi.intersect(block.read_roi)
 
         shrunk_block = block.copy()
         shrunk_block.read_roi = r
@@ -446,7 +477,7 @@ class BlockwiseDependencyGraph:
         # first align sub_roi to write roi shape
         full_graph_offset = (
             self.block_write_roi.get_begin()
-            + self.total_roi.get_begin()
+            + self.total_read_roi.get_begin()
             - self.block_read_roi.get_begin()
         )
 
@@ -473,7 +504,7 @@ class BlockwiseDependencyGraph:
         # generate absolute offsets
         block_offsets = [
             Coordinate(o)
-            + (self.total_roi.get_begin() - self.block_read_roi.get_begin())
+            + (self.total_read_roi.get_begin() - self.block_read_roi.get_begin())
             for o in product(*block_dim_offsets)
         ]
         blocks = self.enumerate_dependencies(
