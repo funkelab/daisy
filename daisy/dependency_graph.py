@@ -550,20 +550,14 @@ class DependencyGraph:
         return self.task_dependency_graphs[task_id].num_blocks
 
     def upstream(self, block):
-        if not self.lazy:
-            upstream = [self.blocks[up] for up in self._upstream[block.block_id]]
-        else:
-            upstream = self.task_dependency_graphs[block.task_id].upstream(block)
+        upstream = self.task_dependency_graphs[block.task_id].upstream(block)
         return sorted(
             upstream,
             key=lambda b: b.block_id[1],
         )
 
     def downstream(self, block):
-        if not self.lazy:
-            downstream = [self.blocks[up] for up in self._downstream[block.block_id]]
-        else:
-            downstream = self.task_dependency_graphs[block.task_id].downstream(block)
+        downstream = self.task_dependency_graphs[block.task_id].downstream(block)
         return sorted(
             downstream,
             key=lambda b: b.block_id[1],
