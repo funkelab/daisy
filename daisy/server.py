@@ -85,7 +85,7 @@ class Server:
             if task_state.ready_count == 0:
 
                 if task_state.pending_count == 0:
-                    log.debug(
+                    logger.debug(
                         "No more pending blocks for task %s, terminating "
                         "client", message.task_id)
                     message.stream.send_message(RequestShutdown())

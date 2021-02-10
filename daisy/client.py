@@ -76,7 +76,8 @@ class Client():
                 block = message.block
                 yield block
             except Exception as e:
-                self.tcp_client.send_message(ClientException(e))
+                self.tcp_client.send_message(
+                        ClientException(e, self.worker_id))
                 block.status = BlockStatus.FAILED
                 raise e
             finally:

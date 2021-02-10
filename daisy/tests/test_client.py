@@ -31,7 +31,7 @@ class TestClient(unittest.TestCase):
         message = server.get_message(timeout=1)
         try:
             self.assertTrue(isinstance(message, ReleaseBlock))
-            self.assertTrue(message.block.status == daisy.BlockStatus.DONE)
+            self.assertTrue(message.block.status == daisy.BlockStatus.SUCCESS)
         except Exception as e:
             message.stream.send_message(ExceptionMessage(e))
         conn.send(1)
@@ -42,7 +42,6 @@ class TestClient(unittest.TestCase):
         task_id = 1
         block = daisy.Block(
                 roi, roi, roi,
-                daisy.BlockStatus.READY,
                 block_id=1,
                 task_id=task_id)
         parent_conn, child_conn = mp.Pipe()
@@ -55,7 +54,7 @@ class TestClient(unittest.TestCase):
                 task_id=task_id, worker_id=1)
         client = daisy.Client(context=context)
         with client.acquire_block() as block:
-            block.set_status(daisy.BlockStatus.DONE)
+            block.status = daisy.BlockStatus.SUCCESS
 
         success = parent_conn.recv()
         server_process.join()
