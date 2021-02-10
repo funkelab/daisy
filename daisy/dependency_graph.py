@@ -526,8 +526,9 @@ class BlockwiseDependencyGraph:
 
 class DependencyGraph:
     def __init__(self, tasks):
+        self.upstream_tasks = collections.defaultdict(set)
+        self.downstream_tasks = collections.defaultdict(set)
         self.task_map = {}
-        self.task_dependencies = collections.defaultdict(set)
         for task in tasks:
             self.__add_task(task)
 
@@ -544,6 +545,12 @@ class DependencyGraph:
 
     def upstream(self, block):
         upstream = self.task_dependency_graphs[block.task_id].upstream(block)
+        for upstream_task in self.upstream_tasks[block.task_id]:
+            upstream.extend(
+                self.task_dependency_graphs[upstream_task].get_subgraph_blocks(
+                    block.read_roi
+                )
+            )
         return sorted(
             upstream,
             key=lambda b: b.block_id[1],
@@ -551,6 +558,12 @@ class DependencyGraph:
 
     def downstream(self, block):
         downstream = self.task_dependency_graphs[block.task_id].downstream(block)
+        for downstream_task in self.downstream_tasks[block.task_id]:
+            downstream.extend(
+                self.task_dependency_graphs[downstream_task].get_subgraph_blocks(
+                    block.read_roi
+                )
+            )
         return sorted(
             downstream,
             key=lambda b: b.block_id[1],
@@ -559,8 +572,8 @@ class DependencyGraph:
     def root_tasks(self):
         return [
             task_id
-            for task_id in self.task_map.keys()
-            if len(self.task_dependencies[task_id]) == 0
+            for task_id, upstream_tasks in self.upstream_tasks.items()
+            if len(upstream_tasks) == 0
         ]
 
     def num_roots(self, task_id):
@@ -581,7 +594,8 @@ class DependencyGraph:
             self.task_map[task.task_id] = task
             for upstream_task in task.requires():
                 self.__add_task(upstream_task)
-                self.task_dependencies[task.task_id].add(upstream_task.task_id)
+                self.upstream_tasks[task.task_id].add(upstream_task.task_id)
+                self.downstream_tasks[upstream_task.task_id].add(task.task_id)
 
     def __add_task_dependency_graph(self, task):
         """Create dependency graph a specific task"""
@@ -620,11 +634,11 @@ class DependencyGraph:
         # enumerate all of the upstream / downstream dependencies
         for task_id in self.task_ids:
             # add inter-task read-write dependency
-            if len(self.task_dependencies[task_id]):
+            if len(self.upstream_tasks[task_id]):
                 for block in self.task_dependency_graphs[task_id].blocks:
                     roi = block.read_roi
                     upstream_blocks = []
-                    for upstream_task_id in self.task_dependencies[task_id]:
+                    for upstream_task_id in self.upstream_tasks[task_id]:
                         upstream_task_blocks = self.task_dependency_graphs[
                             upstream_task_id
                         ].get_subgraph_blocks(roi)
