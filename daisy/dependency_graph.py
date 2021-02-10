@@ -130,7 +130,7 @@ class BlockwiseDependencyGraph:
         self.task_id = task_id
         self.read_write_conflict = read_write_conflict
         self.fit = fit
-        
+
         # when computing block offsets, make sure to include blocks
         # on the upper boundary with a rounding term
         if self.fit == "overhang" or self.fit == "shrink":
@@ -217,9 +217,7 @@ class BlockwiseDependencyGraph:
             if self.inclusion_criteria(block):
                 yield self.fit_block(block)
             else:
-                logger.warning(
-                    f"This offset {block_offset} is invalid!"
-                )
+                logger.warning(f"This offset {block_offset} is invalid!")
 
     def root_gen(self):
         blocks = self.level_blocks(level=0)
@@ -414,7 +412,9 @@ class BlockwiseDependencyGraph:
             block_offset = Coordinate(offset)
 
             # convert to global coordinates
-            block_offset += self.total_read_roi.get_begin() - self.block_read_roi.get_begin()
+            block_offset += (
+                self.total_read_roi.get_begin() - self.block_read_roi.get_begin()
+            )
             yield block_offset
 
     def compute_level_block_offsets(self) -> List[List[Coordinate]]:
@@ -602,11 +602,11 @@ class DependencyGraph:
         # create intra task dependency graph
         self.task_dependency_graphs[task.task_id] = BlockwiseDependencyGraph(
             task.task_id,
-            task.total_roi,
             task.read_roi,
             task.write_roi,
             task.read_write_conflict,
             task.fit,
+            total_read_roi=task.total_roi,
         )
 
     def __enumerate_all_dependencies(self):
