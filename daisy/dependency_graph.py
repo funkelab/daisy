@@ -263,11 +263,6 @@ class BlockwiseDependencyGraph:
             # but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
-            else:
-                logger.warning(
-                    f"This should not be reachable! block: {conflict_block} "
-                    f"is not valid for write_roi: {self.total_write_roi} and fit: {self.fit}"
-                )
         return conflicts
 
     def upstream(self, block):
@@ -291,11 +286,6 @@ class BlockwiseDependencyGraph:
             # but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
-            else:
-                logger.warning(
-                    f"This should not be reachable! block: {conflict_block} "
-                    f"is not valid for write_roi: {self.total_write_roi} and fit: {self.fit}"
-                )
         return conflicts
 
     def enumerate_all_dependencies(self):
