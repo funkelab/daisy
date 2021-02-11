@@ -82,6 +82,8 @@ class Server:
 
             task_state = self.scheduler.task_states[message.task_id]
 
+            logger.debug("Current task state: %s", task_state)
+
             if task_state.ready_count == 0:
 
                 if task_state.pending_count == 0:
@@ -117,10 +119,11 @@ class Server:
             all_done = True
 
             for task_id, task_state in task_states.items():
-                logger.debug("Task state for task %s: %s", task_id,
-                        str(task_state))
+                logger.debug("Task state for task %s: %s", task_id, task_state)
                 if task_state.is_done():
                     logger.debug("Task %s is done", task_id)
+                    logger.debug("Stopping remaining workers for %s", task_id)
+                    self.worker_pools[task_id].stop()
                     continue
 
                 all_done = False
@@ -165,8 +168,6 @@ class Server:
         for task_id, worker_pool in self.worker_pools.items():
             if task_id in ready_tasks:
                 worker_pool.set_num_workers(ready_tasks[task_id].num_workers)
-            else:
-                worker_pool.stop()
 
     def _stop_workers(self):
 
