@@ -194,7 +194,7 @@ class BlockwiseDependencyGraph:
                 self.rounding_term,
             )
         ]
-        logger.warning(
+        logger.debug(
             f"blocks for write_roi: {self.total_write_roi}, level ({level}), "
             f"offset ({level_offset}), and stride ({self._level_stride}): "
             f"({axis_blocks}, {np.prod(axis_blocks)})"
