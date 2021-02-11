@@ -49,6 +49,7 @@ class TaskState:
                 f"Total Blocks: {self.total_block_count}\n"
                 f"Ready: {self.ready_count}\n"
                 f"Processing: {self.processing_count}\n"
+                f"Pending: {self.pending_count}\n"
                 f"Completed: {self.completed_count}\n"
                 f"Failed: {self.failed_count}\n"
                 f"Orphaned: {self.orphaned_count}\n")
