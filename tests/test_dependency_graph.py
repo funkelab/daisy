@@ -65,7 +65,7 @@ def test_downstream(task_blocks):
         task.write_roi,
         task.read_write_conflict,
         task.fit,
-        total_read_roi=total_roi,
+        total_read_roi=task.total_roi,
     )
     num_enumerated = len(list(graph.enumerate_all_dependencies()))
     num_calculated = graph.num_blocks
@@ -77,3 +77,54 @@ def test_downstream(task_blocks):
         f"number of blocks calculated ({num_calculated}) does not match "
         f"expected number of blocks ({num_blocks})"
     )
+
+
+def process_block(block):
+    pass
+
+
+def test_get_subgraph_blocks():
+    total_read_roi = Roi((0, 0), (16, 16))
+    block_read_roi = Roi((0, 0), (4, 4))
+    block_write_roi = Roi((1, 1), (2, 2))
+
+    sub_roi = Roi((6, 6), (3, 3))
+
+    graph = BlockwiseDependencyGraph(
+        "test",
+        block_read_roi,
+        block_write_roi,
+        True,
+        "valid",
+        total_read_roi=total_read_roi,
+    )
+
+    blocks = graph.get_subgraph_blocks(sub_roi)
+    expected_blocks = [
+        Block(
+            total_read_roi,
+            Roi((4, 4), (4, 4)),
+            Roi((5, 5), (2, 2)),
+            task_id="test",
+        ),
+        Block(
+            total_read_roi,
+            Roi((6, 4), (4, 4)),
+            Roi((7, 5), (2, 2)),
+            task_id="test",
+        ),
+        Block(
+            total_read_roi,
+            Roi((4, 6), (4, 4)),
+            Roi((5, 7), (2, 2)),
+            task_id="test",
+        ),
+        Block(
+            total_read_roi,
+            Roi((6, 6), (4, 4)),
+            Roi((7, 7), (2, 2)),
+            task_id="test",
+        ),
+    ]
+
+    assert set(blocks) == set(expected_blocks)
