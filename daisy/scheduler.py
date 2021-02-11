@@ -83,8 +83,8 @@ class Scheduler:
     See the DependencyGraph class for more information.
     """
 
-    def __init__(self, tasks: List[Task], lazy=True):
-        self.dependency_graph = DependencyGraph(tasks, lazy=lazy)
+    def __init__(self, tasks: List[Task]):
+        self.dependency_graph = DependencyGraph(tasks)
 
         self.task_map = {}
         self.task_states = collections.defaultdict(TaskState)
