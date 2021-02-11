@@ -124,7 +124,7 @@ def test_complete_task(task_2d):
         blocks.append(block)
     
     # first task should not have any available blocks
-    assert scheduler.acquire_block(first_task.task_id) is None
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
@@ -138,7 +138,7 @@ def test_complete_task(task_2d):
         blocks.append(block)
     
     # first task should not have any available blocks
-    assert scheduler.acquire_block(first_task.task_id) is None
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
@@ -152,7 +152,7 @@ def test_complete_task(task_2d):
         blocks.append(block)
     
     # first task should not have any available blocks
-    assert scheduler.acquire_block(first_task.task_id) is None
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
@@ -166,7 +166,7 @@ def test_complete_task(task_2d):
         blocks.append(block)
     
     # first task should not have any available blocks
-    assert scheduler.acquire_block(first_task.task_id) is None
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
