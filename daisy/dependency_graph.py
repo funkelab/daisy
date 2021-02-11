@@ -479,29 +479,26 @@ class BlockwiseDependencyGraph:
     def get_subgraph_blocks(self, sub_roi):
         """Return ids of blocks, as instantiated in the full graph, such that
         their total write rois fully cover `sub_roi`.
-        The function API assumes that `sub_roi` and `total_roi` use absolute
-        coordinates and `block_read_roi` and `block_write_roi` use relative
-        coordinates.
+        The function API assumes that `sub_roi` and `total_roi` use world
+        coordinates and `self.block_read_roi` and `self.block_write_roi` use
+        relative coordinates.
         """
 
-        # first align sub_roi to write roi shape
-        full_graph_offset = (
-            self.block_write_roi.get_begin()
-            + self.total_read_roi.get_begin()
-            - self.block_read_roi.get_begin()
-        )
+        # TODO: handle unsatisfiable sub_rois
+        # i.e. sub_roi is outside of *total_write_roi
+        # after accounting for padding
+        sub_roi = sub_roi.intersect(self.total_write_roi)
 
-        begin = sub_roi.get_begin() - full_graph_offset
-        end = sub_roi.get_end() - full_graph_offset
+        # get sub_roi relative to the write roi
+        begin = sub_roi.get_begin() - self.total_write_roi.get_offset()
+        end = sub_roi.get_end() - self.total_write_roi.get_offset()
 
-        # due to the way blocks are enumerated, write_roi can never be negative
-        # relative to total_roi and block_read_roi
-        begin = Coordinate([max(n, 0) for n in begin])
-
+        # convert to block coordinates. Handle upper block based on fit
         aligned_subroi = (
             begin // self.block_write_roi.get_shape(),  # `floordiv`
             -(-end // self.block_write_roi.get_shape()),  # `ceildiv`
         )
+
         # generate relative offsets of relevant write blocks
         block_dim_offsets = [
             range(lo, e, s)
@@ -511,17 +508,25 @@ class BlockwiseDependencyGraph:
                 self.block_write_roi.get_shape(),
             )
         ]
+
         # generate absolute offsets
         block_offsets = [
-            Coordinate(o)
-            + (self.total_read_roi.get_begin() - self.block_read_roi.get_begin())
+            Coordinate(o) + self.total_read_roi.get_offset()
             for o in product(*block_dim_offsets)
         ]
-        blocks = self.enumerate_dependencies(
-            conflict_offsets=[],
-            block_offsets=block_offsets,
-        )
-        return [block.block_id for block, _ in blocks]
+
+        blocks = [
+            self.fit_block(
+                Block(
+                    self.total_read_roi,
+                    self.block_read_roi + block_offset,
+                    self.block_write_roi + block_offset,
+                    task_id=self.task_id,
+                )
+            )
+            for block_offset in block_offsets
+        ]
+        return blocks
 
 
 class DependencyGraph:
