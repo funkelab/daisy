@@ -1,5 +1,6 @@
 from .context import Context
 from .scheduler import Scheduler
+from .server_observer import ServerObservee
 from .tcp import TCPServer
 from .worker_pool import WorkerPool
 from .messages import (
@@ -15,9 +16,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class Server:
+class Server(ServerObservee):
 
     def __init__(self):
+
+        super().__init__()
 
         self.tcp_server = TCPServer()
         self.hostname, self.port = self.tcp_server.address
@@ -108,6 +111,7 @@ class Server:
 
                 logger.debug("Sending block %s to client", block)
                 message.stream.send_message(SendBlock(block))
+                self.notify_acquire_block(message.task_id, task_state)
 
         elif isinstance(message, ReleaseBlock):
 
@@ -115,12 +119,15 @@ class Server:
 
             self.scheduler.release_block(message.block)
             task_states = self.scheduler.task_states
+            task_id = message.block.task_id
+            self.notify_release_block(task_id, task_states[task_id])
 
             all_done = True
 
             for task_id, task_state in task_states.items():
                 logger.debug("Task state for task %s: %s", task_id, task_state)
                 if task_state.is_done():
+                    self.notify_task_done(task_id)
                     logger.debug("Task %s is done", task_id)
                     logger.debug("Stopping remaining workers for %s", task_id)
                     self.worker_pools[task_id].stop()
