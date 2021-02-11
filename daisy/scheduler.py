@@ -224,7 +224,7 @@ class Scheduler:
             self.update_complete_surface(block)
             updated_tasks = self.update_ready_queue(block)
             return updated_tasks
-        if block.status == BlockStatus.FAILED:
+        elif block.status == BlockStatus.FAILED:
             self.task_blocks[task_id].processing_blocks.remove(block.block_id)
             self.task_blocks[task_id].failed_blocks.add(block.block_id)
             self.task_states[task_id].processing_count -= 1
@@ -232,6 +232,9 @@ class Scheduler:
             self.update_failed_surface(block)
             # No new blocks can be freed by failing a block.
             return {}
+        else:
+            raise RuntimeError(
+                f"Unexpected status for released block: {block.status}")
 
     def update_complete_surface(self, block):
         """
