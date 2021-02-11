@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from ..client import Client
 from ..roi import Roi
-from ..scheduler import run_blockwise
+from ..convenience import run_blockwise
 from queue import Empty
 import multiprocessing
 import numpy as np

@@ -309,9 +309,5 @@ class Scheduler:
         return self.last_prechecked[task_id][1]
 
 
-def run_blockwise():
-    raise NotImplementedError()
-
-
 def distribute():
     raise NotImplementedError()
