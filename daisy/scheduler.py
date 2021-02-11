@@ -65,6 +65,7 @@ class TaskBlocks:
         self.failed_blocks = set()
         self.orphaned_blocks = set()
         self.completed_blocks = set()
+        self.block_retries = collections.defaultdict(int)
 
 
 class Scheduler:
@@ -123,7 +124,9 @@ class Scheduler:
                 try:
                     next_block = next(self.root_tasks[task_id][1])
                     upstreams = self.dependency_graph.upstream(next_block)
-                    assert len(upstreams) == 0, f"Upstreams of {next_block}: {upstreams}"
+                    assert (
+                        len(upstreams) == 0
+                    ), f"Upstreams of {next_block}: {upstreams}"
                     self.task_blocks[task_id].ready_queue.append(next_block)
                     return True
                 except StopIteration:
@@ -141,9 +144,12 @@ class Scheduler:
         self.task_states[task_id].processing_count += 1
         return block
 
-    def _queue_ready_block(self, down):
-        self.task_blocks[down.task_id].ready_queue.append(down)
-        self.task_states[down.task_id].ready_count += 1
+    def _queue_ready_block(self, block, index=None):
+        if index is None:
+            self.task_blocks[block.task_id].ready_queue.append(block)
+        else:
+            self.task_blocks[block.task_id].read_queue.insert(index, block)
+        self.task_states[block.task_id].ready_count += 1
 
     def get_ready_tasks(self) -> List[Task]:
         ready_tasks = []
@@ -224,14 +230,24 @@ class Scheduler:
             self.update_complete_surface(block)
             updated_tasks = self.update_ready_queue(block)
             return updated_tasks
-        elif block.status == BlockStatus.FAILED:
-            self.task_blocks[task_id].processing_blocks.remove(block.block_id)
-            self.task_blocks[task_id].failed_blocks.add(block.block_id)
-            self.task_states[task_id].processing_count -= 1
-            self.task_states[task_id].failed_count += 1
-            self.update_failed_surface(block)
-            # No new blocks can be freed by failing a block.
-            return {}
+        if block.status == BlockStatus.FAILED:
+            if (
+                self.task_blocks[task_id].block_retries[block.block_id]
+                >= self.task_map[task_id].max_retries
+            ):
+                self.task_blocks[task_id].processing_blocks.remove(block.block_id)
+                self.task_blocks[task_id].failed_blocks.add(block.block_id)
+                self.task_states[task_id].processing_count -= 1
+                self.task_states[task_id].failed_count += 1
+                self.update_failed_surface(block)
+                # No new blocks can be freed by failing a block.
+                return {}
+            else:
+                self.task_blocks[task_id].processing_blocks.remove(block.block_id)
+                self.task_states[task_id].processing_count -= 1
+                self._queue_ready_block(block)
+                self.task_blocks[task_id].block_retries[block.block_id] += 1
+                return {task_id: self.task_states[task_id]}
         else:
             raise RuntimeError(
                 f"Unexpected status for released block: {block.status}")
@@ -247,9 +263,7 @@ class Scheduler:
             if upstream_block.block_id not in self.completed_surface:
                 continue
             else:
-                downstream_blocks = self.dependency_graph.downstream(
-                    upstream_block
-                )
+                downstream_blocks = self.dependency_graph.downstream(upstream_block)
                 if all(
                     down.block_id in self.completed_surface
                     for down in downstream_blocks
@@ -276,7 +290,7 @@ class Scheduler:
         return updated_tasks
 
     def update_failed_surface(self, block):
-        self.task_blocks[block.task_id].failed_blocks.append(block.block_id)
+        self.task_blocks[block.task_id].failed_blocks.add(block.block_id)
 
         downstream = set(self.dependency_graph.downstream(block))
         while len(downstream) > 0:
