@@ -122,6 +122,9 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
+    
+    # first task should not have any available blocks
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
@@ -133,6 +136,9 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
+    
+    # first task should not have any available blocks
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
@@ -144,6 +150,9 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
+    
+    # first task should not have any available blocks
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
@@ -155,11 +164,65 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
+    
+    # first task should not have any available blocks
+    assert scheduler.acquire_block(task_2d.task_id) is None
 
     for block in blocks:
         scheduler.release_block(block)
 
     assert scheduler.task_states[task_2d.task_id].is_done()
+
+
+def test_downstream(chained_task):
+    first_task, second_task = chained_task
+    scheduler = Scheduler([second_task])
+
+    test_block = Block(
+        Roi((1, 1), (4, 4)),
+        Roi((2, 2), (3, 3)),
+        Roi((3, 3), (1, 1)),
+        task_id=second_task.task_id,
+    )
+
+    upstream_blocks = scheduler.dependency_graph.upstream(test_block)
+    upstream_ids = set([block.block_id for block in upstream_blocks])
+    assert upstream_ids == set(
+        [
+            ("first", 12),
+            ("first", 17),
+            ("first", 23),
+            ("first", 18),
+            ("first", 24),
+            ("first", 31),
+            ("first", 25),
+            ("first", 32),
+            ("first", 40),
+        ]
+    )
+
+
+def test_upstream(chained_task):
+    first_task, second_task = chained_task
+    scheduler = Scheduler([second_task])
+
+    test_block = Block(
+        Roi((0, 0), (6, 6)),
+        Roi((2, 2), (3, 3)),
+        Roi((3, 3), (1, 1)),
+        task_id=first_task.task_id,
+    )
+
+    downstream_blocks = scheduler.dependency_graph.downstream(test_block)
+    downstream_ids = set([block.block_id for block in downstream_blocks])
+    assert downstream_ids == set(
+        [
+            ("second", 4),
+            ("second", 7),
+            ("second", 8),
+            ("second", 12),
+        ]
+    )
 
 
 def test_chained_tasks(chained_task):
@@ -233,18 +296,19 @@ def test_chained_tasks(chained_task):
     # releasing (first, 24) should free (second, 12)
     scheduler.release_block(blocks[-1])
     block = scheduler.acquire_block(second_task.task_id)
+    block.status = BlockStatus.SUCCESS
     assert block.block_id == ("second", 12)
     scheduler.release_block(block)
 
     # releasing (first, 13) should free (second, 8)
     scheduler.release_block(blocks[-2])
     block = scheduler.acquire_block(second_task.task_id)
-    assert block.block_id == ("second", 8)
+    block.status = BlockStatus.SUCCESS
     scheduler.release_block(block)
-
     # releasing (first, 11) should free (second, 7)
     scheduler.release_block(blocks[-3])
     block = scheduler.acquire_block(second_task.task_id)
+    block.status = BlockStatus.SUCCESS
     assert block.block_id == ("second", 7)
     scheduler.release_block(block)
 
@@ -252,7 +316,7 @@ def test_chained_tasks(chained_task):
     scheduler.release_block(blocks[-4])
     assert scheduler.task_states[first_task.task_id].is_done()
     block = scheduler.acquire_block(second_task.task_id)
+    block.status = BlockStatus.SUCCESS
     assert block.block_id == ("second", 4)
     scheduler.release_block(block)
     assert scheduler.task_states[second_task.task_id].is_done()
-

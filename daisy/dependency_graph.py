@@ -194,7 +194,7 @@ class BlockwiseDependencyGraph:
                 self.rounding_term,
             )
         ]
-        logger.warning(
+        logger.debug(
             f"blocks for write_roi: {self.total_write_roi}, level ({level}), "
             f"offset ({level_offset}), and stride ({self._level_stride}): "
             f"({axis_blocks}, {np.prod(axis_blocks)})"
@@ -263,11 +263,6 @@ class BlockwiseDependencyGraph:
             # but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
-            else:
-                logger.warning(
-                    f"This should not be reachable! block: {conflict_block} "
-                    f"is not valid for write_roi: {self.total_write_roi} and fit: {self.fit}"
-                )
         return conflicts
 
     def upstream(self, block):
@@ -291,11 +286,6 @@ class BlockwiseDependencyGraph:
             # but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
-            else:
-                logger.warning(
-                    f"This should not be reachable! block: {conflict_block} "
-                    f"is not valid for write_roi: {self.total_write_roi} and fit: {self.fit}"
-                )
         return conflicts
 
     def enumerate_all_dependencies(self):
@@ -479,29 +469,26 @@ class BlockwiseDependencyGraph:
     def get_subgraph_blocks(self, sub_roi):
         """Return ids of blocks, as instantiated in the full graph, such that
         their total write rois fully cover `sub_roi`.
-        The function API assumes that `sub_roi` and `total_roi` use absolute
-        coordinates and `block_read_roi` and `block_write_roi` use relative
-        coordinates.
+        The function API assumes that `sub_roi` and `total_roi` use world
+        coordinates and `self.block_read_roi` and `self.block_write_roi` use
+        relative coordinates.
         """
 
-        # first align sub_roi to write roi shape
-        full_graph_offset = (
-            self.block_write_roi.get_begin()
-            + self.total_read_roi.get_begin()
-            - self.block_read_roi.get_begin()
-        )
+        # TODO: handle unsatisfiable sub_rois
+        # i.e. sub_roi is outside of *total_write_roi
+        # after accounting for padding
+        sub_roi = sub_roi.intersect(self.total_write_roi)
 
-        begin = sub_roi.get_begin() - full_graph_offset
-        end = sub_roi.get_end() - full_graph_offset
+        # get sub_roi relative to the write roi
+        begin = sub_roi.get_begin() - self.total_write_roi.get_offset()
+        end = sub_roi.get_end() - self.total_write_roi.get_offset()
 
-        # due to the way blocks are enumerated, write_roi can never be negative
-        # relative to total_roi and block_read_roi
-        begin = Coordinate([max(n, 0) for n in begin])
-
+        # convert to block coordinates. Handle upper block based on fit
         aligned_subroi = (
             begin // self.block_write_roi.get_shape(),  # `floordiv`
             -(-end // self.block_write_roi.get_shape()),  # `ceildiv`
         )
+
         # generate relative offsets of relevant write blocks
         block_dim_offsets = [
             range(lo, e, s)
@@ -511,36 +498,38 @@ class BlockwiseDependencyGraph:
                 self.block_write_roi.get_shape(),
             )
         ]
+
         # generate absolute offsets
         block_offsets = [
-            Coordinate(o)
-            + (self.total_read_roi.get_begin() - self.block_read_roi.get_begin())
+            Coordinate(o) + self.total_read_roi.get_offset()
             for o in product(*block_dim_offsets)
         ]
-        blocks = self.enumerate_dependencies(
-            conflict_offsets=[],
-            block_offsets=block_offsets,
-        )
-        return [block.block_id for block, _ in blocks]
+
+        blocks = [
+            self.fit_block(
+                Block(
+                    self.total_read_roi,
+                    self.block_read_roi + block_offset,
+                    self.block_write_roi + block_offset,
+                    task_id=self.task_id,
+                )
+            )
+            for block_offset in block_offsets
+        ]
+        return blocks
 
 
 class DependencyGraph:
-    def __init__(self, tasks, lazy=True):
+    def __init__(self, tasks):
+        self.upstream_tasks = collections.defaultdict(set)
+        self.downstream_tasks = collections.defaultdict(set)
         self.task_map = {}
-        self.task_dependencies = collections.defaultdict(set)
         for task in tasks:
             self.__add_task(task)
 
         self.task_dependency_graphs = {}
         for task in self.task_map.values():
             self.__add_task_dependency_graph(task)
-
-        self.lazy = lazy
-        if not self.lazy:
-            self._downstream = collections.defaultdict(set)
-            self._upstream = collections.defaultdict(set)
-            self.blocks = {}
-            self.__enumerate_all_dependencies()
 
     @property
     def task_ids(self):
@@ -550,20 +539,26 @@ class DependencyGraph:
         return self.task_dependency_graphs[task_id].num_blocks
 
     def upstream(self, block):
-        if not self.lazy:
-            upstream = [self.blocks[up] for up in self._upstream[block.block_id]]
-        else:
-            upstream = self.task_dependency_graphs[block.task_id].upstream(block)
+        upstream = self.task_dependency_graphs[block.task_id].upstream(block)
+        for upstream_task in self.upstream_tasks[block.task_id]:
+            upstream.extend(
+                self.task_dependency_graphs[upstream_task].get_subgraph_blocks(
+                    block.read_roi
+                )
+            )
         return sorted(
             upstream,
             key=lambda b: b.block_id[1],
         )
 
     def downstream(self, block):
-        if not self.lazy:
-            downstream = [self.blocks[up] for up in self._downstream[block.block_id]]
-        else:
-            downstream = self.task_dependency_graphs[block.task_id].downstream(block)
+        downstream = self.task_dependency_graphs[block.task_id].downstream(block)
+        for downstream_task in self.downstream_tasks[block.task_id]:
+            downstream.extend(
+                self.task_dependency_graphs[downstream_task].get_subgraph_blocks(
+                    block.read_roi
+                )
+            )
         return sorted(
             downstream,
             key=lambda b: b.block_id[1],
@@ -572,8 +567,8 @@ class DependencyGraph:
     def root_tasks(self):
         return [
             task_id
-            for task_id in self.task_map.keys()
-            if len(self.task_dependencies[task_id]) == 0
+            for task_id, upstream_tasks in self.upstream_tasks.items()
+            if len(upstream_tasks) == 0
         ]
 
     def num_roots(self, task_id):
@@ -592,9 +587,12 @@ class DependencyGraph:
     def __add_task(self, task):
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
+            self.upstream_tasks[task.task_id] = set()
+            self.downstream_tasks[task.task_id] = set()
             for upstream_task in task.requires():
-                self.add(upstream_task)
-                self.task_dependencies[task.task_id].add(upstream_task.task_id)
+                self.__add_task(upstream_task)
+                self.upstream_tasks[task.task_id].add(upstream_task.task_id)
+                self.downstream_tasks[upstream_task.task_id].add(task.task_id)
 
     def __add_task_dependency_graph(self, task):
         """Create dependency graph a specific task"""
@@ -633,11 +631,11 @@ class DependencyGraph:
         # enumerate all of the upstream / downstream dependencies
         for task_id in self.task_ids:
             # add inter-task read-write dependency
-            if len(self.task_dependencies[task_id]):
+            if len(self.upstream_tasks[task_id]):
                 for block in self.task_dependency_graphs[task_id].blocks:
                     roi = block.read_roi
                     upstream_blocks = []
-                    for upstream_task_id in self.task_dependencies[task_id]:
+                    for upstream_task_id in self.upstream_tasks[task_id]:
                         upstream_task_blocks = self.task_dependency_graphs[
                             upstream_task_id
                         ].get_subgraph_blocks(roi)

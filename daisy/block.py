@@ -104,3 +104,9 @@ class Block(Freezable):
             self.read_roi,
             self.write_roi,
         )
+
+    def __eq__(self, other):
+        return other is not None and self.block_id == other.block_id
+
+    def __hash__(self):
+        return hash(self.block_id)
