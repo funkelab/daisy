@@ -592,6 +592,8 @@ class DependencyGraph:
     def __add_task(self, task):
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
+            self.upstream_tasks[task.task_id] = set()
+            self.downstream_tasks[task.task_id] = set()
             for upstream_task in task.requires():
                 self.__add_task(upstream_task)
                 self.upstream_tasks[task.task_id].add(upstream_task.task_id)
