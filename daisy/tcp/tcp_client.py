@@ -59,8 +59,7 @@ class TCPClient(IOLooper):
         self.ioloop.add_callback(self._receive)
 
     def disconnect(self):
-        '''Gracefully close the connection to the server and stop the
-        IOLoop.'''
+        '''Gracefully close the connection to the server.'''
 
         if not self.connected():
             logger.warn("Called disconnect() on disconnected client")
@@ -71,11 +70,6 @@ class TCPClient(IOLooper):
 
         while self.connected():
             time.sleep(.1)
-
-        # TCPServer is no longer listening to this client, now it is safe to
-        # close the stream and stop the IOLoop
-        logger.debug("Stopping IOLoop")
-        self.ioloop.add_callback(self.ioloop.stop)
 
         logger.debug("Disconnected")
 

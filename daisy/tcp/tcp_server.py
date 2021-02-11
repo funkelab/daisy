@@ -113,13 +113,6 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 finally:
                     return
 
-    def stop(self):
-        '''Stop this server. This exits the IOLoop and stops listening to
-        connected clients.'''
-
-        logger.debug("Stopping IOLoop")
-        self.ioloop.add_callback(self.ioloop.stop)
-
     def _check_for_errors(self):
 
         try:

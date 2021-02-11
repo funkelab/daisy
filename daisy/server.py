@@ -153,7 +153,6 @@ class Server(ServerObservee):
 
             if all_done:
                 logger.debug("All tasks finished")
-                self.tcp_server.stop()
                 self.running = False
 
             self._recruit_workers()
