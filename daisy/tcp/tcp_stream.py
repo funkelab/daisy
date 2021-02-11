@@ -72,8 +72,6 @@ class TCPStream(IOLooper):
 
         except tornado.iostream.StreamClosedError:
 
-            logger.error(
-                "TCPStream lost connection while waiting to receive data")
             self.stream = None
             raise StreamClosedError()
 
