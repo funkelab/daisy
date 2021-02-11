@@ -74,7 +74,12 @@ class Client():
             logger.debug("Received block %s", message.block.block_id)
             try:
                 block = message.block
+                block.status = None
                 yield block
+                # if user code has not changed the block status, we assume
+                # everything went well
+                if block.status is None:
+                    block.status = BlockStatus.SUCCESS
             except Exception as e:
                 self.tcp_client.send_message(
                         ClientException(e, self.worker_id))
