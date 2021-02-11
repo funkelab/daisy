@@ -13,7 +13,7 @@ setup(
             'daisy.ext',
             'daisy.persistence',
             'daisy.tcp',
-            'daisy.message'
+            'daisy.messages'
         ],
         install_requires=[
             "numpy",
