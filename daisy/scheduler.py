@@ -42,7 +42,6 @@ class TaskState:
             - self.completed_count
             - self.failed_count
             - self.orphaned_count
-            - self.processing_count
         ) == 0
 
     def __str__(self):
