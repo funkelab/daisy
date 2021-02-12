@@ -340,8 +340,10 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 elif edge_inclusion == 'v':
                     endpoint_query = {v: {'$in': node_ids[i_b:i_e]}}
                 elif edge_inclusion == 'both':
-                    raise NotImplementedError(
-                        "Both option for read edges not implemented")
+                    endpoint_query = {
+                        u: {"$in": node_ids[i_b:i_e]},
+                        v: {"$in": node_ids[i_b:i_e]}
+                    }
                 elif edge_inclusion == 'either':
                     endpoint_query = {
                         "$or": [

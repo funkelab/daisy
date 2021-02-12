@@ -318,6 +318,20 @@ class TestFilterMongoGraph(unittest.TestCase):
             seen.append(node)
         self.assertCountEqual(seen, [42, 23, 57])
 
+        limited_graph = graph_provider.get_graph(
+                small_roi,
+                node_attrs=['selected'],
+                edge_attrs=['c'],
+                node_inclusion='dangling',
+                edge_inclusion='both')
+
+        seen = []
+        for node, data in limited_graph.nodes(data=True):
+            self.assertFalse('test' in data)
+            self.assertTrue('selected' in data)
+            seen.append(node)
+        self.assertCountEqual(seen, [23])
+
     def test_graph_read_targeting_edges(self):
         graph_provider = self.get_mongo_graph_provider('w')
         roi = daisy.Roi((0, 0, 0),
