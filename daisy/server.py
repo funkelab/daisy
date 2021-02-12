@@ -1,16 +1,16 @@
-from .tcp.exceptions import StreamClosedError
-from .context import Context
-from .scheduler import Scheduler
-from .server_observer import ServerObservee
-from .tcp import TCPServer
-from .worker_pool import WorkerPool
 from .messages import (
     AcquireBlock,
+    BlockFailed,
     ClientException,
     ReleaseBlock,
     SendBlock,
     RequestShutdown,
     UnexpectedMessage)
+from .scheduler import Scheduler
+from .server_observer import ServerObservee
+from .task_worker_pools import TaskWorkerPools
+from .tcp import TCPServer
+from .tcp.exceptions import StreamClosedError
 from queue import Queue
 import logging
 
@@ -38,16 +38,8 @@ class Server(ServerObservee):
         else:
             self.scheduler = scheduler
 
-        logger.debug("Creating worker pools")
-        self.worker_pools = {
-            task.task_id: WorkerPool(
-                task.spawn_worker_function,
-                Context(
-                    hostname=self.hostname,
-                    port=self.port,
-                    task_id=task.task_id))
-            for task in tasks
-        }
+        self.worker_pools = TaskWorkerPools(tasks, self)
+        self.finished_tasks = set()
 
         self.pending_requests = {
             task.task_id: Queue()
@@ -59,7 +51,7 @@ class Server(ServerObservee):
         try:
             self._event_loop()
         finally:
-            self._stop_workers()
+            self.worker_pools.stop()
 
     def _event_loop(self):
 
@@ -67,20 +59,33 @@ class Server(ServerObservee):
 
         while self.running:
             self._handle_client_messages()
-            self._check_worker_health()
+            self.worker_pools.check_worker_health()
+
+    def _get_client_message(self):
+
+        try:
+            return self.tcp_server.get_message(timeout=0.1)
+        except StreamClosedError:
+            return
+
+    def _send_client_message(self, stream, message):
+
+        try:
+            stream.send_message(message)
+        except StreamClosedError:
+            pass
 
     def _handle_client_messages(self):
 
-        try:
-            message = self.tcp_server.get_message(timeout=0.1)
-        except StreamClosedError as e:
-            logger.error("Stream to client %s closed", e)
-            message = None
+        message = self._get_client_message()
 
         if message is None:
             return
 
-        self._handle_client_message(message)
+        try:
+            self._handle_client_message(message)
+        except StreamClosedError as e:
+            pass
 
     def _handle_client_message(self, message):
 
@@ -98,7 +103,9 @@ class Server(ServerObservee):
                     logger.debug(
                         "No more pending blocks for task %s, terminating "
                         "client", message.task_id)
-                    message.stream.send_message(RequestShutdown())
+                    self._send_client_message(
+                        message.stream,
+                        RequestShutdown())
                     return
 
                 # there are more blocks for this task, but none of them has its
@@ -115,7 +122,10 @@ class Server(ServerObservee):
                 assert block is not None
 
                 logger.debug("Sending block %s to client", block)
-                message.stream.send_message(SendBlock(block))
+                self._send_client_message(
+                    message.stream,
+                    SendBlock(block))
+
                 self.notify_acquire_block(message.task_id, task_state)
 
         elif isinstance(message, ReleaseBlock):
@@ -132,8 +142,10 @@ class Server(ServerObservee):
             for task_id, task_state in task_states.items():
                 logger.debug("Task state for task %s: %s", task_id, task_state)
                 if task_state.is_done():
-                    self.notify_task_done(task_id)
-                    logger.debug("Task %s is done", task_id)
+                    if task_id not in self.finished_tasks:
+                        self.notify_task_done(task_id)
+                        logger.debug("Task %s is done", task_id)
+                        self.finished_tasks.add(task_id)
                     continue
 
                 all_done = False
@@ -162,33 +174,34 @@ class Server(ServerObservee):
 
         elif isinstance(message, ClientException):
 
-            logger.error("Received exception from client %s", message.client)
-            raise message.exception
+            logger.error("Received ClientException from %s", message.context)
+            self._handle_client_exception(message)
 
         else:
 
             raise UnexpectedMessage(message)
+
+    def _handle_client_exception(self, message):
+
+        if isinstance(message, BlockFailed):
+
+            logger.error(
+                "Block %s failed on %s with %s",
+                message.block,
+                message.context,
+                repr(message.exception))
+
+            self.notify_block_failure(
+                message.block,
+                message.exception,
+                message.context)
+
+        else:
+            raise message.exception
 
     def _recruit_workers(self):
 
         ready_tasks = self.scheduler.get_ready_tasks()
         ready_tasks = {task.task_id: task for task in ready_tasks}
 
-        for task_id, worker_pool in self.worker_pools.items():
-            if task_id in ready_tasks:
-                logger.debug(
-                    "Setting number of workers for task %s to %d",
-                    task_id,
-                    ready_tasks[task_id].num_workers)
-                worker_pool.set_num_workers(ready_tasks[task_id].num_workers)
-
-    def _stop_workers(self):
-
-        logger.debug("Stopping all remaining workers")
-        for worker_pool in self.worker_pools.values():
-            worker_pool.stop()
-
-    def _check_worker_health(self):
-
-        for worker_pool in self.worker_pools.values():
-            worker_pool.check_for_errors()
+        self.worker_pools.recruit_workers(ready_tasks)
