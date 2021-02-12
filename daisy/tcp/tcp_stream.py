@@ -66,6 +66,13 @@ class TCPStream(IOLooper):
 
             await self.stream.write(message_bytes)
 
+        except AttributeError:
+
+            # self.stream can be None even though we check earlier, due to race
+            # conditions
+            logger.error("No TCPStream available, can't send message.")
+            pass
+
         except tornado.iostream.StreamClosedError:
 
             logger.error("TCPStream lost connection while sending data.")
