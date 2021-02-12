@@ -85,6 +85,38 @@ def chained_task(tmpdir):
     )
 
 
+@pytest.fixture
+def overlapping_tasks():
+    task_1 = Task(
+        "task1",
+        total_roi=Roi((0,), (100,)),
+        read_roi=Roi((0,), (10,)),
+        write_roi=Roi((1,), (8,)),
+        process_function=process_block,
+        check_function=None,
+        read_write_conflict=True,
+        fit="valid",
+        num_workers=1,
+        max_retries=2,
+        timeout=None,
+    )
+    task_2 = Task(
+        "task2",
+        total_roi=Roi((0,), (100,)),
+        read_roi=Roi((0,), (10,)),
+        write_roi=Roi((1,), (8,)),
+        process_function=process_block,
+        check_function=None,
+        read_write_conflict=True,
+        fit="valid",
+        num_workers=1,
+        max_retries=2,
+        timeout=None,
+        upstream_tasks=[task_1],
+    )
+    return task_1, task_2
+
+
 def test_simple_acquire_block(task_1d):
     scheduler = Scheduler([task_1d])
     block = scheduler.acquire_block(task_1d.task_id)
@@ -320,3 +352,26 @@ def test_chained_tasks(chained_task):
     assert block.block_id == ("second", 4)
     scheduler.release_block(block)
     assert scheduler.task_states[second_task.task_id].is_done()
+
+
+def test_overlapping_tasks(overlapping_tasks):
+    first, second = overlapping_tasks
+    scheduler = Scheduler([second])
+
+    for _ in range(24):
+        block = scheduler.acquire_block(first.task_id)
+        if block is None:
+            block = scheduler.acquire_block(second.task_id)
+        assert block is not None, (
+            f"{scheduler.task_states[first.task_id]}, "
+            f"{scheduler.task_states[second.task_id]}"
+        )
+        block.status = BlockStatus.SUCCESS
+        scheduler.release_block(block)
+
+    assert (
+        scheduler.task_states[first.task_id].completed_count == 12
+    ), scheduler.task_states[first.task_id]
+    assert (
+        scheduler.task_states[second.task_id].completed_count == 12
+    ), scheduler.task_states[second.task_id]
