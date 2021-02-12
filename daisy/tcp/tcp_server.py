@@ -1,4 +1,4 @@
-from .exceptions import NoFreePort
+from .exceptions import NoFreePort, StreamClosedError
 from .internal_messages import (
     AckClientDisconnect,
     NotifyClientDisconnect)
@@ -105,6 +105,13 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 else:
 
                     self.message_queue.put(message)
+
+            except StreamClosedError as e:
+
+                try:
+                    self.exception_queue.put(StreamClosedError(*address))
+                finally:
+                    return
 
             except Exception as e:
 
