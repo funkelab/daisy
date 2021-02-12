@@ -36,7 +36,7 @@ class WorkerPool:
 
         self.spawn_function = spawn_worker_function
         self.context = context
-        self.workers = []
+        self.workers = {}
         self.workers_lock = threading.Lock()
 
         self.error_queue = multiprocessing.Queue(100)
@@ -71,10 +71,20 @@ class WorkerPool:
             elif diff < 0:
                 self.__stop_workers(-diff)
 
-    def stop(self):
-        '''Stop all current workers in this pool.'''
+    def inc_num_workers(self, num_workers):
+        self.__start_workers(num_workers)
 
-        self.set_num_workers(0)
+    def stop(self, worker_id=None):
+        '''Stop all current workers in this pool (``worker_id == None``) or a
+        specific worker.'''
+
+        if worker_id is None:
+            self.set_num_workers(0)
+            return
+
+        worker = self.workers[worker_id]
+        worker.stop()
+        del self.workers[worker_id]
 
     def check_for_errors(self):
         '''If a worker fails with an exception, this exception will be queued
@@ -93,18 +103,23 @@ class WorkerPool:
     def __start_workers(self, n):
 
         logger.debug("starting %d new workers", n)
-        self.workers += [
+        new_workers = [
             Worker(self.spawn_function, self.context, self.error_queue)
             for _ in range(n)
         ]
+        self.workers.update({
+            worker.worker_id: worker
+            for worker in new_workers
+        })
 
     def __stop_workers(self, n):
 
         logger.debug("stopping %d workers", n)
 
-        sentenced_workers = self.workers[-n:]
-        self.workers = self.workers[:-n]
+        sentenced_worker_ids = list(self.workers.keys())[-n:]
 
-        for worker in sentenced_workers:
+        for worker_id in sentenced_worker_ids:
+            worker = self.workers[worker_id]
             logger.debug("stopping worker %s", worker)
             worker.stop()
+            del self.workers[worker_id]

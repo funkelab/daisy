@@ -16,14 +16,24 @@ class TCPStream(IOLooper):
 
         stream (:class:`tornado.iostream.IOStream`):
             The tornado stream to wrap.
+
+        address (tuple):
+            The address the stream originates from.
     '''
 
-    def __init__(self, stream):
+    def __init__(self, stream, address):
         super().__init__()
         self.stream = stream
+        self.address = address
 
     def send_message(self, message):
         '''Send a message through this stream asynchronously.
+
+        If the stream is closed, raises a :class:`StreamClosedError`.
+        Successful return of this function does not guarantee that the message
+        was sent. Error messages will be logged, but no exception will be
+        visible on the caller side (due to the asynchronous nature of sending
+        messages through this stream).
 
         Args:
             message (:class:`daisy.TCPMessage`):
@@ -32,7 +42,7 @@ class TCPStream(IOLooper):
         '''
 
         if self.stream is None:
-            raise StreamClosedError()
+            raise StreamClosedError(*self.address)
 
         self.ioloop.add_callback(self._send_message, message)
 
@@ -45,6 +55,9 @@ class TCPStream(IOLooper):
 
     async def _send_message(self, message):
 
+        if self.stream is None:
+            logger.error("No TCPStream available, can't send message.")
+
         pickled_data = pickle.dumps(message)
         message_size_bytes = struct.pack('I', len(pickled_data))
         message_bytes = message_size_bytes + pickled_data
@@ -52,6 +65,13 @@ class TCPStream(IOLooper):
         try:
 
             await self.stream.write(message_bytes)
+
+        except AttributeError:
+
+            # self.stream can be None even though we check earlier, due to race
+            # conditions
+            logger.error("No TCPStream available, can't send message.")
+            pass
 
         except tornado.iostream.StreamClosedError:
 
@@ -61,7 +81,7 @@ class TCPStream(IOLooper):
     async def _get_message(self):
 
         if self.stream is None:
-            return
+            raise StreamClosedError(*self.address)
 
         try:
 
@@ -73,7 +93,7 @@ class TCPStream(IOLooper):
         except tornado.iostream.StreamClosedError:
 
             self.stream = None
-            raise StreamClosedError()
+            raise StreamClosedError(*self.address)
 
         message = pickle.loads(pickled_data)
         message.stream = self

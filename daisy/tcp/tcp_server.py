@@ -50,6 +50,10 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
     def get_message(self, timeout=None):
         '''Get a message that was sent to this server.
 
+        If the stream to any of the connected clients is closed, raises a
+        :class:`StreamClosedError` for this client. Other TCP related
+        exceptions will also be raised by this function.
+
         Args:
 
             timeout (int, optional):
@@ -86,7 +90,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         '''
 
         logger.debug("Received new connection from %s:%d", *address)
-        stream = TCPStream(stream)
+        stream = TCPStream(stream, address)
 
         while True:
 
@@ -105,13 +109,6 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 else:
 
                     self.message_queue.put(message)
-
-            except StreamClosedError as e:
-
-                try:
-                    self.exception_queue.put(StreamClosedError(*address))
-                finally:
-                    return
 
             except Exception as e:
 

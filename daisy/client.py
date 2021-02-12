@@ -2,7 +2,7 @@ from .block import BlockStatus
 from .context import Context
 from .messages import (
     AcquireBlock,
-    ClientException,
+    BlockFailed,
     ReleaseBlock,
     RequestShutdown,
     SendBlock,
@@ -82,9 +82,8 @@ class Client():
                     block.status = BlockStatus.SUCCESS
             except Exception as e:
                 self.tcp_client.send_message(
-                        ClientException(e, self.worker_id))
+                        BlockFailed(e, block, self.context))
                 block.status = BlockStatus.FAILED
-                raise e
             finally:
                 self.release_block(block)
         elif isinstance(message, RequestShutdown):
