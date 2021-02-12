@@ -135,7 +135,7 @@ def test_retries(task_1d):
     # get block 1 and fail
     block_1 = scheduler.acquire_block(task_1d.task_id)
     block_1.status = BlockStatus.FAILED
-    scheduler.release_block(task_1d.task_id)
+    scheduler.release_block(block_1)
 
     # retry block 1 and pass
     block_1_retry = scheduler.acquire_block(task_1d.task_id)
@@ -151,8 +151,8 @@ def test_retries(task_1d):
         scheduler.release_block(block_2)
 
     assert scheduler.acquire_block(task_1d.task_id) is None
-    assert scheduler.task_states[task_1d].completed_count == 1
-    assert scheduler.task_states[task_1d].failed_count == 1
+    assert scheduler.task_states[task_1d.task_id].completed_count == 1
+    assert scheduler.task_states[task_1d.task_id].failed_count == 1
 
 
 def test_simple_release_block(task_1d):
