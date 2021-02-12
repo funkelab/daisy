@@ -248,3 +248,141 @@ class TestFilterMongoGraph(unittest.TestCase):
             seen.append(node)
 
         self.assertCountEqual(seen, [2, 42, 23, 57])
+
+    def test_graph_read_dangling_attrs(self):
+        graph_provider = self.get_mongo_graph_provider('w')
+        roi = daisy.Roi((0, 0, 0),
+                        (10, 10, 10))
+        small_roi = daisy.Roi((4, 4, 4), (2, 2, 2))
+        graph = graph_provider[roi]
+
+        graph.add_node(2,
+                       position=(2, 2, 2),
+                       selected=False,
+                       test='test')
+        graph.add_node(42,
+                       position=(1, 1, 1),
+                       selected=False,
+                       test='test2')
+        graph.add_node(23,
+                       position=(5, 5, 5),
+                       selected=True,
+                       test='test2')
+        graph.add_node(57,
+                       position=daisy.Coordinate((7, 7, 7)),
+                       selected=False,
+                       test='test')
+
+        graph.add_edge(42, 23,
+                       selected=False,
+                       a=100,
+                       b=3)
+        graph.add_edge(57, 23,
+                       selected=True,
+                       a=100,
+                       b=2)
+        graph.add_edge(2, 42,
+                       selected=True,
+                       a=101,
+                       b=3)
+
+        graph.write_nodes()
+        graph.write_edges()
+
+        graph_provider = self.get_mongo_graph_provider('r+')
+        limited_graph = graph_provider.get_graph(
+                small_roi,
+                node_attrs=['selected'],
+                edge_attrs=['c'],
+                node_inclusion='dangling',
+                edge_inclusion='either')
+
+        seen = []
+        for node, data in limited_graph.nodes(data=True):
+            self.assertFalse('test' in data)
+            self.assertTrue('selected' in data)
+            seen.append(node)
+        self.assertCountEqual(seen, [42, 23, 57])
+
+        limited_graph = graph_provider.get_graph(
+                small_roi,
+                node_attrs=['selected'],
+                edge_attrs=['c'],
+                node_inclusion='strict',
+                edge_inclusion='either')
+
+        seen = []
+        for node, data in limited_graph.nodes(data=True):
+            self.assertFalse('test' in data)
+            self.assertEqual('selected' in data, node == 23)
+            seen.append(node)
+        self.assertCountEqual(seen, [42, 23, 57])
+
+    def test_graph_read_targeting_edges(self):
+        graph_provider = self.get_mongo_graph_provider('w')
+        roi = daisy.Roi((0, 0, 0),
+                        (10, 10, 10))
+        small_roi = daisy.Roi((4, 4, 4), (2, 2, 2))
+        graph = graph_provider[roi]
+
+        graph.add_node(2,
+                       position=(2, 2, 2),
+                       selected=False,
+                       test='test')
+        graph.add_node(42,
+                       position=(1, 1, 1),
+                       selected=False,
+                       test='test2')
+        graph.add_node(23,
+                       position=(5, 5, 5),
+                       selected=True,
+                       test='test2')
+        graph.add_node(57,
+                       position=daisy.Coordinate((7, 7, 7)),
+                       selected=False,
+                       test='test')
+
+        graph.add_edge(42, 23,
+                       selected=False,
+                       a=100,
+                       b=3)
+        graph.add_edge(57, 23,
+                       selected=True,
+                       a=100,
+                       b=2)
+        graph.add_edge(2, 42,
+                       selected=True,
+                       a=101,
+                       b=3)
+
+        graph.write_nodes()
+        graph.write_edges()
+
+        graph_provider = self.get_mongo_graph_provider('r+')
+        limited_graph = graph_provider.get_graph(
+                small_roi,
+                node_attrs=['selected'],
+                edge_attrs=['c'],
+                node_inclusion='strict',
+                edge_inclusion='either')
+
+        seen = []
+        for node, data in limited_graph.nodes(data=True):
+            self.assertFalse('test' in data)
+            self.assertEqual('selected' in data, node == 23)
+            seen.append(node)
+        self.assertCountEqual(seen, [42, 23, 57])
+
+        limited_graph = graph_provider.get_graph(
+                small_roi,
+                node_attrs=['selected'],
+                edge_attrs=['c'],
+                node_inclusion='strict',
+                edge_inclusion='u')
+
+        seen = []
+        for node, data in limited_graph.nodes(data=True):
+            self.assertFalse('test' in data)
+            self.assertEqual('selected' in data, node == 23)
+            seen.append(node)
+        self.assertCountEqual(seen, [23])
