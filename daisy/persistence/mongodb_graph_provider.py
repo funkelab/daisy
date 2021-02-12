@@ -475,12 +475,21 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.__open_collections()
 
         if isinstance(self.position_attribute, str):
-            self.nodes.create_index(
-                [
-                    ('%s.%s' % (self.position_attribute, i), ASCENDING)
-                    for i in range(self.dims)
-                ],
-                name='position')
+            if self.dims is None:
+                logger.warning("Recommended to provide number of dimensions "
+                               "for efficient position indexing")
+                self.nodes.create_index(
+                        [
+                            (self.position_attribute, ASCENDING)
+                        ],
+                        name='position')
+            else:
+                self.nodes.create_index(
+                    [
+                        ('%s.%s' % (self.position_attribute, i), ASCENDING)
+                        for i in range(self.dims)
+                    ],
+                    name='position')
         else:
             self.nodes.create_index(
                 [
