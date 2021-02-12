@@ -134,8 +134,6 @@ class Server(ServerObservee):
                 if task_state.is_done():
                     self.notify_task_done(task_id)
                     logger.debug("Task %s is done", task_id)
-                    logger.debug("Stopping remaining workers for %s", task_id)
-                    self.worker_pools[task_id].stop()
                     continue
 
                 all_done = False
@@ -178,10 +176,15 @@ class Server(ServerObservee):
 
         for task_id, worker_pool in self.worker_pools.items():
             if task_id in ready_tasks:
+                logger.debug(
+                    "Setting number of workers for task %s to %d",
+                    task_id,
+                    ready_tasks[task_id].num_workers)
                 worker_pool.set_num_workers(ready_tasks[task_id].num_workers)
 
     def _stop_workers(self):
 
+        logger.debug("Stopping all remaining workers")
         for worker_pool in self.worker_pools.values():
             worker_pool.stop()
 
