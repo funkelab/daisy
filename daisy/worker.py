@@ -97,7 +97,7 @@ class Worker():
 
         except KeyboardInterrupt:
 
-            logger.error("%s received ^C", self)
+            logger.debug("%s received ^C", self)
 
     def __repr__(self):
 
