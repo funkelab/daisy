@@ -45,14 +45,16 @@ class TaskState:
         ) == 0
 
     def __str__(self):
-        return (f"Started: {self.started}\n"
-                f"Total Blocks: {self.total_block_count}\n"
-                f"Ready: {self.ready_count}\n"
-                f"Processing: {self.processing_count}\n"
-                f"Pending: {self.pending_count}\n"
-                f"Completed: {self.completed_count}\n"
-                f"Failed: {self.failed_count}\n"
-                f"Orphaned: {self.orphaned_count}\n")
+        return (
+            f"Started: {self.started}\n"
+            f"Total Blocks: {self.total_block_count}\n"
+            f"Ready: {self.ready_count}\n"
+            f"Processing: {self.processing_count}\n"
+            f"Pending: {self.pending_count}\n"
+            f"Completed: {self.completed_count}\n"
+            f"Failed: {self.failed_count}\n"
+            f"Orphaned: {self.orphaned_count}\n"
+        )
 
     def __repr__(self):
         return str(self)
@@ -249,8 +251,7 @@ class Scheduler:
                 self.task_blocks[task_id].block_retries[block.block_id] += 1
                 return {task_id: self.task_states[task_id]}
         else:
-            raise RuntimeError(
-                f"Unexpected status for released block: {block.status}")
+            raise RuntimeError(f"Unexpected status for released block: {block.status}")
 
     def update_complete_surface(self, block):
         """
