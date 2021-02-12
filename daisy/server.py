@@ -1,3 +1,4 @@
+from .tcp.exceptions import StreamClosedError
 from .context import Context
 from .scheduler import Scheduler
 from .server_observer import ServerObservee
@@ -70,7 +71,11 @@ class Server(ServerObservee):
 
     def _handle_client_messages(self):
 
-        message = self.tcp_server.get_message(timeout=0.1)
+        try:
+            message = self.tcp_server.get_message(timeout=0.1)
+        except StreamClosedError as e:
+            logger.error("Stream to client %s closed", e)
+            message = None
 
         if message is None:
             return
