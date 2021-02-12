@@ -32,9 +32,10 @@ class CLMonitor(ServerObserver):
         delta = completed - self.progresses[task_id].n
         if delta > 0:
             self.progresses[task_id].set_postfix({
-                'P': task_state.processing_count,
-                'C': task_state.completed_count,
-                'F': task_state.failed_count,
-                'O': task_state.orphaned_count
+                '⧗': task_state.pending_count,
+                '▶': task_state.processing_count,
+                '✔': task_state.completed_count,
+                '✗': task_state.failed_count,
+                '∅': task_state.orphaned_count
             })
             self.progresses[task_id].update(delta)
