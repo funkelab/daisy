@@ -15,7 +15,8 @@ class CLMonitor(ServerObserver):
         self._update_state(task_id, task_state)
 
     def on_task_done(self, task_id):
-        print(f"Task {task_id} completed")
+        if task_id in self.progresses:
+            self.progresses[task_id].set_description(task_id + " ✔")
 
     def _update_state(self, task_id, task_state):
 
@@ -23,11 +24,17 @@ class CLMonitor(ServerObserver):
             total = task_state.total_block_count
             self.progresses[task_id] = tqdm.tqdm(
                 total=total,
-                desc=task_id,
+                desc=task_id + " ▶",
                 unit='blocks',
-                leave=False)
+                leave=True)
 
         completed = task_state.completed_count
         delta = completed - self.progresses[task_id].n
         if delta > 0:
+            self.progresses[task_id].set_postfix({
+                'P': task_state.processing_count,
+                'C': task_state.completed_count,
+                'F': task_state.failed_count,
+                'O': task_state.orphaned_count
+            })
             self.progresses[task_id].update(delta)
