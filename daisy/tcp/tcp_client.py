@@ -136,7 +136,7 @@ class TCPClient(IOLooper):
             self.exception_queue.put(e)
             return
 
-        self.stream = TCPStream(stream)
+        self.stream = TCPStream(stream, (self.host, self.port))
 
     async def _receive(self):
         '''Loop that receives messages from the server.'''
