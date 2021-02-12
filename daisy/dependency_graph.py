@@ -516,7 +516,7 @@ class BlockwiseDependencyGraph:
             )
             for block_offset in block_offsets
         ]
-        return blocks
+        return [block for block in blocks if self.inclusion_criteria(block)]
 
 
 class DependencyGraph:
