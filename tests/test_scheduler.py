@@ -129,6 +129,32 @@ def test_simple_acquire_block(task_1d):
     assert block.block_id == expected_block.block_id
 
 
+def test_retries(task_1d):
+    scheduler = Scheduler([task_1d])
+
+    # get block 1 and fail
+    block_1 = scheduler.acquire_block(task_1d.task_id)
+    block_1.status = BlockStatus.FAILED
+    scheduler.release_block(task_1d.task_id)
+
+    # retry block 1 and pass
+    block_1_retry = scheduler.acquire_block(task_1d.task_id)
+    assert block_1.block_id == block_1_retry.block_id
+    block_1_retry.status = BlockStatus.SUCCESS
+    scheduler.release_block(block_1_retry)
+
+    # get block 2 and 3 times. (max retries = 2)
+    for _ in range(task_1d.max_retries + 1):
+        block_2 = scheduler.acquire_block(task_1d.task_id)
+        assert block_1.block_id != block_2.block_id
+        block_2.status = BlockStatus.FAILED
+        scheduler.release_block(block_2)
+
+    assert scheduler.acquire_block(task_1d.task_id) is None
+    assert scheduler.task_states[task_1d].completed_count == 1
+    assert scheduler.task_states[task_1d].failed_count == 1
+
+
 def test_simple_release_block(task_1d):
     scheduler = Scheduler([task_1d])
     block = scheduler.acquire_block(task_1d.task_id)
@@ -154,7 +180,7 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
-    
+
     # first task should not have any available blocks
     assert scheduler.acquire_block(task_2d.task_id) is None
 
@@ -168,7 +194,7 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
-    
+
     # first task should not have any available blocks
     assert scheduler.acquire_block(task_2d.task_id) is None
 
@@ -182,7 +208,7 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
-    
+
     # first task should not have any available blocks
     assert scheduler.acquire_block(task_2d.task_id) is None
 
@@ -196,7 +222,7 @@ def test_complete_task(task_2d):
         block.status = BlockStatus.SUCCESS
         assert block.block_id == ("test_2d", b)
         blocks.append(block)
-    
+
     # first task should not have any available blocks
     assert scheduler.acquire_block(task_2d.task_id) is None
 
