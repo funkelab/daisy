@@ -187,11 +187,11 @@ class MongoDbGraphProvider(SharedGraphProvider):
             projection = {'_id': False}
             if read_attrs is not None:
                 projection['id'] = True
-                if type(self.position_attribute) == list:
+                if isinstance(self.position_attribute, str):
+                    projection[self.position_attribute] = True
+                else:
                     for a in self.position_attribute:
                         projection[a] = True
-                else:
-                    projection[self.position_attribute] = True
                 for attr in read_attrs:
                     projection[attr] = True
             nodes = self.nodes.find({'$and': query_list}, projection)
@@ -474,18 +474,18 @@ class MongoDbGraphProvider(SharedGraphProvider):
         self.__open_db()
         self.__open_collections()
 
-        if type(self.position_attribute) == list:
+        if isinstance(self.position_attribute, str):
             self.nodes.create_index(
                 [
-                    (key, ASCENDING)
-                    for key in self.position_attribute
+                    ('%s.%s' % (self.position_attribute, i), ASCENDING)
+                    for i in range(self.dims)
                 ],
                 name='position')
         else:
             self.nodes.create_index(
                 [
-                    ('%s.%s' % (self.position_attribute, i), ASCENDING)
-                    for i in range(self.dims)
+                    (key, ASCENDING)
+                    for key in self.position_attribute
                 ],
                 name='position')
 
@@ -570,7 +570,22 @@ class MongoDbGraphProvider(SharedGraphProvider):
         begin = roi.get_begin()
         end = roi.get_end()
 
-        if type(self.position_attribute) == list:
+        if isinstance(self.position_attribute, str):
+            return {
+                "position.%d"
+                % d: {
+                    k: v
+                    for k, v in zip(
+                        ["$gte", "$lt"],
+                        [
+                            b if b is not None else float("-inf"),
+                            e if e is not None else float("inf"),
+                        ],
+                    )
+                }
+                for d, (b, e) in enumerate(zip(begin, end))
+            }
+        else:
             assert len(self.position_attribute) == roi.dims(), (
                 'Number of position attributes does not match number of '
                 'dimensions')
@@ -587,21 +602,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                     )
                 }
                 for key, b, e in zip(self.position_attribute, begin, end)
-            }
-        else:
-            return {
-                "position.%d"
-                % d: {
-                    k: v
-                    for k, v in zip(
-                        ["$gte", "$lt"],
-                        [
-                            b if b is not None else float("-inf"),
-                            e if e is not None else float("inf"),
-                        ],
-                    )
-                }
-                for d, (b, e) in enumerate(zip(begin, end))
             }
 
 
@@ -938,15 +938,15 @@ class MongoDbSharedSubGraph(SharedSubGraph):
         # know they are outside of the subgraph ROI, and therefore also
         # outside of 'roi', whatever it is.
         coordinate = []
-        if type(self.provider.position_attribute) == list:
+        if isinstance(self.provider.position_attribute, str):
+            if self.provider.position_attribute not in node_data:
+                return False
+            coordinate = node_data[self.provider.position_attribute]
+        else:
             for pos_attr in self.provider.position_attribute:
                 if pos_attr not in node_data:
                     return False
                 coordinate.append(node_data[pos_attr])
-        else:
-            if self.provider.position_attribute not in node_data:
-                return False
-            coordinate = node_data[self.provider.position_attribute]
         logger.debug("Checking if coordinate {} is inside roi {}"
                      .format(coordinate, roi))
         return roi.contains(Coordinate(coordinate))
