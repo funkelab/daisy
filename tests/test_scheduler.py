@@ -155,6 +155,21 @@ def test_retries(task_1d):
     assert scheduler.task_states[task_1d.task_id].failed_count == 1
 
 
+def test_orphan_count(task_1d):
+    scheduler = Scheduler([task_1d])
+
+    # get block and 3 times. (max retries = 2)
+    for _ in range(task_1d.max_retries + 1):
+        block = scheduler.acquire_block(task_1d.task_id)
+        block.status = BlockStatus.FAILED
+        scheduler.release_block(block)
+
+    assert scheduler.acquire_block(task_1d.task_id) is None
+    assert scheduler.task_states[task_1d.task_id].completed_count == 0
+    assert scheduler.task_states[task_1d.task_id].failed_count == 1
+    assert scheduler.task_states[task_1d.task_id].orphaned_count == 1
+
+
 def test_simple_release_block(task_1d):
     scheduler = Scheduler([task_1d])
     block = scheduler.acquire_block(task_1d.task_id)
