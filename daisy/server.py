@@ -68,9 +68,20 @@ class Server(ServerObservee):
     def _get_client_message(self):
 
         try:
-            return self.tcp_server.get_message(timeout=0.1)
+            message = self.tcp_server.get_message(timeout=0.1)
         except StreamClosedError:
             return
+
+        if message is not None:
+            return message
+
+        for task_id, requests in self.pending_requests.items():
+
+            if self.pending_requests[task_id].empty():
+                continue
+
+            logger.debug("Answering delayed request for task %s", task_id)
+            return self.pending_requests[task_id].get()
 
     def _send_client_message(self, stream, message):
 
@@ -147,10 +158,11 @@ class Server(ServerObservee):
     def _handle_release_block(self, message):
 
         logger.debug("Client releases block %s", message.block)
-        self._release_block(message.block)
-        self.block_bookkeeper.notify_block_returned(message.block, message.stream)
+        self._safe_release_block(message.block, message.stream)
 
     def _release_block(self, block):
+        '''Returns a block to the scheduler and checks whether all tasks are
+        completed.'''
 
         self.scheduler.release_block(block)
         task_states = self.scheduler.task_states
@@ -175,22 +187,24 @@ class Server(ServerObservee):
                 task_id,
                 task_state.ready_count)
 
-            for _ in range(task_state.ready_count):
-
-                if self.pending_requests[task_id].empty():
-                    break
-
-                logger.debug(
-                    "Answering delayed request for task %s",
-                    task_id)
-                pending_request = self.pending_requests[task_id].get()
-                self._handle_client_message(pending_request)
-
         if all_done:
             logger.debug("All tasks finished")
             self.running = False
 
         self._recruit_workers()
+
+    def _safe_release_block(self, block, stream):
+        '''Releases a block, if the bookkeeper agrees that this is a valid
+        return from the given stream.'''
+
+        valid = self.block_bookkeeper.is_valid_return(block, stream)
+        if valid:
+            self._release_block(block)
+            self.block_bookkeeper.notify_block_returned(block, stream)
+        else:
+            logger.debug(
+                "Attempted to return unexpected block %s from %s",
+                block, stream)
 
     def _handle_client_exception(self, message):
 
@@ -203,6 +217,10 @@ class Server(ServerObservee):
                 message.block,
                 message.context,
                 repr(message.exception))
+
+            message.block.status = BlockStatus.FAILED
+
+            self._safe_release_block(message.block, message.stream)
 
             self.notify_block_failure(
                 message.block,
