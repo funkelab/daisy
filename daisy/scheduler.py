@@ -183,10 +183,7 @@ class Scheduler:
                 return False
         except Exception as e:
             logger.error(
-                "pre_check() exception for block %s of task %s. " "Exception: %s",
-                block,
-                block.task_id,
-                e,
+                f"pre_check() exception for block {block.block_id}. " f"Exception: {e}",
             )
             return False
 
