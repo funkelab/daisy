@@ -50,8 +50,6 @@ class Scheduler:
 
         self.count_all_orphans = count_all_orphans
 
-        self.last_prechecked = collections.defaultdict(lambda: (None, None))
-
     def __init_task(self, task):
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
@@ -175,28 +173,22 @@ class Scheduler:
             updated_tasks[ready_block.task_id] = self.task_states[ready_block.task_id]
         return updated_tasks
 
-    def precheck(self, task_id, block):
-        if self.last_prechecked[task_id][0] != block:
-            # pre-check and skip blocks if possible
-            try:
-                # pre_check can intermittently fail
-                # so we wrap it in a try block
-                if self.task_map[task_id].check_function is not None:
-                    pre_check_ret = self.task_map[task_id].check_function(block)
-                else:
-                    pre_check_ret = False
-            except Exception as e:
-                logger.error(
-                    "pre_check() exception for block %s of task %s. " "Exception: %s",
-                    block,
-                    task_id,
-                    e,
-                )
-                pre_check_ret = False
-            finally:
-                self.last_prechecked[task_id] = (block, pre_check_ret)
-
-        return self.last_prechecked[task_id][1]
+    def precheck(self, block):
+        try:
+            # pre_check can intermittently fail
+            # so we wrap it in a try block
+            if self.task_map[block.task_id].check_function is not None:
+                return self.task_map[block.task_id].check_function(block)
+            else:
+                return False
+        except Exception as e:
+            logger.error(
+                "pre_check() exception for block %s of task %s. " "Exception: %s",
+                block,
+                block.task_id,
+                e,
+            )
+            return False
 
 
 def distribute():
