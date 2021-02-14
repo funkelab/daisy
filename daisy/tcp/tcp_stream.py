@@ -104,3 +104,7 @@ class TCPStream(IOLooper):
         message = pickle.loads(pickled_data)
         message.stream = self
         return message
+
+    def __repr__(self):
+
+        return f"{self.address[0]}:{self.address[1]}"
