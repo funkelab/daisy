@@ -48,9 +48,6 @@ class Scheduler:
         for task in tasks:
             self.__init_task(task)
 
-        self.completed_surface = set()
-        self.failed_surface = set()
-        self.block_statuses = collections.defaultdict(BlockStatus)
         self.count_all_orphans = count_all_orphans
 
         self.last_prechecked = collections.defaultdict(lambda: (None, None))
