@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 
 from .dependency_graph import DependencyGraph
+from .ready_surface import ReadySurface
 from .task import Task
 from .block import BlockStatus
 
@@ -64,9 +65,6 @@ class TaskBlocks:
     def __init__(self):
         self.ready_queue = collections.deque()
         self.processing_blocks = set()
-        self.failed_blocks = set()
-        self.orphaned_blocks = set()
-        self.completed_blocks = set()
         self.block_retries = collections.defaultdict(int)
 
 
@@ -88,6 +86,9 @@ class Scheduler:
 
     def __init__(self, tasks: List[Task]):
         self.dependency_graph = DependencyGraph(tasks)
+        self.ready_surface = ReadySurface(
+            self.dependency_graph.downstream, self.dependency_graph.upstream
+        )
 
         self.task_map = {}
         self.task_states = collections.defaultdict(TaskState)
@@ -100,6 +101,7 @@ class Scheduler:
             self.__init_task(task)
 
         self.completed_surface = set()
+        self.failed_surface = set()
         self.block_statuses = collections.defaultdict(BlockStatus)
 
         self.last_prechecked = collections.defaultdict(lambda: (None, None))
@@ -222,83 +224,38 @@ class Scheduler:
             waiting to Waiting to Ready and be returned.
         """
         task_id = block.task_id
+        self.remove_from_processing_blocks(block)
         if block.status == BlockStatus.SUCCESS:
-            self.task_blocks[task_id].processing_blocks.remove(block.block_id)
-            if block.block_id in self.task_blocks[task_id].completed_blocks:
-                raise NotImplementedError("Should not be reachable!")
-            self.task_blocks[task_id].completed_blocks.add(block.block_id)
-            self.task_states[task_id].processing_count -= 1
-            self.task_states[task_id].completed_count += 1
-            self.update_complete_surface(block)
-            updated_tasks = self.update_ready_queue(block)
+            new_blocks = self.ready_surface.mark_success(block)
+            self.task_states[block.task_id].completed_count += 1
+            updated_tasks = self.update_ready_queue(new_blocks)
             return updated_tasks
         if block.status == BlockStatus.FAILED:
             if (
                 self.task_blocks[task_id].block_retries[block.block_id]
                 >= self.task_map[task_id].max_retries
             ):
-                self.task_blocks[task_id].processing_blocks.remove(block.block_id)
-                self.task_blocks[task_id].failed_blocks.add(block.block_id)
-                self.task_states[task_id].processing_count -= 1
-                self.task_states[task_id].failed_count += 1
-                self.update_failed_surface(block)
-                # No new blocks can be freed by failing a block.
+                num_orphans = self.ready_surface.mark_failure(block)
+                self.task_states[block.task_id].failed_count += 1
+                self.task_states[block.task_id].orphaned_count += num_orphans
                 return {}
             else:
-                self.task_blocks[task_id].processing_blocks.remove(block.block_id)
-                self.task_states[task_id].processing_count -= 1
                 self._queue_ready_block(block)
                 self.task_blocks[task_id].block_retries[block.block_id] += 1
                 return {task_id: self.task_states[task_id]}
         else:
             raise RuntimeError(f"Unexpected status for released block: {block.status}")
 
-    def update_complete_surface(self, block):
-        """
-        The complete surface is comprised of all blocks, that are both completed
-        and whose dependencies have not yet all been completed.
-        """
-        upstream_blocks = self.dependency_graph.upstream(block)
-        self.completed_surface.add(block.block_id)
-        for upstream_block in upstream_blocks:
-            if upstream_block.block_id not in self.completed_surface:
-                continue
-            else:
-                downstream_blocks = self.dependency_graph.downstream(upstream_block)
-                if all(
-                    down.block_id in self.completed_surface
-                    for down in downstream_blocks
-                ):
-                    self.completed_surface.remove(upstream_block.block_id)
+    def remove_from_processing_blocks(self, block):
+        self.task_blocks[block.task_id].processing_blocks.remove(block.block_id)
+        self.task_states[block.task_id].processing_count -= 1
 
-    def update_ready_queue(self, block):
-        """
-        Given a newly completed block_id, all of its downstream blocks are
-        checked to see if their upstream dependencies have now been completed.
-        If so, they are added to the ready queue.
-
-        It is not possible that two
-        block_id's both complete the upstream dependencies of a single downstream
-        block, thus each block can be added to the ready queue only once.
-        """
+    def update_ready_queue(self, ready_blocks):
         updated_tasks = {}
-        downstream_blocks = self.dependency_graph.downstream(block)
-        for down in downstream_blocks:
-            upstream_blocks = self.dependency_graph.upstream(down)
-            if all(up.block_id in self.completed_surface for up in upstream_blocks):
-                self._queue_ready_block(down)
-                updated_tasks[down.task_id] = self.task_states[down.task_id]
+        for ready_block in ready_blocks:
+            self._queue_ready_block(ready_block)
+            updated_tasks[ready_block.task_id] = self.task_states[ready_block.task_id]
         return updated_tasks
-
-    def update_failed_surface(self, block):
-        self.task_blocks[block.task_id].failed_blocks.add(block.block_id)
-
-        downstream = set(self.dependency_graph.downstream(block))
-        while len(downstream) > 0:
-            orphan = downstream.pop()
-            self.task_blocks[orphan.task_id].orphaned_blocks.add(orphan.block_id)
-            self.task_states[orphan.task_id].orphaned_count += 1
-            downstream = downstream.union(set(self.dependency_graph.downstream(orphan)))
 
     def precheck(self, task_id, block):
         if self.last_prechecked[task_id][0] != block:
