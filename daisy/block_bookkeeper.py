@@ -42,9 +42,26 @@ class BlockBookkeeper:
 
         del self.sent_blocks[block.block_id]
 
+    def is_valid_return(self, block, stream):
+        '''Check whether the block from the given client (i.e., stream) is
+        expected to be returned from this client. This is to avoid double
+        returning blocks that have already been returned as lost blocks, but
+        still come back from the client due to race conditions.'''
+
+        # block was never sent or already returned
+        if block.block_id not in self.sent_blocks:
+            return False
+
+        # block is returned by different client than expected
+        if self.sent_blocks[block.block_id].stream != stream:
+            return False
+
+        return True
+
     def get_lost_blocks(self):
         '''Return a list of blocks that were sent and are lost, either because
-        the stream to the client closed or the processing timed out.'''
+        the stream to the client closed or the processing timed out. Those
+        blocks are removed from the sent-list with the call of this function.'''
 
         lost_block_ids = []
         for block_id, log in self.sent_blocks.items():
