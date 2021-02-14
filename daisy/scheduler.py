@@ -84,7 +84,7 @@ class Scheduler:
     See the DependencyGraph class for more information.
     """
 
-    def __init__(self, tasks: List[Task]):
+    def __init__(self, tasks: List[Task], count_all_orphans=False):
         self.dependency_graph = DependencyGraph(tasks)
         self.ready_surface = ReadySurface(
             self.dependency_graph.downstream, self.dependency_graph.upstream
@@ -103,6 +103,7 @@ class Scheduler:
         self.completed_surface = set()
         self.failed_surface = set()
         self.block_statuses = collections.defaultdict(BlockStatus)
+        self.count_all_orphans = count_all_orphans
 
         self.last_prechecked = collections.defaultdict(lambda: (None, None))
 
@@ -235,7 +236,9 @@ class Scheduler:
                 self.task_blocks[task_id].block_retries[block.block_id]
                 >= self.task_map[task_id].max_retries
             ):
-                num_orphans = self.ready_surface.mark_failure(block)
+                num_orphans = self.ready_surface.mark_failure(
+                    block, count_all_orphans=self.count_all_orphans
+                )
                 self.task_states[block.task_id].failed_count += 1
                 self.task_states[block.task_id].orphaned_count += num_orphans
                 return {}
