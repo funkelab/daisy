@@ -19,9 +19,23 @@ class Scheduler:
 
     The Scheduler takes a list of tasks, and upon request will
     provide the next block available for processing.
+
+    args:
+        tasks:
+            the list of tasks to schedule. If any of the tasks have
+            upstream dependencies these will be recursively enumerated
+            and added to the scheduler.
+        count_all_orphans: bool:
+            Whether to guarantee accurate counting of all orphans. This
+            can be inefficient if your dependency tree is particularly
+            deep rather than just wide, so consider flipping this to
+            False if you are having performance issues.
+            If False, orphaned blocks will be counted as "pending" in
+            the task state since there is no way to tell the difference
+            between the two types without enumerating all orphans.
     """
 
-    def __init__(self, tasks: List[Task], count_all_orphans=False):
+    def __init__(self, tasks: List[Task], count_all_orphans=True):
         self.dependency_graph = DependencyGraph(tasks)
         self.ready_surface = ReadySurface(
             self.dependency_graph.downstream, self.dependency_graph.upstream
