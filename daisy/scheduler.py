@@ -2,6 +2,8 @@ from __future__ import absolute_import
 
 from .dependency_graph import DependencyGraph
 from .ready_surface import ReadySurface
+from .task_state import TaskState
+from .processing_queue import ProcessingQueue
 from .task import Task
 from .block import BlockStatus
 
@@ -10,62 +12,6 @@ import collections
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-class TaskState:
-    def __init__(self):
-        self.started = False
-        self.total_block_count = 0
-
-        # counts correspond with BlockStatus
-        # self.pending_count = 0
-        self.ready_count = 0
-        self.processing_count = 0
-        self.completed_count = 0
-        self.failed_count = 0
-        self.orphaned_count = 0
-
-    @property
-    def pending_count(self):
-        # No need to update pending count as we go since
-        # it is the last category
-        return self.total_block_count - (
-            self.ready_count
-            + self.completed_count
-            + self.failed_count
-            + self.orphaned_count
-            + self.processing_count
-        )
-
-    def is_done(self):
-        return (
-            self.total_block_count
-            - self.completed_count
-            - self.failed_count
-            - self.orphaned_count
-        ) == 0
-
-    def __str__(self):
-        return (
-            f"Started: {self.started}\n"
-            f"Total Blocks: {self.total_block_count}\n"
-            f"Ready: {self.ready_count}\n"
-            f"Processing: {self.processing_count}\n"
-            f"Pending: {self.pending_count}\n"
-            f"Completed: {self.completed_count}\n"
-            f"Failed: {self.failed_count}\n"
-            f"Orphaned: {self.orphaned_count}\n"
-        )
-
-    def __repr__(self):
-        return str(self)
-
-
-class TaskBlocks:
-    def __init__(self):
-        self.ready_queue = collections.deque()
-        self.processing_blocks = set()
-        self.block_retries = collections.defaultdict(int)
 
 
 class Scheduler:
@@ -92,10 +38,12 @@ class Scheduler:
 
         self.task_map = {}
         self.task_states = collections.defaultdict(TaskState)
-        self.task_blocks = collections.defaultdict(TaskBlocks)
+        self.task_queues = collections.defaultdict(ProcessingQueue)
 
         # root tasks is a mapping from task_id -> (num_roots, root_generator)
-        self.root_tasks = self.dependency_graph.roots()
+        for task_id, (num_roots, root_gen) in self.dependency_graph.roots().items():
+            self.task_states[task_id].ready_count += num_roots
+            self.task_queues[task_id] = ProcessingQueue(num_roots, root_gen)
 
         for task in tasks:
             self.__init_task(task)
@@ -114,46 +62,17 @@ class Scheduler:
                 task.task_id
             ].total_block_count = self.dependency_graph.num_blocks(task.task_id)
 
-            if task.task_id in self.root_tasks:
-                self.task_states[task.task_id].ready_count = self.root_tasks[
-                    task.task_id
-                ][0]
-
             for upstream_task in task.requires():
                 self.__init_task(upstream_task)
 
     def has_next(self, task_id):
-        if self.task_states[task_id].ready_count >= 1:
-            has_next = True
-            if len(self.task_blocks[task_id].ready_queue) == 0:
-                try:
-                    next_block = next(self.root_tasks[task_id][1])
-                    upstreams = self.dependency_graph.upstream(next_block)
-                    assert (
-                        len(upstreams) == 0
-                    ), f"Upstreams of {next_block}: {upstreams}"
-                    self.task_blocks[task_id].ready_queue.append(next_block)
-                    return True
-                except StopIteration:
-                    raise NotImplementedError(
-                        f"This should not be reachable! There are apparently {self.task_states[task_id].ready_count} blocks left!"
-                    )
-
-        else:
-            has_next = False
-        return has_next
-
-    def _get_block(self, task_id):
-        block = self.task_blocks[task_id].ready_queue.popleft()
-        self.task_states[task_id].ready_count -= 1
-        self.task_states[task_id].processing_count += 1
-        return block
+        return self.task_queues[task_id].has_next()
 
     def _queue_ready_block(self, block, index=None):
         if index is None:
-            self.task_blocks[block.task_id].ready_queue.append(block)
+            self.task_queues[block.task_id].ready_queue.append(block)
         else:
-            self.task_blocks[block.task_id].read_queue.insert(index, block)
+            self.task_queues[block.task_id].read_queue.insert(index, block)
         self.task_states[block.task_id].ready_count += 1
 
     def get_ready_tasks(self) -> List[Task]:
@@ -179,24 +98,23 @@ class Scheduler:
                 The state of the task.
         """
         if self.has_next(task_id):
-            block = self._get_block(task_id)
-            pre_check_ret = self.precheck(task_id, block)
+            block = self.task_queues[task_id].get_next()
 
+            # update states
+            self.task_states[task_id].ready_count -= 1
+            self.task_states[task_id].processing_count += 1
+
+            pre_check_ret = self.precheck(block)
             if pre_check_ret:
-                logger.debug(
-                    "Skipping task %s block %d; already processed.",
-                    task_id,
-                    block.block_id,
-                )
+                logger.debug(f"Skipping block ({block.block_id}); already processed.")
                 block.status = BlockStatus.SUCCESS
                 self.release_block(block)
                 return self.acquire_block(task_id)
-
             else:
                 self.task_states[task_id].started = (
                     self.task_states[task_id].started or True
                 )
-                self.task_blocks[task_id].processing_blocks.add(block.block_id)
+                self.task_queues[task_id].processing_blocks.add(block.block_id)
                 return block
 
         else:
@@ -233,7 +151,7 @@ class Scheduler:
             return updated_tasks
         if block.status == BlockStatus.FAILED:
             if (
-                self.task_blocks[task_id].block_retries[block.block_id]
+                self.task_queues[task_id].block_retries[block.block_id]
                 >= self.task_map[task_id].max_retries
             ):
                 num_orphans = self.ready_surface.mark_failure(
@@ -244,13 +162,13 @@ class Scheduler:
                 return {}
             else:
                 self._queue_ready_block(block)
-                self.task_blocks[task_id].block_retries[block.block_id] += 1
+                self.task_queues[task_id].block_retries[block.block_id] += 1
                 return {task_id: self.task_states[task_id]}
         else:
             raise RuntimeError(f"Unexpected status for released block: {block.status}")
 
     def remove_from_processing_blocks(self, block):
-        self.task_blocks[block.task_id].processing_blocks.remove(block.block_id)
+        self.task_queues[block.task_id].processing_blocks.remove(block.block_id)
         self.task_states[block.task_id].processing_count -= 1
 
     def update_ready_queue(self, ready_blocks):
