@@ -23,12 +23,12 @@ class ProcessingQueue:
     def num_ready(self):
         return self.ready_roots + len(self.ready_queue)
 
-    def has_next(self):
-        return self.num_ready > 0
-
     def get_next(self):
-        if self.ready_roots > 0:
-            self.ready_roots -= 1
-            return next(self.root_generator)
+        if self.num_ready > 0:
+            if self.ready_roots > 0:
+                self.ready_roots -= 1
+                return next(self.root_generator)
+            else:
+                return self.ready_queue.popleft()
         else:
-            return self.ready_queue.popleft()
+            return None
