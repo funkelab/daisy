@@ -13,7 +13,6 @@ from .dependency_graph import DependencyGraph, BlockwiseDependencyGraph # noqa
 from .graph import Graph # noqa
 from .roi import Roi # noqa
 from .scheduler import Scheduler # noqa
-from .scheduler import distribute # noqa
 from .server import Server # noqa
 from .task import Task # noqa
 from .worker import Worker # noqa
