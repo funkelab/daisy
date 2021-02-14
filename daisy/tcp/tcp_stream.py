@@ -53,6 +53,12 @@ class TCPStream(IOLooper):
         finally:
             self.stream = None
 
+    def closed(self):
+        '''True if this stream was closed.'''
+        if self.stream is None:
+            return True
+        return self.stream.closed()
+
     async def _send_message(self, message):
 
         if self.stream is None:

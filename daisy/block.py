@@ -81,6 +81,8 @@ class Block(Freezable):
             block_id = self.__compute_block_id(total_roi, write_roi)
         self.block_id = (task_id, block_id)
         self.status = BlockStatus.CREATED
+        self.started_processing = None
+        self.stopped_processing = None
         self.freeze()
 
     def copy(self):
