@@ -29,8 +29,7 @@ class BlockBookkeeper:
         '''Notify the bookkeeper that a block was returned.'''
 
         assert block.block_id in self.sent_blocks, \
-            f"Block {block} was returned by " \
-            f"{self.sent_blocks[block.block_id].stream}, but is not in list " \
+            f"Block {block} was returned by {stream}, but is not in list " \
             "of sent blocks"
 
         log = self.sent_blocks[block.block_id]
