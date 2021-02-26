@@ -21,16 +21,16 @@ class Array(Freezable):
 
             The region of interest (ROI) represented by this array.
 
-        voxel_size (`class:Coordinate`):
+        voxel_size (`tuple`):
 
             The size of a voxel.
 
-        data_offset (`class:Coordinate`, optional):
+        data_offset (`tuple`, optional):
 
             The start of ``data``, in world units. Defaults to
             ``roi.get_begin()``, if not given.
 
-        chunk_shape (`class:Coordinate`, optional):
+        chunk_shape (`tuple`, optional):
 
             The size of a chunk of the underlying data container in voxels.
 
@@ -67,7 +67,8 @@ class Array(Freezable):
 
         self.data_roi = Roi(
             data_offset,
-            self.voxel_size*self.data.shape[self.n_channel_dims:])
+            self.voxel_size * Coordinate(self.data.shape[self.n_channel_dims :]),
+        )
 
         assert self.roi.get_begin().is_multiple_of(voxel_size), (
             "roi offset %s is not a multiple of voxel size %s" % (
