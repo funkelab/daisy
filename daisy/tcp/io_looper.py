@@ -21,6 +21,11 @@ class IOLooper:
     threads = {}
     ioloops = {}
 
+    @staticmethod
+    def clear():
+        IOLooper.threads = {}
+        IOLooper.ioloops = {}
+
     def __init__(self):
 
         pid = os.getpid()
