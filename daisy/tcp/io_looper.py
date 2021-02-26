@@ -19,6 +19,7 @@ class IOLooper:
     '''
 
     threads = {}
+    ioloops = {}
 
     def __init__(self):
 
@@ -28,6 +29,7 @@ class IOLooper:
 
             logger.debug("Creating new IOLoop for process %d...", pid)
             self.ioloop = tornado.ioloop.IOLoop()
+            self.ioloops[pid] = self.ioloop
 
             logger.debug("Starting io loop for process %d...", pid)
             IOLooper.threads[pid] = threading.Thread(
@@ -38,4 +40,4 @@ class IOLooper:
         else:
 
             logger.debug("Reusing IOLoop for process %d...", pid)
-            self.ioloop = tornado.ioloop.IOLoop.current()
+            self.ioloop = self.ioloops[pid]
