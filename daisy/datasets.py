@@ -103,7 +103,8 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
             raise e
 
         voxel_size, offset = _read_voxel_size_offset(ds, ds.order)
-        roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
+        shape = Coordinate(ds.shape[-len(voxel_size):])
+        roi = Roi(offset, voxel_size*shape)
 
         chunk_shape = ds.chunks
 
@@ -116,7 +117,8 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
         ds = zarr.open(filename, mode=mode)[ds_name]
 
         voxel_size, offset = _read_voxel_size_offset(ds, 'F')
-        roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
+        shape = Coordinate(ds.shape[-len(voxel_size):])
+        roi = Roi(offset, voxel_size*shape)
 
         chunk_shape = ds.chunks
 
@@ -129,7 +131,8 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
         ds = h5py.File(filename, mode=mode)[ds_name]
 
         voxel_size, offset = _read_voxel_size_offset(ds, 'C')
-        roi = Roi(offset, voxel_size*ds.shape[-len(voxel_size):])
+        shape = Coordinate(ds.shape[-len(voxel_size):])
+        roi = Roi(offset, voxel_size*shape)
 
         chunk_shape = ds.chunks
 
