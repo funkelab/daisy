@@ -1,4 +1,5 @@
 import tqdm
+from tqdm.auto import tqdm as tqdm_auto
 import logging
 from .server_observer import ServerObserver
 
@@ -63,12 +64,13 @@ class CLMonitor(ServerObserver):
     def on_task_done(self, task_id):
         if task_id in self.progresses:
             self.progresses[task_id].set_description(task_id + " ✔")
+            self.progresses[task_id].close()
 
     def _update_state(self, task_id, task_state):
 
         if task_id not in self.progresses:
             total = task_state.total_block_count
-            self.progresses[task_id] = tqdm.tqdm(
+            self.progresses[task_id] = tqdm_auto(
                 total=total,
                 desc=task_id + " ▶",
                 unit='blocks',
