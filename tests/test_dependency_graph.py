@@ -128,3 +128,29 @@ def test_get_subgraph_blocks():
     ]
 
     assert set(blocks) == set(expected_blocks)
+
+
+def test_shrink_downstream_upstream_equivalence():
+
+    total_roi = Roi((0,), (100,))
+    read_roi = Roi((0,), (7,))
+    write_roi = Roi((1,), (5,))
+
+    graph = BlockwiseDependencyGraph(
+        "test",
+        read_roi,
+        write_roi,
+        True,
+        "shrink",
+        total_read_roi=total_roi,
+    )
+
+    # iterate through blocks and check downstream == upstream
+    remaining_blocks = set(graph.root_gen())
+    while len(remaining_blocks) > 0:
+        b = remaining_blocks.pop()
+        down_blocks = graph.downstream(b)
+        for down_b in down_blocks:
+            assert b in set(
+                graph.upstream(down_b)
+            ), f"{b in set(graph.upstream(down_b))}, {down_b in set(graph.downstream(b))}"
