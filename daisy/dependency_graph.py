@@ -217,7 +217,7 @@ class BlockwiseDependencyGraph:
             if self.inclusion_criteria(block):
                 yield self.fit_block(block)
             else:
-                logger.warning(f"This offset {block_offset} is invalid!")
+                raise RuntimeError("Unreachable!")
 
     def root_gen(self):
         blocks = self.level_blocks(level=0)
@@ -389,7 +389,7 @@ class BlockwiseDependencyGraph:
         # all block offsets of the current level (relative to total ROI start)
 
         block_dim_offsets = [
-            range(lo, e + s - r, s)
+            range(lo, e + 1 - r, s)
             for lo, e, s, r in zip(
                 level_offset,
                 self.total_write_roi.get_shape(),
