@@ -255,8 +255,14 @@ class BlockwiseDependencyGraph:
         for conflict in self._level_conflicts[next_level]:
             conflict_block = Block(
                 total_roi=self.total_read_roi,
-                read_roi=block.read_roi - conflict,
-                write_roi=block.write_roi - conflict,
+                read_roi=Roi(
+                    block.read_roi.get_offset() - conflict,
+                    self.block_read_roi.get_shape(),
+                ),
+                write_roi=Roi(
+                    block.write_roi.get_offset() - conflict,
+                    self.block_write_roi.get_shape(),
+                ),
                 task_id=self.task_id,
             )
             # TODO: We probably don't need to check every block for inclusion and fit,
@@ -271,15 +277,19 @@ class BlockwiseDependencyGraph:
         i.e. this block offset by all conflict offsets in this level
         """
         level = self._level(block)
-        if level >= self.num_levels:
-            return []
 
         conflicts = []
         for conflict in self._level_conflicts[level]:
             conflict_block = Block(
                 total_roi=self.total_read_roi,
-                read_roi=block.read_roi + conflict,
-                write_roi=block.write_roi + conflict,
+                read_roi=Roi(
+                    block.read_roi.get_offset() - conflict,
+                    self.block_read_roi.get_shape(),
+                ),
+                write_roi=Roi(
+                    block.write_roi.get_offset() - conflict,
+                    self.block_write_roi.get_shape(),
+                ),
                 task_id=self.task_id,
             )
             # TODO: We probably don't need to check every block for inclusion and fit,
@@ -446,12 +456,7 @@ class BlockwiseDependencyGraph:
 
     def shrink_possible(self, block):
 
-        if not self.total_write_roi.contains(block.write_roi.get_begin()):
-            return False
-
-        # test if write roi would be non-empty
-        b = self.shrink(block)
-        return all([s > 0 for s in b.write_roi.get_shape()])
+        return self.total_write_roi.contains(block.write_roi.get_begin())
 
     def shrink(self, block):
         """Ensure that read and write ROI are within total ROI by shrinking both.
