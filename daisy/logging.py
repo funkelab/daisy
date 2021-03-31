@@ -23,15 +23,11 @@ def set_log_basedir(path):
         LOG_BASEDIR = None
 
 
-def get_worker_log_basename(worker):
+def get_worker_log_basename(worker_id, task_id=None):
     '''Get the basename of log files for individual workers.'''
 
     if LOG_BASEDIR is None:
         return None
-
-    context = worker.context
-    task_id = context.get('task_id', None)
-    worker_id = int(context['worker_id'])
 
     basename = LOG_BASEDIR
     if task_id is not None:

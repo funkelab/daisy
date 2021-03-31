@@ -83,7 +83,9 @@ class Worker():
 
             os.environ[self.context.ENV_VARIABLE] = self.context.to_env()
 
-            log_base = daisy_logging.get_worker_log_basename(self)
+            log_base = daisy_logging.get_worker_log_basename(
+                self.worker_id,
+                self.context.get('task_id', None))
             daisy_logging.redirect_stdouterr(log_base)
 
             self.spawn_function()

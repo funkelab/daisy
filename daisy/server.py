@@ -42,6 +42,7 @@ class Server(ServerObservee):
 
         self.worker_pools = TaskWorkerPools(tasks, self)
         self.block_bookkeeper = BlockBookkeeper()
+        self.started_tasks = set()
         self.finished_tasks = set()
 
         self.pending_requests = {
@@ -55,6 +56,7 @@ class Server(ServerObservee):
             self._event_loop()
         finally:
             self.worker_pools.stop()
+            self.notify_server_exit()
 
     def _event_loop(self):
 
@@ -175,7 +177,7 @@ class Server(ServerObservee):
             logger.debug("Task state for task %s: %s", task_id, task_state)
             if task_state.is_done():
                 if task_id not in self.finished_tasks:
-                    self.notify_task_done(task_id)
+                    self.notify_task_done(task_id, task_state)
                     logger.debug("Task %s is done", task_id)
                     self.finished_tasks.add(task_id)
                 continue
@@ -232,6 +234,11 @@ class Server(ServerObservee):
 
         ready_tasks = self.scheduler.get_ready_tasks()
         ready_tasks = {task.task_id: task for task in ready_tasks}
+
+        for task_id in ready_tasks.keys():
+            if task_id not in self.started_tasks:
+                self.notify_task_start(task_id)
+                self.started_tasks.add(task_id)
 
         self.worker_pools.recruit_workers(ready_tasks)
 

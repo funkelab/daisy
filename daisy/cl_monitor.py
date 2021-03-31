@@ -1,7 +1,8 @@
-import tqdm
-from tqdm.auto import tqdm as tqdm_auto
-import logging
 from .server_observer import ServerObserver
+from tqdm.auto import tqdm as tqdm_auto
+import daisy.logging as daisy_logging
+import logging
+import tqdm
 
 
 class TqdmLoggingHandler:
@@ -25,11 +26,32 @@ class TqdmLoggingHandler:
     handle = logging.Handler.handle
 
 
+class TaskSummary:
+
+    def __init__(self):
+
+        self.block_failures = []
+        self.final_state = None
+
+
+class BlockFailure:
+
+    def __init__(self, block, exception, worker_id):
+        self.block = block
+        self.exception = exception
+        self.worker_id = worker_id
+
+    def __repr__(self):
+        return f"block {self.block.block_id[1]} in worker " \
+            f"{self.worker_id} with excpetion {repr(self.exception)}"
+
+
 class CLMonitor(ServerObserver):
 
     def __init__(self, server):
         super().__init__(server)
         self.progresses = {}
+        self.summaries = {}
 
         self._wrap_logging_handlers()
 
@@ -61,10 +83,74 @@ class CLMonitor(ServerObserver):
     def on_release_block(self, task_id, task_state):
         self._update_state(task_id, task_state)
 
-    def on_task_done(self, task_id):
+    def on_block_failure(self, block, exception, context):
+
+        task_id = block.block_id[0]
+        self.summaries[task_id].block_failures.append(
+            BlockFailure(block, exception, context['worker_id']))
+
+    def on_task_start(self, task_id):
+
+        self.summaries[task_id] = TaskSummary()
+
+    def on_task_done(self, task_id, task_state):
+
+        self.summaries[task_id].final_state = task_state
+
         if task_id in self.progresses:
-            self.progresses[task_id].set_description(task_id + " ✔")
+            if task_state.failed_count > 0:
+                status_symbol = " ✗"
+            elif task_state.orphaned_count > 0:
+                status_symbol = " ∅"
+            else:
+                status_symbol = " ✔"
+            self.progresses[task_id].set_description(task_id + status_symbol)
             self.progresses[task_id].close()
+
+    def on_server_exit(self):
+
+        print()
+        print("Execution Summary")
+        print("-----------------")
+
+        max_entries = 100
+
+        for task_id, summary in self.summaries.items():
+
+            num_block_failures = len(summary.block_failures)
+
+            print()
+            print(f"  Task {task_id}:")
+            print()
+            state = summary.final_state
+            print(f"    completed ✔: {state.completed_count}")
+            print(f"    failed    ✗: {state.failed_count}")
+            print(f"    orphaned  ∅: {state.orphaned_count}")
+            print()
+
+            if num_block_failures > 0:
+                print("    Failed Blocks:")
+                print()
+                for block_failure in summary.block_failures[:max_entries]:
+                    print(f"      {block_failure}")
+                if num_block_failures > max_entries:
+                    diff = len(summary.block_failures) - max_entries
+                    print(f"      (and {diff} more)")
+
+            if num_block_failures > 0:
+                print()
+                print("    See worker logs for details:")
+                print()
+                for block_failure in summary.block_failures[:10]:
+                    log_basename = daisy_logging.get_worker_log_basename(
+                        block_failure.worker_id,
+                        block_failure.block.block_id[0])
+                    print(f"      {log_basename}.err / .out")
+                if num_block_failures > 10:
+                    print("      ...")
+
+            if num_block_failures == 0:
+                print("    all blocks processed successfully")
 
     def _update_state(self, task_id, task_state):
 
@@ -76,14 +162,14 @@ class CLMonitor(ServerObserver):
                 unit='blocks',
                 leave=True)
 
+        self.progresses[task_id].set_postfix({
+            '⧗': task_state.pending_count,
+            '▶': task_state.processing_count,
+            '✔': task_state.completed_count,
+            '✗': task_state.failed_count,
+            '∅': task_state.orphaned_count
+        })
+
         completed = task_state.completed_count
         delta = completed - self.progresses[task_id].n
-        if delta > 0:
-            self.progresses[task_id].set_postfix({
-                '⧗': task_state.pending_count,
-                '▶': task_state.processing_count,
-                '✔': task_state.completed_count,
-                '✗': task_state.failed_count,
-                '∅': task_state.orphaned_count
-            })
-            self.progresses[task_id].update(delta)
+        self.progresses[task_id].update(delta)
