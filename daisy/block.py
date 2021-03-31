@@ -101,8 +101,9 @@ class Block(Freezable):
 
     def __repr__(self):
 
-        return "id: %s (read_roi: %s, write_roi %s)" % (
-            self.block_id,
+        return "%s/%d with read ROI %s and write ROI %s" % (
+            self.block_id[0],
+            self.block_id[1],
             self.read_roi,
             self.write_roi,
         )

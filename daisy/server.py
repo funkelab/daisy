@@ -208,14 +208,12 @@ class Server(ServerObservee):
 
     def _handle_client_exception(self, message):
 
-        logger.error("Received ClientException from %s", message.context)
-
         if isinstance(message, BlockFailed):
 
             logger.error(
-                "Block %s failed on %s with %s",
+                "Block %s failed in worker %s with %s",
                 message.block,
-                message.context,
+                message.context['worker_id'],
                 repr(message.exception))
 
             message.block.status = BlockStatus.FAILED
