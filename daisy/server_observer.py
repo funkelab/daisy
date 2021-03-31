@@ -11,12 +11,17 @@ class ServerObserver:
     def on_release_block(self, task_id, task_state):
         pass
 
-    def on_task_done(self, task_id):
+    def on_task_done(self, task_id, task_state):
         pass
 
     def on_block_failure(self, block, exception, context):
         pass
 
+    def on_task_start(self, task_id):
+        pass
+
+    def on_server_exit(self):
+        pass
 
 class ServerObservee:
 
@@ -37,10 +42,18 @@ class ServerObservee:
         for observer in self.observers:
             observer.on_release_block(task_id, task_state)
 
-    def notify_task_done(self, task_id):
+    def notify_task_start(self, task_id):
         for observer in self.observers:
-            observer.on_task_done(task_id)
+            observer.on_task_start(task_id)
+
+    def notify_task_done(self, task_id, task_state):
+        for observer in self.observers:
+            observer.on_task_done(task_id, task_state)
 
     def notify_block_failure(self, block, exception, context):
         for observer in self.observers:
             observer.on_block_failure(block, exception, context)
+
+    def notify_server_exit(self):
+        for observer in self.observers:
+            observer.on_server_exit()
