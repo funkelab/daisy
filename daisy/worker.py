@@ -1,9 +1,9 @@
 from .context import Context
+import daisy.logging as daisy_logging
 import logging
 import multiprocessing
 import os
 import queue
-import sys
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +77,15 @@ class Worker():
 
     def __spawn_wrapper(self):
         '''Thin wrapper around the user-specified spawn function to set
-        environment variables and to capture exceptions.'''
+        environment variables, redirect output, and to capture exceptions.'''
 
         try:
 
             os.environ[self.context.ENV_VARIABLE] = self.context.to_env()
+
+            log_base = daisy_logging.get_worker_log_basename(self)
+            daisy_logging.redirect_stdouterr(log_base)
+
             self.spawn_function()
 
         except Exception as e:

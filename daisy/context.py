@@ -37,6 +37,10 @@ class Context():
 
         return self.__dict[k]
 
+    def get(self, k, v=None):
+
+        return self.__dict.get(k, v)
+
     def __repr__(self):
 
         return self.to_env()

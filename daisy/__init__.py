@@ -11,6 +11,7 @@ from .coordinate import Coordinate # noqa
 from .datasets import open_ds, prepare_ds # noqa
 from .dependency_graph import DependencyGraph, BlockwiseDependencyGraph # noqa
 from .graph import Graph # noqa
+from .logging import get_worker_log_basename, redirect_stdouterr # noqa
 from .roi import Roi # noqa
 from .scheduler import Scheduler # noqa
 from .server import Server # noqa
