@@ -43,7 +43,7 @@ class BlockFailure:
 
     def __repr__(self):
         return f"block {self.block.block_id[1]} in worker " \
-            f"{self.worker_id} with excpetion {repr(self.exception)}"
+            f"{self.worker_id} with exception {repr(self.exception)}"
 
 
 class CLMonitor(ServerObserver):
