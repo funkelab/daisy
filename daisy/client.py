@@ -84,6 +84,10 @@ class Client():
                 self.tcp_client.send_message(
                         BlockFailed(e, block, self.context))
                 block.status = BlockStatus.FAILED
+                logger.exception(
+                    "Block %s failed in worker %d",
+                    block,
+                    self.worker_id)
             finally:
                 self.release_block(block)
         elif isinstance(message, RequestShutdown):
