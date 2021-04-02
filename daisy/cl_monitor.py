@@ -28,10 +28,10 @@ class TqdmLoggingHandler:
 
 class TaskSummary:
 
-    def __init__(self):
+    def __init__(self, state):
 
         self.block_failures = []
-        self.final_state = None
+        self.state = state
 
 
 class BlockFailure:
@@ -89,13 +89,13 @@ class CLMonitor(ServerObserver):
         self.summaries[task_id].block_failures.append(
             BlockFailure(block, exception, context['worker_id']))
 
-    def on_task_start(self, task_id):
+    def on_task_start(self, task_id, task_state):
 
-        self.summaries[task_id] = TaskSummary()
+        self.summaries[task_id] = TaskSummary(task_state)
 
     def on_task_done(self, task_id, task_state):
 
-        self.summaries[task_id].final_state = task_state
+        self.summaries[task_id].state = task_state
 
         if task_id in self.progresses:
             if task_state.failed_count > 0:
@@ -108,6 +108,9 @@ class CLMonitor(ServerObserver):
             self.progresses[task_id].close()
 
     def on_server_exit(self):
+
+        for task_id, progress in self.progresses.items():
+            progress.close()
 
         print()
         print("Execution Summary")
@@ -122,7 +125,8 @@ class CLMonitor(ServerObserver):
             print()
             print(f"  Task {task_id}:")
             print()
-            state = summary.final_state
+            state = summary.state
+            print(f"    num blocks : {state.total_block_count}")
             print(f"    completed ✔: {state.completed_count}")
             print(f"    failed    ✗: {state.failed_count}")
             print(f"    orphaned  ∅: {state.orphaned_count}")

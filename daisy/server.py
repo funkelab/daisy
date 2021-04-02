@@ -244,7 +244,9 @@ class Server(ServerObservee):
 
         for task_id in ready_tasks.keys():
             if task_id not in self.started_tasks:
-                self.notify_task_start(task_id)
+                self.notify_task_start(
+                    task_id,
+                    self.scheduler.task_states[task_id])
                 self.started_tasks.add(task_id)
 
         self.worker_pools.recruit_workers(ready_tasks)
