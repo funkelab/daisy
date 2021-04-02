@@ -74,11 +74,11 @@ class Client():
             logger.debug("Received block %s", message.block.block_id)
             try:
                 block = message.block
-                block.status = None
+                block.status = BlockStatus.PROCESSING
                 yield block
                 # if user code has not changed the block status, we assume
                 # everything went well
-                if block.status is None:
+                if block.status == BlockStatus.PROCESSING:
                     block.status = BlockStatus.SUCCESS
             except Exception as e:
                 self.tcp_client.send_message(
@@ -89,6 +89,11 @@ class Client():
                     block,
                     self.worker_id)
             finally:
+                # if we somehow got here without setting the block status to
+                # "SUCCESS" (e.g., through KeyboardInterrupt), we assume the
+                # block failed
+                if block.status != BlockStatus.SUCCESS:
+                    block.status = BlockStatus.FAILED
                 self.release_block(block)
         elif isinstance(message, RequestShutdown):
             logger.debug("No more blocks for this client, disconnecting")

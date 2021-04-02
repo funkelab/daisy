@@ -7,8 +7,9 @@ import copy
 
 class BlockStatus(Enum):
     CREATED = 0
-    SUCCESS = 1
-    FAILED = 2
+    PROCESSING = 1
+    SUCCESS = 2
+    FAILED = 3
 
 
 class Block(Freezable):

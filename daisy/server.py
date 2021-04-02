@@ -14,6 +14,7 @@ from .task_worker_pools import TaskWorkerPools
 from .tcp import TCPServer
 from .tcp.exceptions import StreamClosedError
 from queue import Queue
+from threading import Event
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,9 +22,14 @@ logger = logging.getLogger(__name__)
 
 class Server(ServerObservee):
 
-    def __init__(self):
+    def __init__(self, stop_event=None):
 
         super().__init__()
+
+        if stop_event is None:
+            self.stop_event = Event()
+        else:
+            self.stop_event = stop_event
 
         self.tcp_server = TCPServer()
         self.hostname, self.port = self.tcp_server.address
@@ -55,14 +61,15 @@ class Server(ServerObservee):
         try:
             self._event_loop()
         finally:
+            logger.debug("Stopping worker pools...")
             self.worker_pools.stop()
+            logger.debug("Worker pools stopped.")
             self.notify_server_exit()
 
     def _event_loop(self):
 
-        self.running = True
+        while not self.stop_event.is_set():
 
-        while self.running:
             self._handle_client_messages()
             self._check_for_lost_blocks()
             self.worker_pools.check_worker_health()
@@ -191,7 +198,7 @@ class Server(ServerObservee):
 
         if all_done:
             logger.debug("All tasks finished")
-            self.running = False
+            self.stop_event.set()
 
         self._recruit_workers()
 
@@ -237,7 +244,9 @@ class Server(ServerObservee):
 
         for task_id in ready_tasks.keys():
             if task_id not in self.started_tasks:
-                self.notify_task_start(task_id)
+                self.notify_task_start(
+                    task_id,
+                    self.scheduler.task_states[task_id])
                 self.started_tasks.add(task_id)
 
         self.worker_pools.recruit_workers(ready_tasks)
