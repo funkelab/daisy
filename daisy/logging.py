@@ -53,8 +53,14 @@ def redirect_stdouterr(basename, mode='w'):
     logdir = basename.parent
     logdir.mkdir(parents=True, exist_ok=True)
 
-    _file_reopen(basename.with_suffix('.out'), mode, sys.stdout)
-    _file_reopen(basename.with_suffix('.err'), mode, sys.stderr)
+    sys.stdout = _file_reopen(
+        basename.with_suffix('.out'),
+        mode,
+        sys.__stdout__)
+    sys.stderr = _file_reopen(
+        basename.with_suffix('.err'),
+        mode,
+        sys.__stderr__)
 
 
 def _file_reopen(filename, mode, file_obj):
@@ -64,3 +70,5 @@ def _file_reopen(filename, mode, file_obj):
     targetfd = file_obj.fileno()
     os.close(targetfd)
     os.dup2(newfd, targetfd)
+
+    return new
