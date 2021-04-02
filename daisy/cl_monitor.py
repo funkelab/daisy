@@ -153,7 +153,7 @@ class CLMonitor(ServerObserver):
                 if num_block_failures > 10:
                     print("      ...")
 
-            if num_block_failures == 0:
+            if state.completed_count == state.total_block_count:
                 print("    all blocks processed successfully")
 
     def _update_state(self, task_id, task_state):
