@@ -180,7 +180,16 @@ class BlockwiseDependencyGraph:
         return fit_block
 
     def num_roots(self):
-        return self._num_level_blocks(0)
+        return self._num_level_blocks(self._root_level)
+
+    @property
+    def _root_level(self):
+        '''The first level to contain blocks.'''
+        for level in range(self.num_levels):
+            num_blocks = self._num_level_blocks(level)
+            if num_blocks > 0:
+                return level
+        raise RuntimeError(f"Task {self.task_id} does not contain any blocks")
 
     def _num_level_blocks(self, level):
         level_offset = self._level_offsets[level]
@@ -220,9 +229,8 @@ class BlockwiseDependencyGraph:
                 raise RuntimeError("Unreachable!")
 
     def root_gen(self):
-        blocks = self.level_blocks(level=0)
+        blocks = self.level_blocks(level=self._root_level)
         for block in blocks:
-
             yield self.fit_block(block)
 
     def _block_offset(self, block):
