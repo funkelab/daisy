@@ -203,13 +203,18 @@ class BlockwiseDependencyGraph:
                 self.rounding_term,
             )
         ]
+        num_blocks = np.prod(axis_blocks)
         logger.debug(
-            f"blocks for write_roi: {self.total_write_roi}, level ({level}), "
-            f"offset ({level_offset}), and stride ({self._level_stride}): "
-            f"({axis_blocks}, {np.prod(axis_blocks)})"
-        )
+            "number of blocks for write_roi: %s, level (%d), "
+            "offset (%s), and stride (%s): %d (per dim: %s)",
+            self.total_write_roi,
+            level,
+            level_offset,
+            self._level_stride,
+            num_blocks,
+            axis_blocks)
 
-        return np.prod(axis_blocks)
+        return num_blocks
 
     def level_blocks(self, level):
 
