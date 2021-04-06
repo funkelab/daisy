@@ -1,4 +1,4 @@
-from .exceptions import NoFreePort, StreamClosedError
+from .exceptions import NoFreePort
 from .internal_messages import (
     AckClientDisconnect,
     NotifyClientDisconnect)

@@ -17,7 +17,8 @@ def run_blockwise(tasks):
         stop_event.set()
         thread.join()
 
+
 def _run_blockwise(tasks, stop_event):
     server = Server(stop_event=stop_event)
-    cl_monitor = CLMonitor(server)
+    cl_monitor = CLMonitor(server)  # noqa
     server.run_blockwise(tasks)

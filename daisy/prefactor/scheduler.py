@@ -134,7 +134,7 @@ class Scheduler():
                             "Exception: %s",
                             block, task_id, e)
                         pre_check_ret = False
-                    finally: 
+                    finally:
                         last_prechecked[task_id] = (block, pre_check_ret)
 
                 pre_check_ret = last_prechecked[task_id][1]

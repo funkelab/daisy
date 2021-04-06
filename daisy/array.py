@@ -65,9 +65,10 @@ class Array(Freezable):
         else:
             data_offset = Coordinate(data_offset)
 
+        spatial_shape = self.data.shape[self.n_channel_dims:]
         self.data_roi = Roi(
             data_offset,
-            self.voxel_size * Coordinate(self.data.shape[self.n_channel_dims :]),
+            self.voxel_size * Coordinate(spatial_shape),
         )
 
         assert self.roi.get_begin().is_multiple_of(voxel_size), (
