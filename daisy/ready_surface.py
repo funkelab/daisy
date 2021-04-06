@@ -99,18 +99,18 @@ class ReadySurface:
 
         # recurse through downstream nodes, adding them to boundary if necessary
         down_nodes = set(self.downstream(node))
-        seen = set(down_nodes)
+        orphans = set(down_nodes)
         while len(down_nodes) > 0:
             down_node = down_nodes.pop()
             if self.__add_to_boundary(down_node):
                 # check if any nodes downstream of this node are also boundary nodes.
-                new_nodes = set(self.downstream(down_node)) - seen
+                new_nodes = set(self.downstream(down_node)) - orphans
                 down_nodes = down_nodes.union(new_nodes)
-                seen = seen.union(new_nodes)
+                orphans = orphans.union(new_nodes)
             elif count_all_orphans:
-                new_nodes = set(self.downstream(down_node)) - seen
+                new_nodes = set(self.downstream(down_node)) - orphans
                 down_nodes = down_nodes.union(new_nodes)
-                seen - seen.union(new_nodes)
+                orphans - orphans.union(new_nodes)
 
         # check if any of the upstream nodes can be removed from surface
         for up_node in up_nodes:
@@ -130,7 +130,7 @@ class ReadySurface:
         if len(list(self.upstream(node))) == 0:
             self.boundary.remove(node)
 
-        return len(seen)
+        return orphans
 
     def __add_to_boundary(self, node):
         up_nodes = self.upstream(node)

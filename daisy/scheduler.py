@@ -136,13 +136,17 @@ class Scheduler:
                 self.task_queues[task_id].block_retries[block.block_id]
                 >= self.task_map[task_id].max_retries
             ):
-                num_orphans = self.ready_surface.mark_failure(
+                logger.debug("Marking %s as permanently failed", block)
+                orphans = self.ready_surface.mark_failure(
                     block, count_all_orphans=self.count_all_orphans
                 )
+                logger.debug("Number of orphans is %d", len(orphans))
                 self.task_states[block.task_id].failed_count += 1
-                self.task_states[block.task_id].orphaned_count += num_orphans
+                for orphan in orphans:
+                    self.task_states[orphan.task_id].orphaned_count += 1
                 return {}
             else:
+                logger.debug("Marking %s as temporarily failed", block)
                 self.__queue_ready_block(block)
                 self.task_queues[task_id].block_retries[block.block_id] += 1
                 return {task_id: self.task_states[task_id]}
