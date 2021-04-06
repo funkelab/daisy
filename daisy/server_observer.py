@@ -23,6 +23,7 @@ class ServerObserver:
     def on_server_exit(self):
         pass
 
+
 class ServerObservee:
 
     def __init__(self):

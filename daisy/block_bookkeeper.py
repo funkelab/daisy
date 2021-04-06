@@ -61,7 +61,8 @@ class BlockBookkeeper:
     def get_lost_blocks(self):
         '''Return a list of blocks that were sent and are lost, either because
         the stream to the client closed or the processing timed out. Those
-        blocks are removed from the sent-list with the call of this function.'''
+        blocks are removed from the sent-list with the call of this
+        function.'''
 
         lost_block_ids = []
         for block_id, log in self.sent_blocks.items():

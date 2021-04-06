@@ -46,7 +46,8 @@ class Scheduler:
         self.task_queues = collections.defaultdict(ProcessingQueue)
 
         # root tasks is a mapping from task_id -> (num_roots, root_generator)
-        for task_id, (num_roots, root_gen) in self.dependency_graph.roots().items():
+        roots = self.dependency_graph.roots()
+        for task_id, (num_roots, root_gen) in roots.items():
             self.task_states[task_id].ready_count += num_roots
             self.task_queues[task_id] = ProcessingQueue(num_roots, root_gen)
 
@@ -153,14 +154,16 @@ class Scheduler:
                 self.task_queues[task_id].block_retries[block.block_id] += 1
                 return {task_id: self.task_states[task_id]}
         else:
-            raise RuntimeError(f"Unexpected status for released block: {block.status}")
+            raise RuntimeError(
+                f"Unexpected status for released block: {block.status}")
 
     def __init_task(self, task):
         if task.task_id not in self.task_map:
             self.task_map[task.task_id] = task
+            num_blocks = self.dependency_graph.num_blocks(task.task_id)
             self.task_states[
                 task.task_id
-            ].total_block_count = self.dependency_graph.num_blocks(task.task_id)
+            ].total_block_count = num_blocks
 
             for upstream_task in task.requires():
                 self.__init_task(upstream_task)
@@ -173,14 +176,16 @@ class Scheduler:
         self.task_states[block.task_id].ready_count += 1
 
     def __remove_from_processing_blocks(self, block):
-        self.task_queues[block.task_id].processing_blocks.remove(block.block_id)
+        self.task_queues[block.task_id].processing_blocks.remove(
+            block.block_id)
         self.task_states[block.task_id].processing_count -= 1
 
     def __update_ready_queue(self, ready_blocks):
         updated_tasks = {}
         for ready_block in ready_blocks:
             self.__queue_ready_block(ready_block)
-            updated_tasks[ready_block.task_id] = self.task_states[ready_block.task_id]
+            task_state = self.task_states[ready_block.task_id]
+            updated_tasks[ready_block.task_id] = task_state
         return updated_tasks
 
     def __precheck(self, block):
@@ -191,8 +196,8 @@ class Scheduler:
                 return self.task_map[block.task_id].check_function(block)
             else:
                 return False
-        except Exception as e:
-            logger.error(
-                f"pre_check() exception for block {block.block_id}. " f"Exception: {e}",
-            )
+        except Exception:
+            logger.exception(
+                "pre_check() exception for block {block.block_id}",
+                block.block_id)
             return False

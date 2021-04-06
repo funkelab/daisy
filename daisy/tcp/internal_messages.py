@@ -7,11 +7,13 @@ class InternalTCPMessage(TCPMessage):
     '''
     pass
 
+
 class NotifyClientDisconnect(InternalTCPMessage):
     '''Message to be sent from a :class:`TCPClient` to :class:`TCPServer` to
     initiate a disconnect.
     '''
     pass
+
 
 class AckClientDisconnect(InternalTCPMessage):
     '''Message to be sent from a :class:`TCPServer` to :class:`TCPClient` to

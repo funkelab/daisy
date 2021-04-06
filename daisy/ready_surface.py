@@ -1,8 +1,9 @@
 class ReadySurface:
     """
-    The ready surface is a datastructure to keep track of the nodes in a dependency graph
-    that are ready to be scheduled. Nodes can be marked as success or failure. All nodes
-    downstream of a failure are considered a failure.
+    The ready surface is a datastructure to keep track of the nodes in a
+    dependency graph that are ready to be scheduled. Nodes can be marked as
+    success or failure. All nodes downstream of a failure are considered a
+    failure.
     The purpose is to minimize the in-memory storage of blocks.
 
     nodes can have 3 states:
@@ -27,7 +28,8 @@ class ReadySurface:
 
     def mark_success(self, node):
         """
-        Update surface and boundary to account for a `node` marked as a success.
+        Update surface and boundary to account for a `node` marked as a
+        success.
 
         args:
             node: `hashable`:
@@ -51,7 +53,9 @@ class ReadySurface:
         # check if any downstream nodes need to be added to the boundary
         for down_node in self.downstream(node):
             if not self.__add_to_boundary(down_node):
-                if all(up_node in self.surface for up_node in self.upstream(down_node)):
+                if all(
+                        up_node in self.surface
+                        for up_node in self.upstream(down_node)):
                     new_ready_nodes.append(down_node)
 
         # check if any of the upstream nodes can be removed from surface
@@ -76,7 +80,8 @@ class ReadySurface:
 
     def mark_failure(self, node, count_all_orphans=False):
         """
-        Update surface and boundary to account for a `node` marked as a failure.
+        Update surface and boundary to account for a `node` marked as a
+        failure.
 
         args:
             node: `hashable`:
@@ -97,13 +102,15 @@ class ReadySurface:
 
         self.boundary.add(node)
 
-        # recurse through downstream nodes, adding them to boundary if necessary
+        # recurse through downstream nodes, adding them to boundary if
+        # necessary
         down_nodes = set(self.downstream(node))
         orphans = set(down_nodes)
         while len(down_nodes) > 0:
             down_node = down_nodes.pop()
             if self.__add_to_boundary(down_node):
-                # check if any nodes downstream of this node are also boundary nodes.
+                # check if any nodes downstream of this node are also boundary
+                # nodes.
                 new_nodes = set(self.downstream(down_node)) - orphans
                 down_nodes = down_nodes.union(new_nodes)
                 orphans = orphans.union(new_nodes)
