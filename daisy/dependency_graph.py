@@ -180,7 +180,16 @@ class BlockwiseDependencyGraph:
         return fit_block
 
     def num_roots(self):
-        return self._num_level_blocks(0)
+        return self._num_level_blocks(self._root_level)
+
+    @property
+    def _root_level(self):
+        '''The first level to contain blocks.'''
+        for level in range(self.num_levels):
+            num_blocks = self._num_level_blocks(level)
+            if num_blocks > 0:
+                return level
+        raise RuntimeError(f"Task {self.task_id} does not contain any blocks")
 
     def _num_level_blocks(self, level):
         level_offset = self._level_offsets[level]
@@ -194,13 +203,18 @@ class BlockwiseDependencyGraph:
                 self.rounding_term,
             )
         ]
+        num_blocks = np.prod(axis_blocks)
         logger.debug(
-            f"blocks for write_roi: {self.total_write_roi}, level ({level}), "
-            f"offset ({level_offset}), and stride ({self._level_stride}): "
-            f"({axis_blocks}, {np.prod(axis_blocks)})"
-        )
+            "number of blocks for write_roi: %s, level (%d), "
+            "offset (%s), and stride (%s): %d (per dim: %s)",
+            self.total_write_roi,
+            level,
+            level_offset,
+            self._level_stride,
+            num_blocks,
+            axis_blocks)
 
-        return np.prod(axis_blocks)
+        return num_blocks
 
     def level_blocks(self, level):
 
@@ -220,9 +234,8 @@ class BlockwiseDependencyGraph:
                 raise RuntimeError("Unreachable!")
 
     def root_gen(self):
-        blocks = self.level_blocks(level=0)
+        blocks = self.level_blocks(level=self._root_level)
         for block in blocks:
-
             yield self.fit_block(block)
 
     def _block_offset(self, block):

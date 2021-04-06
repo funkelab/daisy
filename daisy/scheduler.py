@@ -77,31 +77,33 @@ class Scheduler:
             ``Block`` or None:
                 A block that can be run without worry of
                 conflicts.
-            ``TaskState``:
-                The state of the task.
         """
-        block = self.task_queues[task_id].get_next()
-        if block is not None:
+        while True:
+            block = self.task_queues[task_id].get_next()
+            if block is not None:
 
-            # update states
-            self.task_states[task_id].ready_count -= 1
-            self.task_states[task_id].processing_count += 1
+                # update states
+                self.task_states[task_id].ready_count -= 1
+                self.task_states[task_id].processing_count += 1
 
-            pre_check_ret = self.__precheck(block)
-            if pre_check_ret:
-                logger.debug(f"Skipping block ({block.block_id}); already processed.")
-                block.status = BlockStatus.SUCCESS
-                self.release_block(block)
-                return self.acquire_block(task_id)
+                pre_check_ret = self.__precheck(block)
+                if pre_check_ret:
+                    logger.debug(
+                        "Skipping block (%s); already processed.",
+                        block.block_id)
+                    block.status = BlockStatus.SUCCESS
+                    self.release_block(block)
+                    continue
+                else:
+                    self.task_states[task_id].started = (
+                        self.task_states[task_id].started or True
+                    )
+                    self.task_queues[task_id].processing_blocks.add(
+                        block.block_id)
+                    return block
+
             else:
-                self.task_states[task_id].started = (
-                    self.task_states[task_id].started or True
-                )
-                self.task_queues[task_id].processing_blocks.add(block.block_id)
-                return block
-
-        else:
-            return None
+                return None
 
     def release_block(self, block):
         """
@@ -136,13 +138,17 @@ class Scheduler:
                 self.task_queues[task_id].block_retries[block.block_id]
                 >= self.task_map[task_id].max_retries
             ):
-                num_orphans = self.ready_surface.mark_failure(
+                logger.debug("Marking %s as permanently failed", block)
+                orphans = self.ready_surface.mark_failure(
                     block, count_all_orphans=self.count_all_orphans
                 )
+                logger.debug("Number of orphans is %d", len(orphans))
                 self.task_states[block.task_id].failed_count += 1
-                self.task_states[block.task_id].orphaned_count += num_orphans
+                for orphan in orphans:
+                    self.task_states[orphan.task_id].orphaned_count += 1
                 return {}
             else:
+                logger.debug("Marking %s as temporarily failed", block)
                 self.__queue_ready_block(block)
                 self.task_queues[task_id].block_retries[block.block_id] += 1
                 return {task_id: self.task_states[task_id]}

@@ -95,7 +95,10 @@ class CLMonitor(ServerObserver):
 
     def on_task_done(self, task_id, task_state):
 
-        self.summaries[task_id].state = task_state
+        if task_id not in self.summaries:
+            self.summaries[task_id] = TaskSummary(task_state)
+        else:
+            self.summaries[task_id].state = task_state
 
         if task_id in self.progresses:
             if task_state.failed_count > 0:
