@@ -53,12 +53,12 @@ class Array(Freezable):
         self.roi = roi
         self.voxel_size = Coordinate(voxel_size)
         self.chunk_shape = Coordinate(chunk_shape) if chunk_shape else None
-        self.n_channel_dims = len(data.shape) - roi.dims()
+        self.n_channel_dims = len(data.shape) - roi.dims
         self.check_write_chunk_align = check_write_chunk_align
 
-        assert self.voxel_size.dims() == self.roi.dims(), (
+        assert self.voxel_size.dims == self.roi.dims, (
             "dimension of voxel_size (%d) does not match dimension of roi (%d)"
-            % (self.voxel_size.dims(), self.roi.dims()))
+            % (self.voxel_size.dims, self.roi.dims))
 
         if data_offset is None:
             data_offset = roi.get_begin()
@@ -247,7 +247,7 @@ class Array(Freezable):
 
         shared_roi = self.roi.intersect(roi)
 
-        if not shared_roi.empty():
+        if not shared_roi.empty:
             array[shared_roi] = self[shared_roi]
 
         return data
@@ -275,7 +275,7 @@ class Array(Freezable):
 
         if check_chunk_align:
 
-            for d in range(roi.dims()):
+            for d in range(roi.dims):
 
                 end_of_array = roi.get_end()[d] == self.roi.get_end()[d]
 
