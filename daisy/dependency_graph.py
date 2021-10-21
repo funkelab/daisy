@@ -510,13 +510,20 @@ class BlockwiseDependencyGraph:
 
         return shrunk_block
 
-    def get_subgraph_blocks(self, sub_roi):
+    def get_subgraph_blocks(self, sub_roi, read_roi=False):
         """Return ids of blocks, as instantiated in the full graph, such that
         their total write rois fully cover `sub_roi`.
         The function API assumes that `sub_roi` and `total_roi` use world
         coordinates and `self.block_read_roi` and `self.block_write_roi` use
         relative coordinates.
         """
+
+        if read_roi:
+            # if we want to get blocks whose read_roi overlaps with sub_roi
+            # simply grow the sub_roi by the block context. That way we
+            # only need to check if a blocks read_roi overlaps with sub_roi.
+            # This is the same behavior as when we want write_roi overlap
+            sub_roi = sub_roi.grow(self.read_write_context[0], self.read_write_context[1])
 
         # TODO: handle unsatisfiable sub_rois
         # i.e. sub_roi is outside of *total_write_roi
@@ -553,8 +560,8 @@ class BlockwiseDependencyGraph:
             self.fit_block(
                 Block(
                     self.total_read_roi,
-                    self.block_read_roi + block_offset,
-                    self.block_write_roi + block_offset,
+                    self.block_read_roi + block_offset - self.block_read_roi.offset,
+                    self.block_write_roi + block_offset - self.block_read_roi.offset,
                     task_id=self.task_id,
                 )
             )
@@ -587,7 +594,7 @@ class DependencyGraph:
         for upstream_task in self.upstream_tasks[block.task_id]:
             upstream.extend(
                 self.task_dependency_graphs[upstream_task].get_subgraph_blocks(
-                    block.read_roi
+                    block.read_roi, read_roi=False
                 )
             )
         return sorted(
@@ -601,7 +608,7 @@ class DependencyGraph:
         for downstream_task in self.downstream_tasks[block.task_id]:
             downstream.extend(
                 dep_graphs[downstream_task].get_subgraph_blocks(
-                    block.read_roi
+                    block.write_roi, read_roi=True
                 )
             )
         return sorted(
