@@ -73,7 +73,7 @@ class TestArray(unittest.TestCase):
         assert a1.shape == (10,)
         assert a2.shape == (10, 10)
         assert a2_3.shape == (3, 10, 10)
-        assert a2_3.roi.dims() == 2
+        assert a2_3.roi.dims == 2
         assert a5_3_2_1.shape == (1, 2, 3, 4, 4, 4, 4, 4)
 
         # ROI subset of data
@@ -98,7 +98,7 @@ class TestArray(unittest.TestCase):
         assert a1.shape == (10,)
         assert a2.shape == (10, 10)
         assert a2_3.shape == (3, 10, 10)
-        assert a2_3.roi.dims() == 2
+        assert a2_3.roi.dims == 2
         assert a5_3_2_1.shape == (1, 2, 3, 4, 4, 4, 4, 4)
 
     def test_dtype(self):
