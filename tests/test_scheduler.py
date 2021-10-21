@@ -13,6 +13,21 @@ logger = logging.getLogger(__name__)
 def process_block(block):
     pass
 
+@pytest.fixture
+def task_random_1(tmpdir):
+    total_read_roi = Roi((0,0), (318,318))
+    read_roi = Roi((0,0), (288,288))
+    write_roi = Roi((109,109), (70,70))
+
+    return Task(
+        task_id="test_random_1",
+        total_roi=total_read_roi,
+        read_roi=read_roi,
+        write_roi=write_roi,
+        process_function=process_block,
+        check_function=None,
+        fit="overhang",
+    )
 
 @pytest.fixture
 def task_1d(tmpdir):
@@ -416,3 +431,18 @@ def test_overlapping_tasks(overlapping_tasks):
     assert (
         scheduler.task_states[second.task_id].completed_count == 12
     ), scheduler.task_states[second.task_id]
+
+
+def test_random_1(task_random_1):
+    scheduler = Scheduler([task_random_1])
+
+    for _ in range(4):
+        task_state = scheduler.task_states[task_random_1.task_id]
+        assert task_state.ready_count == 1
+        block = scheduler.acquire_block(task_random_1.task_id)
+        assert block is not None
+        block.status = BlockStatus.SUCCESS
+        scheduler.release_block(block)
+
+    block = scheduler.acquire_block(task_random_1.task_id)
+    assert block is None
