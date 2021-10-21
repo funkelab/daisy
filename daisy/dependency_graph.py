@@ -297,11 +297,11 @@ class BlockwiseDependencyGraph:
             conflict_block = Block(
                 total_roi=self.total_read_roi,
                 read_roi=Roi(
-                    block.read_roi.get_offset() - conflict,
+                    block.read_roi.get_offset() + conflict,
                     self.block_read_roi.get_shape(),
                 ),
                 write_roi=Roi(
-                    block.write_roi.get_offset() - conflict,
+                    block.write_roi.get_offset() + conflict,
                     self.block_write_roi.get_shape(),
                 ),
                 task_id=self.task_id,
