@@ -283,6 +283,9 @@ class BlockwiseDependencyGraph:
             # and fit, but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
+            if self._num_level_blocks(next_level) == 0:
+                conflicts.extend(self.downstream(conflict_block))
+        conflicts = list(set(conflicts))
         return conflicts
 
     def upstream(self, block):
@@ -310,6 +313,9 @@ class BlockwiseDependencyGraph:
             # and fit, but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
+            if self._num_level_blocks(level) == 0:
+                conflicts.extend(self.upstream(conflict_block))
+        conflicts = list(set(conflicts))
         return conflicts
 
     def enumerate_all_dependencies(self):
