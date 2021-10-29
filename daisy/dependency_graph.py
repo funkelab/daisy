@@ -179,16 +179,7 @@ class BlockwiseDependencyGraph:
         return fit_block
 
     def num_roots(self):
-        return self._num_level_blocks(self._root_level)
-
-    @property
-    def _root_level(self):
-        '''The first level to contain blocks.'''
-        for level in range(self.num_levels):
-            num_blocks = self._num_level_blocks(level)
-            if num_blocks > 0:
-                return level
-        raise RuntimeError(f"Task {self.task_id} does not contain any blocks")
+        return self._num_level_blocks(0)
 
     def _num_level_blocks(self, level):
         level_offset = self._level_offsets[level]
@@ -233,7 +224,7 @@ class BlockwiseDependencyGraph:
                 raise RuntimeError("Unreachable!")
 
     def root_gen(self):
-        blocks = self.level_blocks(level=self._root_level)
+        blocks = self.level_blocks(level=0)
         for block in blocks:
             yield self.fit_block(block)
 
@@ -283,8 +274,6 @@ class BlockwiseDependencyGraph:
             # and fit, but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
-            if self._num_level_blocks(next_level) == 0:
-                conflicts.extend(self.downstream(conflict_block))
         conflicts = list(set(conflicts))
         return conflicts
 
@@ -313,8 +302,6 @@ class BlockwiseDependencyGraph:
             # and fit, but rather just the blocks on the total roi boundary
             if self.inclusion_criteria(conflict_block):
                 conflicts.append(self.fit_block(conflict_block))
-            if self._num_level_blocks(level) == 0:
-                conflicts.extend(self.upstream(conflict_block))
         conflicts = list(set(conflicts))
         return conflicts
 
@@ -368,6 +355,19 @@ class BlockwiseDependencyGraph:
             ((l - 1) // w + 1) * w
             for l, w in zip(min_level_stride, write_shape)
         ))
+
+        # Handle case where min_level_stride > total_write_roi.
+        # This case leads to levels with no blocks in them. This makes
+        # calculating dependencies on the fly significantly more difficult
+        write_roi_shape = self.total_write_roi.shape
+        if self.fit == "valid":
+            # round down to nearest block size
+            write_roi_shape -= write_roi_shape % self.block_write_roi.shape
+        else:
+            # round up to nearest block size
+            write_roi_shape += self.block_write_roi.shape - write_roi_shape % self.block_write_roi.shape
+
+        level_stride = Coordinate((min(a, b) for a, b in zip(level_stride, write_roi_shape)))
 
         logger.debug(
             "final level stride (multiples of write size) is %s",
