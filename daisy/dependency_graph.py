@@ -365,8 +365,10 @@ class BlockwiseDependencyGraph:
             write_roi_shape -= write_roi_shape % self.block_write_roi.shape
         else:
             # round up to nearest block size
-            write_roi_shape += self.block_write_roi.shape - write_roi_shape % self.block_write_roi.shape
-
+            write_roi_shape += (
+                -write_roi_shape % self.block_write_roi.shape
+            ) % self.block_write_roi.shape
+            
         level_stride = Coordinate((min(a, b) for a, b in zip(level_stride, write_roi_shape)))
 
         logger.debug(
