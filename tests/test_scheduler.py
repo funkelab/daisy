@@ -21,9 +21,9 @@ def task_zero_levels(tmpdir):
     is larger than the total_read_roi, there are multiple
     levels that would not have any blocks in them.
     """
-    total_read_roi = Roi((0, 0), (318, 318))
-    read_roi = Roi((0, 0), (288, 288))
-    write_roi = Roi((109, 109), (70, 70))
+    total_read_roi = Roi((0, 0), (10, 10))
+    read_roi = Roi((0, 0), (9, 9))
+    write_roi = Roi((4, 4), (1, 1))
 
     return Task(
         task_id="test_zero_levels",
