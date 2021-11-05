@@ -13,21 +13,29 @@ logger = logging.getLogger(__name__)
 def process_block(block):
     pass
 
+
 @pytest.fixture
-def task_random_1(tmpdir):
-    total_read_roi = Roi((0,0), (318,318))
-    read_roi = Roi((0,0), (288,288))
-    write_roi = Roi((109,109), (70,70))
+def task_zero_levels(tmpdir):
+    """
+    Because the minimum stride for independent write blocks
+    is larger than the total_read_roi, there are multiple
+    levels that would not have any blocks in them.
+    """
+    total_read_roi = Roi((0, 0), (318, 318))
+    read_roi = Roi((0, 0), (288, 288))
+    write_roi = Roi((109, 109), (70, 70))
 
     return Task(
-        task_id="test_random_1",
+        task_id="test_zero_levels",
         total_roi=total_read_roi,
         read_roi=read_roi,
         write_roi=write_roi,
         process_function=process_block,
         check_function=None,
         fit="overhang",
+        max_retries=0,
     )
+
 
 @pytest.fixture
 def task_1d(tmpdir):
@@ -433,16 +441,36 @@ def test_overlapping_tasks(overlapping_tasks):
     ), scheduler.task_states[second.task_id]
 
 
-def test_random_1(task_random_1):
-    scheduler = Scheduler([task_random_1])
+def test_zero_levels(task_zero_levels):
+    scheduler = Scheduler([task_zero_levels])
 
     for _ in range(4):
-        task_state = scheduler.task_states[task_random_1.task_id]
+        task_state = scheduler.task_states[task_zero_levels.task_id]
         assert task_state.ready_count == 1
-        block = scheduler.acquire_block(task_random_1.task_id)
+        block = scheduler.acquire_block(task_zero_levels.task_id)
         assert block is not None
         block.status = BlockStatus.SUCCESS
         scheduler.release_block(block)
 
-    block = scheduler.acquire_block(task_random_1.task_id)
+    block = scheduler.acquire_block(task_zero_levels.task_id)
     assert block is None
+
+
+def test_zero_levels_failure(task_zero_levels):
+    scheduler = Scheduler([task_zero_levels])
+
+    task_state = scheduler.task_states[task_zero_levels.task_id]
+    assert task_state.ready_count == 1
+    block = scheduler.acquire_block(task_zero_levels.task_id)
+    assert block is not None
+    block.status = BlockStatus.FAILED
+    scheduler.release_block(block)
+
+    block = scheduler.acquire_block(task_zero_levels.task_id)
+    assert block is None
+
+    task_state = scheduler.task_states[task_zero_levels.task_id]
+    assert (
+        task_state.failed_count + task_state.orphaned_count
+        == task_state.total_block_count
+    ), task_state
