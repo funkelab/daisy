@@ -96,9 +96,7 @@ class Scheduler:
                     self.release_block(block)
                     continue
                 else:
-                    self.task_states[task_id].started = (
-                        self.task_states[task_id].started or True
-                    )
+                    self.task_states[task_id].started = True
                     self.task_queues[task_id].processing_blocks.add(
                         block.block_id)
                     return block
