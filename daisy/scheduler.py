@@ -170,7 +170,7 @@ class Scheduler:
         if index is None:
             self.task_queues[block.task_id].ready_queue.append(block)
         else:
-            self.task_queues[block.task_id].read_queue.insert(index, block)
+            self.task_queues[block.task_id].ready_queue.insert(index, block)
         self.task_states[block.task_id].ready_count += 1
 
     def __remove_from_processing_blocks(self, block):
