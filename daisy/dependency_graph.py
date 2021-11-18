@@ -319,6 +319,9 @@ class BlockwiseDependencyGraph:
         Get the stride that separates independent blocks in one level.
         """
 
+        if not self.read_write_conflict:
+            return self.block_write_roi.shape
+
         logger.debug(
             "Compute level stride for read ROI %s and write ROI %s.",
             self.block_read_roi,
