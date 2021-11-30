@@ -4,4 +4,4 @@ pymongo
 tornado>=5
 git+git://github.com/funkelab/funlib.math@0c623f71c083d33184cac40ef7b1b995216be8ef#egg=funlib.math
 tqdm
-git+git://github.com/funkelab/funlib.geometry@287bcd6c90cf1818a6df0beaec78b439971691f8#egg=funlib.geometry
+git+git://github.com/funkelab/funlib.geometry

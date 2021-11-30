@@ -150,7 +150,7 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
             array.data,
             Roi(spec['offset'], spec['size']),
             array.voxel_size,
-            array.roi.get_begin(),
+            array.roi.begin,
             chunk_shape=array.chunk_shape)
 
     elif filename.endswith('.klb'):
@@ -162,7 +162,7 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
             adaptor,
             adaptor.roi,
             adaptor.voxel_size,
-            adaptor.roi.get_begin(),
+            adaptor.roi.begin,
             chunk_shape=adaptor.chunk_shape)
 
     else:
@@ -239,9 +239,9 @@ def prepare_ds(
     if write_size is not None:
         write_size = Coordinate(write_size)
 
-    assert total_roi.get_shape().is_multiple_of(voxel_size), (
+    assert total_roi.shape.is_multiple_of(voxel_size), (
         "The provided ROI shape is not a multiple of voxel_size")
-    assert total_roi.get_begin().is_multiple_of(voxel_size), (
+    assert total_roi.begin.is_multiple_of(voxel_size), (
         "The provided ROI offset is not a multiple of voxel_size")
 
     if write_roi is not None:
@@ -250,7 +250,7 @@ def prepare_ds(
             "write_roi is deprecated, please use write_size instead")
 
         if write_size is None:
-            write_size = write_roi.get_shape()
+            write_size = write_roi.shape
 
     if write_size is not None:
         assert write_size.is_multiple_of(voxel_size), (
@@ -278,7 +278,7 @@ def prepare_ds(
     else:
         chunk_shape = None
 
-    shape = total_roi.get_shape()/voxel_size
+    shape = total_roi.shape/voxel_size
 
     if num_channels > 1:
 
@@ -312,10 +312,10 @@ def prepare_ds(
 
         if file_format == 'zarr':
             ds.attrs['resolution'] = voxel_size
-            ds.attrs['offset'] = total_roi.get_begin()
+            ds.attrs['offset'] = total_roi.begin
         else:
             ds.attrs['resolution'] = voxel_size[::-1]
-            ds.attrs['offset'] = total_roi.get_begin()[::-1]
+            ds.attrs['offset'] = total_roi.begin[::-1]
 
         if num_channels > 1:
             chunk_shape = chunk_shape/voxel_size_with_channels

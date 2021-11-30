@@ -92,8 +92,8 @@ class Block(Freezable):
 
     def __compute_block_id(self, total_roi, write_roi, shift=None):
         block_index = (
-            write_roi.get_offset() - total_roi.get_offset()
-        ) / write_roi.get_shape()
+            write_roi.offset - total_roi.offset
+        ) / write_roi.shape
 
         # block_id will be the cantor number for this block index
         block_id = int(cantor_number(block_index))

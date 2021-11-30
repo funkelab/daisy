@@ -97,14 +97,14 @@ class BlockwiseDependencyGraph:
         self.block_read_roi = block_read_roi
         self.block_write_roi = block_write_roi
         self.read_write_context = (
-            block_write_roi.get_begin() - block_read_roi.get_begin(),
-            block_read_roi.get_end() - block_write_roi.get_end(),
+            block_write_roi.begin - block_read_roi.begin,
+            block_read_roi.end - block_write_roi.end,
         )
 
         if total_read_roi is not None and total_write_roi is not None:
             total_context = (
-                total_write_roi.get_begin() - total_read_roi.get_begin(),
-                total_read_roi.get_end() - total_write_roi.get_end(),
+                total_write_roi.begin - total_read_roi.begin,
+                total_read_roi.end - total_write_roi.end,
             )
             assert total_context == self.read_write_context, (
                 "total_read_roi and total_write_roi have context "
@@ -137,7 +137,7 @@ class BlockwiseDependencyGraph:
             self.rounding_term = (1,) * self.block_write_roi.dims
         else:
             # want to round up only if there is a full write block left.
-            self.rounding_term = self.block_write_roi.get_shape()
+            self.rounding_term = self.block_write_roi.shape
 
         # computed values
         self._level_stride = self.compute_level_stride()
@@ -161,7 +161,7 @@ class BlockwiseDependencyGraph:
         inclusion_criteria = {
             "valid": lambda b: self.total_write_roi.contains(b.write_roi),
             "overhang": lambda b: self.total_write_roi.contains(
-                b.write_roi.get_begin()
+                b.write_roi.begin
             ),
             "shrink": lambda b: self.shrink_possible(b),
         }[self.fit]
@@ -188,7 +188,7 @@ class BlockwiseDependencyGraph:
             (e - lo + s - r) // s
             for lo, e, s, r in zip(
                 level_offset,
-                self.total_write_roi.get_shape(),
+                self.total_write_roi.shape,
                 self._level_stride,
                 self.rounding_term,
             )
@@ -231,8 +231,8 @@ class BlockwiseDependencyGraph:
     def _block_offset(self, block):
         # The block offset is the offset of the read roi relative to total roi
         block_offset = (
-            block.read_roi.get_offset() -
-            self.total_read_roi.get_offset())
+            block.read_roi.offset -
+            self.total_read_roi.offset)
         return block_offset
 
     def _level(self, block):
@@ -261,12 +261,12 @@ class BlockwiseDependencyGraph:
             conflict_block = Block(
                 total_roi=self.total_read_roi,
                 read_roi=Roi(
-                    block.read_roi.get_offset() - conflict,
-                    self.block_read_roi.get_shape(),
+                    block.read_roi.offset - conflict,
+                    self.block_read_roi.shape,
                 ),
                 write_roi=Roi(
-                    block.write_roi.get_offset() - conflict,
-                    self.block_write_roi.get_shape(),
+                    block.write_roi.offset - conflict,
+                    self.block_write_roi.shape,
                 ),
                 task_id=self.task_id,
             )
@@ -289,12 +289,12 @@ class BlockwiseDependencyGraph:
             conflict_block = Block(
                 total_roi=self.total_read_roi,
                 read_roi=Roi(
-                    block.read_roi.get_offset() + conflict,
-                    self.block_read_roi.get_shape(),
+                    block.read_roi.offset + conflict,
+                    self.block_read_roi.shape,
                 ),
                 write_roi=Roi(
-                    block.write_roi.get_offset() + conflict,
-                    self.block_write_roi.get_shape(),
+                    block.write_roi.offset + conflict,
+                    self.block_write_roi.shape,
                 ),
                 task_id=self.task_id,
             )
@@ -333,11 +333,11 @@ class BlockwiseDependencyGraph:
         ), "Read ROI must contain write ROI."
 
         context_ul = (
-            self.block_write_roi.get_begin() -
-            self.block_read_roi.get_begin())
+            self.block_write_roi.begin -
+            self.block_read_roi.begin)
         context_lr = (
-            self.block_read_roi.get_end() -
-            self.block_write_roi.get_end())
+            self.block_read_roi.end -
+            self.block_write_roi.end)
 
         max_context = Coordinate(
             (max(ul, lr) for ul, lr in zip(context_ul, context_lr))
@@ -347,13 +347,13 @@ class BlockwiseDependencyGraph:
         # this stride guarantees that blocks are independent, but not a
         # multiple of the write_roi shape. It would be impossible to tile
         # the output roi with blocks shifted by this min_level_stride
-        min_level_stride = max_context + self.block_write_roi.get_shape()
+        min_level_stride = max_context + self.block_write_roi.shape
 
         logger.debug("min level stride is %s", min_level_stride)
 
         # to avoid overlapping write ROIs, increase the stride to the next
         # multiple of write shape
-        write_shape = self.block_write_roi.get_shape()
+        write_shape = self.block_write_roi.shape
         level_stride = Coordinate((
             ((l - 1) // w + 1) * w
             for l, w in zip(min_level_stride, write_shape)
@@ -385,7 +385,7 @@ class BlockwiseDependencyGraph:
         compute an offset for each level.
         """
 
-        write_stride = self.block_write_roi.get_shape()
+        write_stride = self.block_write_roi.shape
 
         logger.debug(
             "Compute level offsets for level stride %s and write stride %s.",
@@ -439,7 +439,7 @@ class BlockwiseDependencyGraph:
             range(lo, e + 1 - r, s)
             for lo, e, s, r in zip(
                 level_offset,
-                self.total_write_roi.get_shape(),
+                self.total_write_roi.shape,
                 self._level_stride,
                 self.rounding_term,
             )
@@ -451,8 +451,8 @@ class BlockwiseDependencyGraph:
 
             # convert to global coordinates
             block_offset += (
-                self.total_read_roi.get_begin() -
-                self.block_read_roi.get_begin()
+                self.total_read_roi.begin -
+                self.block_read_roi.begin
             )
             yield block_offset
 
@@ -506,7 +506,7 @@ class BlockwiseDependencyGraph:
 
     def shrink_possible(self, block):
 
-        return self.total_write_roi.contains(block.write_roi.get_begin())
+        return self.total_write_roi.contains(block.write_roi.begin)
 
     def shrink(self, block):
         """Ensure that read and write ROI are within total ROI by shrinking both.
@@ -542,28 +542,28 @@ class BlockwiseDependencyGraph:
         sub_roi = sub_roi.intersect(self.total_write_roi)
 
         # get sub_roi relative to the write roi
-        begin = sub_roi.get_begin() - self.total_write_roi.get_offset()
-        end = sub_roi.get_end() - self.total_write_roi.get_offset()
+        begin = sub_roi.begin - self.total_write_roi.offset
+        end = sub_roi.end - self.total_write_roi.offset
 
         # convert to block coordinates. Handle upper block based on fit
         aligned_subroi = (
-            begin // self.block_write_roi.get_shape(),  # `floordiv`
-            -(-end // self.block_write_roi.get_shape()),  # `ceildiv`
+            begin // self.block_write_roi.shape,  # `floordiv`
+            -(-end // self.block_write_roi.shape),  # `ceildiv`
         )
 
         # generate relative offsets of relevant write blocks
         block_dim_offsets = [
             range(lo, e, s)
             for lo, e, s in zip(
-                aligned_subroi[0] * self.block_write_roi.get_shape(),
-                aligned_subroi[1] * self.block_write_roi.get_shape(),
-                self.block_write_roi.get_shape(),
+                aligned_subroi[0] * self.block_write_roi.shape,
+                aligned_subroi[1] * self.block_write_roi.shape,
+                self.block_write_roi.shape,
             )
         ]
 
         # generate absolute offsets
         block_offsets = [
-            Coordinate(o) + self.total_read_roi.get_offset()
+            Coordinate(o) + self.total_read_roi.offset
             for o in product(*block_dim_offsets)
         ]
 

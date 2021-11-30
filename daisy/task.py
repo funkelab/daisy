@@ -135,8 +135,8 @@ class Task:
         self.read_roi = read_roi
         self.write_roi = write_roi
         self.total_write_roi = self.total_roi.grow(
-            -(write_roi.get_begin() - read_roi.get_begin()),
-            -(read_roi.get_end() - write_roi.get_end()),
+            -(write_roi.begin - read_roi.begin),
+            -(read_roi.end - write_roi.end),
         )
         self.process_function = process_function
         self.check_function = check_function
