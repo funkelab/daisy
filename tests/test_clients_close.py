@@ -1,16 +1,20 @@
 import daisy
 
+import pytest
+
 import logging
 import subprocess
+import sys
 
 logging.basicConfig(level=logging.DEBUG)
 
 
 def start_worker():
-    subprocess.run(["python", "tests/process_block.py"])
+    subprocess.run([sys.executable, "tests/process_block.py"])
 
 
-def test_basic():
+@pytest.mark.skip()
+def test_workers_close():
 
     task = daisy.Task(
         "test_server_task",
