@@ -8,7 +8,7 @@ from .messages import (
     SendBlock,
     UnexpectedMessage)
 from contextlib import contextmanager
-from daisy.tcp import TCPClient
+from daisy.tcp import TCPClient, StreamClosedError
 import logging
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,14 @@ class Client():
     def acquire_block(self):
         '''API for client to get a new block.'''
         self.tcp_client.send_message(AcquireBlock(self.task_id))
-        message = self.tcp_client.get_message()
+        message = None
+        try:
+            while message is None:
+                message = self.tcp_client.get_message(timeout=0.1)
+        except StreamClosedError:
+            logger.debug("TCP stream was closed, server is probably down")
+            yield
+            return
         if isinstance(message, SendBlock):
             logger.debug("Received block %s", message.block.block_id)
             try:
