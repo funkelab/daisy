@@ -2,6 +2,6 @@ networkx
 numpy
 pymongo
 tornado>=5
-git+git://github.com/funkelab/funlib.math@0c623f71c083d33184cac40ef7b1b995216be8ef#egg=funlib.math
 tqdm
-git+git://github.com/funkelab/funlib.geometry
+git+git://github.com/funkelab/funlib.math@0c623f71c083d33184cac40ef7b1b995216be8ef#egg=funlib.math
+git+git://github.com/funkelab/funlib.geometry@cf30e4d74eb860e46de40533c4f8278dc25147b1#egg=funlib.geometry
