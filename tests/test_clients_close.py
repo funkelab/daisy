@@ -11,7 +11,7 @@ from filelock import FileLock
 logging.basicConfig(level=logging.DEBUG)
 
 
-# @pytest.mark.skip()
+@pytest.mark.skip()
 def test_workers_close(tmp_path):
     set_log_basedir(tmp_path)
     num_workers = 5
