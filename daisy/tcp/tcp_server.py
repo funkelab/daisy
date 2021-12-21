@@ -29,6 +29,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
 
         self.message_queue = queue.Queue()
         self.exception_queue = queue.Queue()
+        self.client_streams = set()
 
         # find empty port, start listening
         for i in range(max_port_tries):
@@ -73,6 +74,13 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
 
             return None
 
+    def disconnect(self):
+        '''Close all open streams to clients.'''
+
+        for stream in self.client_streams:
+            logger.debug("Closing stream %s", stream)
+            stream.close()
+
     async def handle_stream(self, stream, address):
         ''' Overrides a function from tornado's TCPServer, and is called
         whenever there is a new IOStream from an incoming connection (not
@@ -92,6 +100,8 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         logger.debug("Received new connection from %s:%d", *address)
         stream = TCPStream(stream, address)
 
+        self.client_streams.add(stream)
+
         while True:
 
             try:
@@ -104,6 +114,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                     # indicating we are no longer using this stream and break
                     # out of event loop
                     stream.send_message(AckClientDisconnect())
+                    self.client_streams.remove(stream)
                     return
 
                 else:
@@ -115,6 +126,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 try:
                     self.exception_queue.put(e)
                 finally:
+                    self.client_streams.remove(stream)
                     return
 
     def _check_for_errors(self):

@@ -64,6 +64,9 @@ class Server(ServerObservee):
             logger.debug("Stopping worker pools...")
             self.worker_pools.stop()
             logger.debug("Worker pools stopped.")
+            logger.debug("Closing TCP streams...")
+            self.tcp_server.disconnect()
+            logger.debug("TCP streams closed.")
             self.notify_server_exit()
 
     def _event_loop(self):
