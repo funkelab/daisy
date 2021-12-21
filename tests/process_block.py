@@ -3,8 +3,11 @@ import daisy
 import time
 import random
 import sys
+import logging
 
 from filelock import FileLock
+
+logging.basicConfig(level=logging.DEBUG)
 
 tmp_path = sys.argv[1]
 
