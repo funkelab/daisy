@@ -21,6 +21,7 @@ before_install:
   - source activate daisy
 
 install:
+  - make
   - make install-dev
 
 script:
