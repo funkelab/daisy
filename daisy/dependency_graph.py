@@ -355,8 +355,8 @@ class BlockwiseDependencyGraph:
         # multiple of write shape
         write_shape = self.block_write_roi.shape
         level_stride = Coordinate((
-            ((l - 1) // w + 1) * w
-            for l, w in zip(min_level_stride, write_shape)
+            ((level - 1) // w + 1) * w
+            for level, w in zip(min_level_stride, write_shape)
         ))
 
         # Handle case where min_level_stride > total_write_roi.
@@ -371,8 +371,9 @@ class BlockwiseDependencyGraph:
             write_roi_shape += (
                 -write_roi_shape % self.block_write_roi.shape
             ) % self.block_write_roi.shape
-            
-        level_stride = Coordinate((min(a, b) for a, b in zip(level_stride, write_roi_shape)))
+
+        level_stride = Coordinate(
+            (min(a, b) for a, b in zip(level_stride, write_roi_shape)))
 
         logger.debug(
             "final level stride (multiples of write size) is %s",
@@ -534,7 +535,8 @@ class BlockwiseDependencyGraph:
             # simply grow the sub_roi by the block context. That way we
             # only need to check if a blocks read_roi overlaps with sub_roi.
             # This is the same behavior as when we want write_roi overlap
-            sub_roi = sub_roi.grow(self.read_write_context[0], self.read_write_context[1])
+            sub_roi = sub_roi.grow(
+                self.read_write_context[0], self.read_write_context[1])
 
         # TODO: handle unsatisfiable sub_rois
         # i.e. sub_roi is outside of *total_write_roi
@@ -571,12 +573,12 @@ class BlockwiseDependencyGraph:
             self.fit_block(
                 Block(
                     self.total_read_roi,
-                    self.block_read_roi + block_offset - self.block_read_roi.offset,
-                    self.block_write_roi + block_offset - self.block_read_roi.offset,
+                    self.block_read_roi + offset - self.block_read_roi.offset,
+                    self.block_write_roi + offset - self.block_read_roi.offset,
                     task_id=self.task_id,
                 )
             )
-            for block_offset in block_offsets
+            for offset in block_offsets
         ]
         return [block for block in blocks if self.inclusion_criteria(block)]
 

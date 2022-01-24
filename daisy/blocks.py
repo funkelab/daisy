@@ -196,8 +196,8 @@ class SingleTaskDependencyGraph:
         # multiple of write shape
         write_shape = self.block_write_roi.get_shape()
         level_stride = Coordinate((
-            ((l - 1) // w + 1) * w
-            for l, w in zip(min_level_stride, write_shape)
+            ((level - 1) // w + 1) * w
+            for level, w in zip(min_level_stride, write_shape)
         ))
 
         logger.debug(
