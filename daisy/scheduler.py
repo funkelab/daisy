@@ -93,6 +93,9 @@ class Scheduler:
                         "Skipping block (%s); already processed.",
                         block.block_id)
                     block.status = BlockStatus.SUCCESS
+                    # adding block so release_block() can remove it
+                    self.task_queues[task_id].processing_blocks.add(
+                        block.block_id)
                     self.release_block(block)
                     continue
                 else:
@@ -196,6 +199,5 @@ class Scheduler:
                 return False
         except Exception:
             logger.exception(
-                "pre_check() exception for block {block.block_id}",
-                block.block_id)
+                f"pre_check() exception for block {block.block_id}")
             return False

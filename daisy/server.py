@@ -122,6 +122,8 @@ class Server(ServerObservee):
         else:
             raise UnexpectedMessage(message)
 
+        self._check_all_tasks_completed()
+
     def _handle_acquire_block(self, message):
 
         logger.debug("Received block request for task %s", message.task_id)
@@ -130,7 +132,11 @@ class Server(ServerObservee):
 
         logger.debug("Current task state: %s", task_state)
 
-        if task_state.ready_count == 0:
+        block = self.scheduler.acquire_block(message.task_id)
+
+        if block is None:
+
+            assert task_state.ready_count == 0
 
             if task_state.pending_count == 0:
 
@@ -152,10 +158,6 @@ class Server(ServerObservee):
             self.pending_requests[message.task_id].put(message)
 
         else:
-
-            # now we know there is at least one ready block
-            block = self.scheduler.acquire_block(message.task_id)
-            assert block is not None
 
             try:
                 logger.debug("Sending block %s to client", block)
@@ -181,7 +183,15 @@ class Server(ServerObservee):
         task_id = block.task_id
         self.notify_release_block(task_id, task_states[task_id])
 
+        self._check_all_tasks_completed()
+
+        self._recruit_workers()
+
+    def _check_all_tasks_completed(self):
+        '''Check if all tasks are completed and stop'''
+
         all_done = True
+        task_states = self.scheduler.task_states
 
         for task_id, task_state in task_states.items():
             logger.debug("Task state for task %s: %s", task_id, task_state)
@@ -202,8 +212,6 @@ class Server(ServerObservee):
         if all_done:
             logger.debug("All tasks finished")
             self.stop_event.set()
-
-        self._recruit_workers()
 
     def _safe_release_block(self, block, stream):
         '''Releases a block, if the bookkeeper agrees that this is a valid
