@@ -50,6 +50,7 @@ class Server(ServerObservee):
         self.block_bookkeeper = BlockBookkeeper()
         self.started_tasks = set()
         self.finished_tasks = set()
+        self.all_done = False
 
         self.pending_requests = {
             task.task_id: Queue()
@@ -68,6 +69,8 @@ class Server(ServerObservee):
             self.tcp_server.disconnect()
             logger.debug("TCP streams closed.")
             self.notify_server_exit()
+
+        return True if self.all_done else False
 
     def _event_loop(self):
 
@@ -190,7 +193,7 @@ class Server(ServerObservee):
     def _check_all_tasks_completed(self):
         '''Check if all tasks are completed and stop'''
 
-        all_done = True
+        self.all_done = True
         task_states = self.scheduler.task_states
 
         for task_id, task_state in task_states.items():
@@ -202,14 +205,14 @@ class Server(ServerObservee):
                     self.finished_tasks.add(task_id)
                 continue
 
-            all_done = False
+            self.all_done = False
 
             logger.debug(
                 "Task %s has %d ready blocks",
                 task_id,
                 task_state.ready_count)
 
-        if all_done:
+        if self.all_done:
             logger.debug("All tasks finished")
             self.stop_event.set()
 

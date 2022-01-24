@@ -1,24 +1,36 @@
 from .cl_monitor import CLMonitor
 from .server import Server
 from .tcp import IOLooper
-from threading import Thread, Event
+from multiprocessing.pool import ThreadPool
+from multiprocessing import Event
 
 
 def run_blockwise(tasks):
+    '''Schedule and run the given tasks.
+
+        Args:
+            list_of_tasks:
+                The tasks to schedule over.
+
+        Return:
+            bool:
+                `True` if all blocks in the given `tasks` were successfully
+                run, else `False`
+    '''
 
     stop_event = Event()
 
     IOLooper.clear()
-    thread = Thread(target=_run_blockwise, args=(tasks, stop_event))
-    thread.start()
+    pool = ThreadPool(processes=1)
+    result = pool.apply_async(_run_blockwise, args=(tasks, stop_event))
     try:
-        thread.join()
+        return result.get()
     except KeyboardInterrupt:
         stop_event.set()
-        thread.join()
+        return result.get()
 
 
 def _run_blockwise(tasks, stop_event):
     server = Server(stop_event=stop_event)
     cl_monitor = CLMonitor(server)  # noqa
-    server.run_blockwise(tasks)
+    return server.run_blockwise(tasks)
