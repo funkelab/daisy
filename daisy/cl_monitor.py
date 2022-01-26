@@ -130,7 +130,8 @@ class CLMonitor(ServerObserver):
             print()
             state = summary.state
             print(f"    num blocks : {state.total_block_count}")
-            print(f"    completed ✔: {state.completed_count}")
+            print(f"    completed ✔: {state.completed_count} "
+                  f"(skipped {state.skipped_count})")
             print(f"    failed    ✗: {state.failed_count}")
             print(f"    orphaned  ∅: {state.orphaned_count}")
             print()

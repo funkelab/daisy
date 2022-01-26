@@ -8,6 +8,7 @@ class TaskState:
         self.ready_count = 0
         self.processing_count = 0
         self.completed_count = 0
+        self.skipped_count = 0
         self.failed_count = 0
         self.orphaned_count = 0
 
@@ -38,6 +39,7 @@ class TaskState:
             f"Processing: {self.processing_count}\n"
             f"Pending: {self.pending_count}\n"
             f"Completed: {self.completed_count}\n"
+            f"Skipped: {self.skipped_count}\n"
             f"Failed: {self.failed_count}\n"
             f"Orphaned: {self.orphaned_count}\n"
         )

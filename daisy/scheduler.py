@@ -93,6 +93,7 @@ class Scheduler:
                         "Skipping block (%s); already processed.",
                         block.block_id)
                     block.status = BlockStatus.SUCCESS
+                    self.task_states[task_id].skipped_count += 1
                     # adding block so release_block() can remove it
                     self.task_queues[task_id].processing_blocks.add(
                         block.block_id)
