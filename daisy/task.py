@@ -54,6 +54,16 @@ class Task:
             to check if the block needs to be run, and if so, the second one
             will be called after it was run to check if the run succeeded.
 
+        init_callback_fn (function, optional):
+
+            A function that Daisy will call once when the task is started.
+            It will be called as::
+
+                init_callback_fn(context)
+
+            Where `context` is the `daisy.Context` string that can be used
+            by the daisy clients to connect to the server.
+
         read_write_conflict (``bool``, optional):
 
             Whether the read and write ROIs are conflicting, i.e., accessing
@@ -122,6 +132,7 @@ class Task:
         write_roi,
         process_function,
         check_function=None,
+        init_callback_fn=None,
         read_write_conflict=True,
         num_workers=1,
         max_retries=2,
@@ -148,6 +159,10 @@ class Task:
         self.upstream_tasks = []
         if upstream_tasks is not None:
             self.upstream_tasks.extend(upstream_tasks)
+        if init_callback_fn is not None:
+            self.init_callback_fn = init_callback_fn
+        else:
+            self.init_callback_fn = lambda: None
 
         if len(signature(process_function).parameters) == 0:
             self.spawn_worker_function = process_function

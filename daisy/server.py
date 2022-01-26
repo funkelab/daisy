@@ -1,5 +1,6 @@
 from .block import BlockStatus
 from .block_bookkeeper import BlockBookkeeper
+from .context import Context
 from .messages import (
     AcquireBlock,
     BlockFailed,
@@ -262,6 +263,12 @@ class Server(ServerObservee):
                     task_id,
                     self.scheduler.task_states[task_id])
                 self.started_tasks.add(task_id)
+                # run the task's callback function
+                ready_tasks[task_id].init_callback_fn(Context(
+                        hostname=self.hostname,
+                        port=self.port,
+                        task_id=task_id,
+                        worker_id=0))
 
         self.worker_pools.recruit_workers(ready_tasks)
 
