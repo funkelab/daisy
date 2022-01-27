@@ -162,7 +162,7 @@ class Task:
         if init_callback_fn is not None:
             self.init_callback_fn = init_callback_fn
         else:
-            self.init_callback_fn = lambda: None
+            self.init_callback_fn = lambda context: None
 
         if len(signature(process_function).parameters) == 0:
             self.spawn_worker_function = process_function
