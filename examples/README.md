@@ -81,6 +81,10 @@ You might need to install some dependencies first:
 ```sh
 pip install git+https://github.com/funkelab/funlib.show.neuroglancer
 ```
+Original             |  Smoothed
+:-------------------------:|:-------------------------:
+![Selection_015](https://user-images.githubusercontent.com/2350008/151577795-330413a6-eff5-411d-ae91-5a6ad497cdd3.png) | ![Selection_014](https://user-images.githubusercontent.com/2350008/151577810-96262f04-747c-4ab5-baec-180c6c71ccbe.png)
+
 Notice that--especially in the XZ view--there seems to be black line artifacts in the smoothed output.
 This is due to insufficient context in the Z direction. How would you fix this? (Hint: take a look at the defaults for `--block_read_size`)
 
@@ -119,6 +123,8 @@ In this example, we chain together two Gaussian smoothing step and get them to r
 ```sh
 python chaining_example.py sample_A_20160501.zarr volumes/raw --num_workers 2 --overwrite 2
 ```
+
+![Selection_011](https://user-images.githubusercontent.com/2350008/151578009-eee471b8-1300-4cb7-96d4-4e4bd9f9f473.png)
 
 Check that the `Gaussian2` task started as soon as enough `Gaussian1` blocks are finished! This is only possible because Daisy
 calculates and updates the block-wise dependency graph dynamically and as soon as individual blocks are returned by the workers.
