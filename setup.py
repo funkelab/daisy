@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
         name='daisy',
-        version='0.3',
+        version='1.0',
         description='Block-wise task dependencies for luigi.',
         url='https://github.com/funkelab/daisy',
         author='Jan Funke',
