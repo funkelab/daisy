@@ -19,7 +19,7 @@ python hdf_to_zarr.py sample_A_20160501.hdf volumes/raw
 
 Run the following command to smooth out our dataset in 3D using eight cores in parallel:
 ```sh
-python gaussian_smoothing1.py sample_A_20160501.hdf volumes/raw --out_file sample_A_20160501.zarr --out_ds_name volumes/raw_smoothed --num_workers 8
+python gaussian_smoothing1.py sample_A_20160501.zarr volumes/raw --out_ds_name volumes/raw_smoothed --num_workers 8
 ```
 
 In this example, one thing to note is the call to make `daisy.Task`:
