@@ -28,7 +28,7 @@ class Database():
             # Use SQLite
             self.use_sql = True
             os.makedirs("daisy_db", exist_ok=True)
-            self.con = sqlite3.connect(f'daisy_db/{db_id}.db')
+            self.con = sqlite3.connect(f'daisy_db/{db_id}.db', check_same_thread=False)
             self.cur = self.con.cursor()
 
             if overwrite:
