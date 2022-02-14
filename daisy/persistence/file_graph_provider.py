@@ -114,7 +114,7 @@ class FileGraphProvider(SharedGraphProvider):
 
         chunk_indices = itertools.product(*[
             range(chunks.get_begin()[d], chunks.get_end()[d])
-            for d in range(chunks.dims())
+            for d in range(chunks.dims)
         ])
 
         return chunk_indices
@@ -134,7 +134,7 @@ class FileGraphProvider(SharedGraphProvider):
         if type(self.position_attribute) == list:
             num_nodes = len(nodes[self.position_attribute[0]])
             roi_filter = np.ones((num_nodes,), dtype=np.bool)
-            for d in range(roi.dims()):
+            for d in range(roi.dims):
                 node_dim_values = nodes[self.position_attribute[d]]
                 ge = np.array([node_value >= roi.get_begin()[d]
                                for node_value in node_dim_values])
@@ -146,7 +146,7 @@ class FileGraphProvider(SharedGraphProvider):
             node_positions = nodes[self.position_attribute]
             num_nodes = len(node_positions)
             roi_filter = np.ones((num_nodes,), dtype=np.bool)
-            for d in range(roi.dims()):
+            for d in range(roi.dims):
                 ge = np.array([pos[d] >= roi.get_begin()[d]
                                for pos in node_positions])
                 lt = np.array([pos[d] < roi.get_end()[d]
@@ -157,7 +157,7 @@ class FileGraphProvider(SharedGraphProvider):
 
     def _write_nodes_to_chunk(self, chunk_index, nodes, roi=None):
 
-        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims())
+        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
         path = self.__chunk_nodes_path(chunk_index)
@@ -182,7 +182,7 @@ class FileGraphProvider(SharedGraphProvider):
             edge_positions,
             roi=None):
 
-        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims())
+        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
         path = self.__chunk_edges_path(chunk_index)
@@ -195,7 +195,7 @@ class FileGraphProvider(SharedGraphProvider):
         if roi is not None and not roi.contains(chunk_roi):
 
             roi_filter = np.ones((len(edges),), dtype=np.bool)
-            for d in range(roi.dims()):
+            for d in range(roi.dims):
                 ge = edge_positions[d] >= roi.get_begin()[d]
                 lt = edge_positions[d] < roi.get_end()[d]
                 roi_filter &= (ge & lt)
@@ -208,7 +208,7 @@ class FileGraphProvider(SharedGraphProvider):
 
     def _read_nodes_from_chunk(self, chunk_index, roi=None):
 
-        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims())
+        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
         path = self.__chunk_nodes_path(chunk_index)
@@ -234,7 +234,7 @@ class FileGraphProvider(SharedGraphProvider):
 
     def _read_edges_from_chunk(self, chunk_index, roi=None, node_ids=None):
 
-        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims())
+        chunk_roi = Roi(chunk_index, (1,)*self.chunk_size.dims)
         chunk_roi *= self.chunk_size
 
         path = self.__chunk_edges_path(chunk_index)
