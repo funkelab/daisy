@@ -179,7 +179,7 @@ def prepare_ds(
         dtype,
         write_roi=None,
         write_size=None,
-        num_channels=1,
+        num_channels=None,
         compressor='default',
         delete=False,
         force_exact_write_size=False):
@@ -280,7 +280,7 @@ def prepare_ds(
 
     shape = total_roi.shape/voxel_size
 
-    if num_channels > 1:
+    if num_channels is not None:
 
         shape = (num_channels,) + shape
 
@@ -317,7 +317,7 @@ def prepare_ds(
             ds.attrs['resolution'] = voxel_size[::-1]
             ds.attrs['offset'] = total_roi.begin[::-1]
 
-        if num_channels > 1:
+        if num_channels is not None:
             chunk_shape = chunk_shape/voxel_size_with_channels
         else:
             chunk_shape = chunk_shape/voxel_size
