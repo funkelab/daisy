@@ -17,7 +17,16 @@ def run_blockwise(tasks):
                 `True` if all blocks in the given `tasks` were successfully
                 run, else `False`
     '''
+    task_ids = set()
+    all_tasks = []
+    while len(tasks) > 0:
+        task, tasks = tasks[0], tasks[1:]
+        if task.task_id not in task_ids:
+            task_ids.add(task.task_id)
+            all_tasks.append(task)
+        tasks.extend(task.upstream_tasks)
 
+    tasks = all_tasks
     stop_event = Event()
 
     IOLooper.clear()
