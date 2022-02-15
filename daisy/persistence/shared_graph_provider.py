@@ -220,16 +220,19 @@ def read_blockwise_master(
         num_workers=num_workers)
 
     done = run_blockwise([task])
-    
+
     if not done:
-        raise RuntimeError("ReadGraphBlockwise failed for (at least) one block")
-    
+        raise RuntimeError(
+            "ReadGraphBlockwise failed for (at least) one block"
+        )
+
     # indicate that there are no more blocks to come
     block_queue.put(None)
     block_queue.close()
     block_queue.join_thread()
 
     logger.debug("Read block-wise master exiting")
+
 
 def read_blockwise_worker(graph_provider, block_queue):
 
@@ -252,6 +255,7 @@ def read_blockwise_worker(graph_provider, block_queue):
     logger.debug(
         "Read block-wise worker %d done, all data written to queue",
         int(client.context['worker_id']))
+
 
 def read_block(graph_provider, block, block_queue):
 
