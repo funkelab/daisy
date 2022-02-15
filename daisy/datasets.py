@@ -317,10 +317,11 @@ def prepare_ds(
             ds.attrs['resolution'] = voxel_size[::-1]
             ds.attrs['offset'] = total_roi.begin[::-1]
 
-        if num_channels is not None:
-            chunk_shape = chunk_shape/voxel_size_with_channels
-        else:
-            chunk_shape = chunk_shape/voxel_size
+        if chunk_shape is not None:
+            if num_channels is not None:
+                chunk_shape = chunk_shape/voxel_size_with_channels
+            else:
+                chunk_shape = chunk_shape/voxel_size
         return Array(
             ds,
             total_roi,
