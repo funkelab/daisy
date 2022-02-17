@@ -561,7 +561,7 @@ class MongoDbGraphProvider(SharedGraphProvider):
         end = roi.get_end()
 
         if type(self.position_attribute) == list:
-            assert len(self.position_attribute) == roi.dims(), (
+            assert len(self.position_attribute) == roi.dims, (
                 'Number of position attributes does not match number of '
                 'dimensions')
 

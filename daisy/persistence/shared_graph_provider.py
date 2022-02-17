@@ -1,6 +1,7 @@
 from __future__ import absolute_import
 from ..client import Client
 from ..roi import Roi
+from ..task import Task
 from ..convenience import run_blockwise
 from queue import Empty
 import multiprocessing
@@ -207,7 +208,8 @@ def read_blockwise_master(
         num_workers,
         block_queue):
 
-    run_blockwise(
+    task = Task(
+        'ReadGraphBlockwise',
         roi,
         read_roi=Roi((0,)*len(block_size), block_size),
         write_roi=Roi((0,)*len(block_size), block_size),
@@ -216,6 +218,13 @@ def read_blockwise_master(
             block_queue),
         fit='shrink',
         num_workers=num_workers)
+
+    done = run_blockwise([task])
+
+    if not done:
+        raise RuntimeError(
+            "ReadGraphBlockwise failed for (at least) one block"
+        )
 
     # indicate that there are no more blocks to come
     block_queue.put(None)
@@ -231,13 +240,13 @@ def read_blockwise_worker(graph_provider, block_queue):
 
     while True:
 
-        block = client.acquire_block()
-        if block is None:
-            break
+        with client.acquire_block() as block:
+            if block is None:
+                break
 
-        read_block(graph_provider, block, block_queue)
+            read_block(graph_provider, block, block_queue)
 
-        client.release_block(block, 0)
+            client.release_block(block)
 
     # make sure all changes are flushed before we exit
     block_queue.close()
@@ -245,7 +254,7 @@ def read_blockwise_worker(graph_provider, block_queue):
 
     logger.debug(
         "Read block-wise worker %d done, all data written to queue",
-        client.context.worker_id)
+        int(client.context['worker_id']))
 
 
 def read_block(graph_provider, block, block_queue):
