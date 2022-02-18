@@ -65,6 +65,8 @@ pip install daisy
 
 ## Quickstart
 
+See the following code in a [IPython notebook](/examples/daisy_quickstart.ipynb)!
+
 ### Map task
 
 First, let's run a simple `map` task with Daisy. Supposed we have an array `a` that we want to compute the square for each element and store in `b`
