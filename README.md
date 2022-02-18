@@ -58,7 +58,7 @@ Daisy should also be generalizable enough to support efficient processing of dif
 pip install -e git+https://github.com/funkelab/daisy
 ```
 
-Alternatively, install through PyPI: 
+Alternatively, install through PyPI (though outdated at the moment):
 ```sh
 pip install daisy
 ```
