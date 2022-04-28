@@ -1,5 +1,4 @@
 default:
-	pip install -r requirements.txt
 	pip install .
 
 install-dev:
