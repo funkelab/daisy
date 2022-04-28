@@ -47,7 +47,7 @@ class HDF2ZarrTask(BatchTask):
         voxel_size = self.in_ds.voxel_size
 
         if self.in_ds.n_channel_dims == 0:
-            num_channels = 1
+            num_channels = None
         elif self.in_ds.n_channel_dims == 1:
             num_channels = self.in_ds.shape[0]
         else:
