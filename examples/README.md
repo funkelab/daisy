@@ -1,5 +1,11 @@
 # Examples
 
+## Install requirements
+
+```sh
+pip install -r examples/requirements.txt
+```
+
 ## Dataset
 
 To demonstrate the usages of Daisy, we have a few examples here. But first, we need a dataset - a good one is the CREMI segmentation challenge[^1].
