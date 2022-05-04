@@ -82,6 +82,10 @@ class WorkerPool:
             self.set_num_workers(0)
             return
 
+        if worker_id not in self.workers:
+            # worker had been stopped previously
+            return
+
         worker = self.workers[worker_id]
         worker.stop()
         del self.workers[worker_id]

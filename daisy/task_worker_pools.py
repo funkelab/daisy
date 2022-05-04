@@ -65,6 +65,7 @@ class TaskWorkerPools(ServerObserver):
                 "Worker %s failed too many times, restarting this worker...",
                 context)
 
+            self.failure_counts[task_id][worker_id] = 0
             worker_pool = self.worker_pools[task_id]
             worker_pool.stop(worker_id)
             worker_pool.inc_num_workers(1)
