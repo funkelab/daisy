@@ -8,7 +8,7 @@
 Daisy is a library framework that facilitates distributed processing of big nD datasets across clusters of computers.
 It combines the best of MapReduce/Hadoop (the ability to map a process function across elements) and Luigi (the ability to chain dependent tasks together) together in one lightweight and efficient package with a focus on processing nD datasets.
 
-Daisy documentations are at https://daisy-doc.readthedocs.io/
+Daisy documentations are at https://daisy-docs.readthedocs.io/
 
 
 ## Overview
