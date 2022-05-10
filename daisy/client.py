@@ -88,9 +88,9 @@ class Client():
                 if block.status == BlockStatus.PROCESSING:
                     block.status = BlockStatus.SUCCESS
             except Exception as e:
+                block.status = BlockStatus.FAILED
                 self.tcp_client.send_message(
                         BlockFailed(e, block, self.context))
-                block.status = BlockStatus.FAILED
                 logger.exception(
                     "Block %s failed in worker %d",
                     block,
