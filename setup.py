@@ -20,7 +20,7 @@ setup(
             "numpy",
             "tornado>=5",
             "networkx",
-            "pymongo",
+            "pymongo<4",
             "tqdm",
             "funlib.math @ git+https://github.com/funkelab/funlib.math@0c623f71c083d33184cac40ef7b1b995216be8ef",
             "funlib.geometry @ git+https://github.com/funkelab/funlib.geometry@cf30e4d74eb860e46de40533c4f8278dc25147b1",
