@@ -101,9 +101,9 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
             if mode != 'w':
                 if self.db_name not in self.client.list_database_names():
-                    logger.warn("Opened with read mode %s, but no db with name"
-                                "%s found in client at %s"
-                                % (mode, self.db_name, self.host))
+                    logger.warning("Opened with read mode %s, but no db with "
+                                   "name %s found in client at %s"
+                                   % (mode, self.db_name, self.host))
             self.__open_db()
 
             if mode == 'w':
@@ -144,7 +144,12 @@ class MongoDbGraphProvider(SharedGraphProvider):
 
         self.__disconnect()
 
-    def read_nodes(self, roi, attr_filter=None, read_attrs=None):
+    def read_nodes(
+            self,
+            roi,
+            attr_filter=None,
+            read_attrs=None,
+            join_collection=None):
         '''Return a list of nodes within roi.
         Arguments:
 
@@ -160,6 +165,20 @@ class MongoDbGraphProvider(SharedGraphProvider):
             read_attrs (``list`` of ``string``):
 
                 Attributes to return. Others will be ignored
+
+            join_collection (``string``):
+
+                Compute (left) join of the nodes collection and this
+                collection using the id attribute.
+                Some node attributes can be stored in another collection.
+                Assumes that all nodes have the same attributes.
+                Example use case: There might be different ways to compute
+                a (potentially optional) score per node. Instead of storing
+                these as score_vN in the node collection directly (resulting
+                in more clutter), store each in a separate collection.
+                When loading the data just set join_collection to the
+                approriate collection for this run and the scores will be
+                inserted automatically into the matching nodes.
         '''
 
         logger.debug("Querying nodes in %s", roi)
@@ -176,16 +195,49 @@ class MongoDbGraphProvider(SharedGraphProvider):
             for attr, value in attr_filter.items():
                 query_list.append({attr: value})
             projection = {'_id': False}
-            if read_attrs is not None:
+            if read_attrs is not None or join_collection is not None:
                 projection['id'] = True
                 if type(self.position_attribute) == list:
                     for a in self.position_attribute:
                         projection[a] = True
                 else:
                     projection[self.position_attribute] = True
-                for attr in read_attrs:
-                    projection[attr] = True
-            nodes = self.nodes.find({'$and': query_list}, projection)
+                if read_attrs is not None:
+                    for attr in read_attrs:
+                        projection[attr] = True
+                else:
+                    node = self.nodes.find_one()
+                    for attr in node.keys():
+                        if attr == "_id":
+                            continue
+                        projection[attr] = True
+            agg = [{
+                "$match": {"$and": query_list}
+            }]
+            if join_collection is not None:
+                join_col_entry = self.database[join_collection].find_one()
+                assert join_col_entry, \
+                    (f"Collection {join_collection} does not exist in db"
+                     f"{self.db_name} or is empty!")
+                for jck in join_col_entry.keys():
+                    if jck == "_id":
+                        continue
+                    if jck in projection or read_attrs is None:
+                        projection[jck] = "$joined." + jck
+                agg.extend([
+                    {
+                        "$lookup":
+                        {
+                            "from": join_collection,
+                            "localField": "id",
+                            "foreignField": "id",
+                            "as": "joined"
+                        }
+                    },
+                    {"$unwind": "$joined"},
+                ])
+            agg.append({"$project": projection})
+            nodes = self.nodes.aggregate(agg)
             nodes = list(nodes)
 
         except Exception as e:
@@ -356,7 +408,8 @@ class MongoDbGraphProvider(SharedGraphProvider):
             nodes_filter=None,
             edges_filter=None,
             node_attrs=None,
-            edge_attrs=None):
+            edge_attrs=None,
+            join_collection=None):
         ''' Return a graph within roi, optionally filtering by
         node and edge attributes.
 
@@ -384,11 +437,18 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 attributes will be ignored, but source and target
                 will always be included. If None (default), return all attrs.
 
+            join_collection (``string``):
+
+                Compute (left) join of the nodes collection and this
+                collection using the id attribute.
+                See read_nodes() for more information.
+
         '''
         nodes = self.read_nodes(
                 roi,
                 attr_filter=nodes_filter,
-                read_attrs=node_attrs)
+                read_attrs=node_attrs,
+                join_collection=join_collection)
         edges = self.read_edges(
                 roi,
                 nodes=nodes,
