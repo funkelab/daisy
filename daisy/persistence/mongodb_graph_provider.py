@@ -424,19 +424,19 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def __connect(self):
         '''Connects to Mongo client'''
 
-        if not self.client:
+        if self.client is None:
             self.client = MongoClient(self.host)
 
     def __open_db(self):
         '''Opens Mongo database'''
 
-        if not self.database:
+        if self.database is None:
             self.database = self.client[self.db_name]
 
     def __open_collections(self):
         '''Opens the node, edge, and meta collections'''
 
-        if not self.nodes:
+        if self.nodes is None:
             self.nodes = self.database[self.nodes_collection_name]
             self.edges = self.database[self.edges_collection_name]
             self.meta = self.database[self.meta_collection_name]
