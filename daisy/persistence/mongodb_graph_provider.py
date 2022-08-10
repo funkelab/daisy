@@ -540,13 +540,13 @@ class MongoDbGraphProvider(SharedGraphProvider):
     def __set_metadata(self):
         '''Sets the metadata in the meta collection to the provided values'''
 
-        if not self.directed:
+        if self.directed is None:
             # default is false
             self.directed = False
         meta_data = {'directed': self.directed}
 
         # if total_roi not specified, don't write it
-        if self.total_roi:
+        if self.total_roi is not None:
             meta_data['total_roi_offset'] = self.total_roi.get_offset()
             meta_data['total_roi_shape'] = self.total_roi.get_shape()
         self.__open_collections()
