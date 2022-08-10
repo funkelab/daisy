@@ -271,6 +271,7 @@ def test_graph_connected_components(provider_factory):
 def test_graph_read_blockwise(provider_factory):
     # I think its the multiprocessing of read_blockwise
     # Seems to hang forever
+    raise RuntimeError("This test seems to hang!")
 
     graph_provider = provider_factory("w")
 
