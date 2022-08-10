@@ -64,6 +64,6 @@ def test_graph_nonmatching_meta_values(provider_factory):
     provider_factory("w", True, None)
     with pytest.raises(ValueError):
         provider_factory("r", False, None)
-        provider_factory("w", None, roi)
+    provider_factory("w", None, roi)
     with pytest.raises(ValueError):
         provider_factory("r", None, roi2)
