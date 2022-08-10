@@ -52,6 +52,7 @@ class Server(ServerObservee):
         self.started_tasks = set()
         self.finished_tasks = set()
         self.all_done = False
+        self.all_successful = False
 
         self.pending_requests = {
             task.task_id: Queue()
@@ -71,7 +72,7 @@ class Server(ServerObservee):
             logger.debug("TCP streams closed.")
             self.notify_server_exit()
 
-        return True if self.all_done else False
+        return True if self.all_successful else False
 
     def _event_loop(self):
 
@@ -195,10 +196,13 @@ class Server(ServerObservee):
         '''Check if all tasks are completed and stop'''
 
         self.all_done = True
+        self.all_successful = True
         task_states = self.scheduler.task_states
 
         for task_id, task_state in task_states.items():
             logger.debug("Task state for task %s: %s", task_id, task_state)
+            if task_state.failed_count > 0:
+                self.all_successful = False
             if task_state.is_done():
                 if task_id not in self.finished_tasks:
                     self.notify_task_done(task_id, task_state)
