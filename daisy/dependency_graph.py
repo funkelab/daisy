@@ -510,8 +510,8 @@ class BlockwiseDependencyGraph:
         return self.total_write_roi.contains(block.write_roi.begin)
 
     def shrink(self, block):
-        """Ensure that read and write ROI are within total ROI by shrinking both.
-        Size of context will be preserved."""
+        """Ensure that read and write ROI are within total ROI by shrinking
+        both. Size of context will be preserved."""
 
         w = self.total_write_roi.intersect(block.write_roi)
         r = self.total_read_roi.intersect(block.read_roi)

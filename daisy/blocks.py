@@ -323,8 +323,8 @@ class SingleTaskDependencyGraph:
         return all([s > 0 for s in b.write_roi.get_shape()])
 
     def shrink(self, block):
-        """Ensure that read and write ROI are within total ROI by shrinking both.
-        Size of context will be preserved."""
+        """Ensure that read and write ROI are within total ROI by shrinking
+        both. Size of context will be preserved."""
 
         r = self.total_roi.intersect(block.read_roi)
         w = block.write_roi.grow(

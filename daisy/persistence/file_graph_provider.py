@@ -460,7 +460,7 @@ class FileSharedSubGraph(SharedSubGraph):
             fail_if_not_exists=False,
             delete=False):
         assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
+        assert not (fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
         if fail_if_exists:
             raise RuntimeError("Fail if exists not implemented for "
@@ -514,7 +514,7 @@ class FileSharedSubGraph(SharedSubGraph):
             fail_if_not_exists=False,
             delete=False):
         assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
+        assert not (fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
         if fail_if_exists:
             raise RuntimeError("Fail if exists not implemented for "

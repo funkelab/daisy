@@ -622,7 +622,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             fail_if_not_exists=False,
             delete=False):
         assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
+        assert not (fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
 
         if self.provider.mode == 'r':
@@ -675,7 +675,7 @@ class MongoDbSharedSubGraph(SharedSubGraph):
             fail_if_not_exists=False,
             delete=False):
         assert not delete, "Delete not implemented"
-        assert not(fail_if_exists and fail_if_not_exists),\
+        assert not (fail_if_exists and fail_if_not_exists),\
             "Cannot have fail_if_exists and fail_if_not_exists simultaneously"
 
         if self.provider.mode == 'r':
@@ -857,7 +857,8 @@ class MongoDbSharedSubGraph(SharedSubGraph):
 
     def __write(self, collection, match_fields, docs,
                 fail_if_exists=False, fail_if_not_exists=False, delete=False):
-        '''Writes documents to provided mongo collection, checking for restricitons.
+        '''Writes documents to provided mongo collection, checking for
+        restrictions.
 
         Args:
 
