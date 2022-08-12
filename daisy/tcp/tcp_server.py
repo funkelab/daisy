@@ -77,7 +77,8 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
     def disconnect(self):
         '''Close all open streams to clients.'''
 
-        for stream in self.client_streams:
+        streams = list(self.client_streams)  # avoid set change error
+        for stream in streams:
             logger.debug("Closing stream %s", stream)
             stream.close()
 

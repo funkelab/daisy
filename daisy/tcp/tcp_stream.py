@@ -50,6 +50,8 @@ class TCPStream(IOLooper):
         '''Close this stream.'''
         try:
             self.stream.close()
+        except Exception:
+            pass
         finally:
             self.stream = None
 
