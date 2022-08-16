@@ -157,7 +157,8 @@ class Scheduler:
                 return {task_id: self.task_states[task_id]}
         else:
             raise RuntimeError(
-                f"Unexpected status for released block: {block.status}")
+                f"Unexpected status for released block: {block.status} {block}"
+                )
 
     def __init_task(self, task):
         if task.task_id not in self.task_map:
