@@ -76,6 +76,7 @@ class Block(Freezable):
 
         self.read_roi = read_roi
         self.write_roi = write_roi
+        self.requested_write_roi = write_roi  # save original write_roi
 
         self.task_id = task_id
         if block_id is None:
