@@ -171,7 +171,6 @@ class MongoDbGraphProvider(SharedGraphProvider):
                 Compute (left) join of the nodes collection and this
                 collection using the id attribute.
                 Some node attributes can be stored in another collection.
-                Assumes that all nodes have the same attributes.
                 Example use case: There might be different ways to compute
                 a (potentially optional) score per node. Instead of storing
                 these as score_vN in the node collection directly (resulting
@@ -192,53 +191,41 @@ class MongoDbGraphProvider(SharedGraphProvider):
             self.__open_collections()
             pos_query = self.__pos_query(roi)
             query_list = [pos_query]
-            for attr, value in attr_filter.items():
-                query_list.append({attr: value})
+            if join_collection is None:
+                for attr, value in attr_filter.items():
+                    query_list.append({attr: value})
             projection = {'_id': False}
-            if read_attrs is not None or join_collection is not None:
+
+            if read_attrs is not None:
                 projection['id'] = True
                 if type(self.position_attribute) == list:
                     for a in self.position_attribute:
                         projection[a] = True
                 else:
                     projection[self.position_attribute] = True
-                if read_attrs is not None:
-                    for attr in read_attrs:
-                        projection[attr] = True
-                else:
-                    node = self.nodes.find_one()
-                    for attr in node.keys():
-                        if attr == "_id":
-                            continue
-                        projection[attr] = True
-            agg = [{
-                "$match": {"$and": query_list}
-            }]
+                for attr in read_attrs:
+                    projection[attr] = True
+
+            nodes = list(self.nodes.find({'$and': query_list}, projection))
+
             if join_collection is not None:
-                join_col_entry = self.database[join_collection].find_one()
-                assert join_col_entry, \
+                to_join = {
+                    v["id"]: v for v in self.database[join_collection].find(
+                        {}, {'_id': False})}
+                assert to_join, \
                     (f"Collection {join_collection} does not exist in db"
                      f"{self.db_name} or is empty!")
-                for jck in join_col_entry.keys():
-                    if jck == "_id":
-                        continue
-                    if jck in projection or read_attrs is None:
-                        projection[jck] = "$joined." + jck
-                agg.extend([
-                    {
-                        "$lookup":
+                for node in nodes:
+                    node.update(to_join.get(node["id"], {}))
+                for attr, value in attr_filter.items():
+                    nodes = [node for node in nodes if node[attr] == value]
+                if read_attrs is not None:
+                    nodes = [
                         {
-                            "from": join_collection,
-                            "localField": "id",
-                            "foreignField": "id",
-                            "as": "joined"
+                            k: v for k, v in node.items() if projection.get(k)
                         }
-                    },
-                    {"$unwind": "$joined"},
-                ])
-            agg.append({"$project": projection})
-            nodes = self.nodes.aggregate(agg)
-            nodes = list(nodes)
+                        for node in nodes
+                    ]
 
         except Exception as e:
 
