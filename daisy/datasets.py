@@ -98,7 +98,10 @@ def open_ds(filename, ds_name, mode='r', attr_filename=None):
         A :class:`daisy.Array` pointing to the dataset.
     '''
 
-    if filename.endswith('.zarr'):
+    if filename.endswith('.zarr') or filename.endswith('.zip'):
+
+        assert not filename.endswith('.zip') or mode == 'r', (
+            "Only reading supported for zarr ZipStore")
 
         logger.debug("opening zarr dataset %s in %s", ds_name, filename)
         try:
