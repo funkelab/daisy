@@ -1,5 +1,0 @@
-filelock
-flake8
-pytest
-pytest-benchmark
-pytest-cov

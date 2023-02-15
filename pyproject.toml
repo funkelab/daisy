@@ -1,0 +1,41 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools", "wheel"]
+
+[project]
+name = "daisy"
+description = "Blockwise task scheduler for processing large volumetric data."
+version = "1.0"
+license = {text = "MIT"}
+readme = "README.md"
+authors = [
+  {name = "William Patton", email = "pattonw@hhmi.org"},
+  {name = "Jan Funke", email = "funkej@janelia.hhmi.org"},
+  {name = "Tri M. Nguyen", email = "tri_nguyen@hms.harvard.edu"},
+  {name = "Caroline Malin-Mayor", email = "malinmayorc@janelia.hhmi.org"}
+]
+
+requires-python = ">=3.7"
+classifiers = [
+  "Programming Language :: Python :: 3",
+]
+keywords = []
+
+dependencies = [
+  "numpy",
+  "tornado>=5",
+  "tqdm",
+  "funlib.math",
+  "funlib.geometry",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "black",
+  "mypy",
+  "filelock",
+]
+
+[tool.black]
+target_version = ['py36', 'py37', 'py38', 'py39', 'py310']
