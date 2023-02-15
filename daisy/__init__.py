@@ -7,7 +7,6 @@ from .context import Context # noqa
 from .convenience import run_blockwise # noqa
 from .coordinate import Coordinate # noqa
 from .dependency_graph import DependencyGraph, BlockwiseDependencyGraph # noqa
-from .graph import Graph # noqa
 from .logging import get_worker_log_basename, redirect_stdouterr # noqa
 from .roi import Roi # noqa
 from .scheduler import Scheduler # noqa
