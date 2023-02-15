@@ -17,4 +17,4 @@ jobs:
         run: |
           pip install .
           pip install --upgrade mypy
-          mypy funlib/persistence
+          mypy daisy

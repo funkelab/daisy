@@ -16,4 +16,4 @@ jobs:
       - name: Lint with Black
         run: |
           pip install black
-          black funlib/persistence tests --diff --check
+          black daisy tests --diff --check
