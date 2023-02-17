@@ -10,6 +10,11 @@ It combines the best of MapReduce/Hadoop (the ability to map a process function 
 
 Daisy documentations are at https://daisy-docs.readthedocs.io/
 
+### Removal of data io (`daisy.persistence` and `daisy.Array`)
+
+Development versions of Daisy included built in io to common formats such as zarr, n5, and hdf5 for arrays and provided interfaces for storing large spatial graphs in MongoDB or Files.
+Since Daisy is a Blockwise task scheduler it can interface with arbitrary data formats so io related code has been moved to `funlib.persistence`. This includes everything that was in `daisy.persistence` along with `daisy.Array` and helper functions such as `daisy.open_ds`, and `daisy.prepare_ds`. These are now all accessible via `funlib.persistence.Array`, `funlib.persistence.open_ds`, and `funlib.persistence.prepare_ds`.
+
 
 ## Overview
 
@@ -47,20 +52,16 @@ Daisy should also be generalizable enough to support efficient processing of dif
 
 * Daisy has a native inferface to represent of regions in a volume in real world units, easily handling voxel sizes, with convenience functions for region manipulation (intersection, union, growing or shrinking, etc.)
 
-* Daisy provides an array interface that can wrap any object with a shape attribute and slicing operations (zarr, hdf5, numpy array)
-
-* Daisy provides a geometric graph interface with support for file system and MongoDB storage (nodes are locations in space, and can be accessed by region)
-
 
 ## Installation
 
 ```sh
-pip install -e git+https://github.com/funkelab/daisy#egg=daisy
+pip install daisy
 ```
 
-Alternatively, install through PyPI (though outdated at the moment):
+Alternatively, you can install from github for the latest development version:
 ```sh
-pip install daisy
+pip install -e git+https://github.com/funkelab/daisy#egg=daisy
 ```
 
 ## Quickstart
@@ -105,14 +106,16 @@ First, we'll wrap `a` in a `daisy.Array` and make a `b` array based on `zarr` th
 
 ```python
 import daisy
+from funlib.persistence import Array
+from funlib.geometry import Roi, Coordinate
 import zarr
 
 shape = 4096000
 block_shape = 1024*16
 
-# input array is wrapped in daisy.Array for easy of Roi indexing
-a = daisy.Array(np.arange(shape, dtype=np.int64),
-                roi=daisy.Roi((0,), shape),
+# input array is wrapped in `Array` for easy of `Roi` indexing
+a = Array(np.arange(shape, dtype=np.int64),
+                roi=Roi((0,), shape),
                 voxel_size=(1,))
 
 # to parallelize across processes, we need persistent read/write arrays
@@ -120,9 +123,9 @@ a = daisy.Array(np.arange(shape, dtype=np.int64),
 b = zarr.open_array(zarr.TempStore(), 'w', (shape,),
                     chunks=(block_shape,),
                     dtype=np.int64)
-# output array is wrapped in daisy.Array for easy of Roi indexing
-b = daisy.Array(b,
-                roi=daisy.Roi((0,), shape),
+# output array is wrapped in Array for easy of Roi indexing
+b = Array(b,
+                roi=Roi((0,), shape),
                 voxel_size=(1,))
 ```
 
@@ -148,8 +151,8 @@ def process_fn_daisy(block):
 Next, we define `total_roi` based on total amount of work (`shape`) and `block_roi` based on scheduling block size (`block_shape`). We then make a `daisy.Task` and run it.
 
 ```python
-total_roi = daisy.Roi((0,), shape)  # total ROI to map process over
-block_roi = daisy.Roi((0,), (block_shape,))  # block ROI for parallel processing
+total_roi = Roi((0,), shape)  # total ROI to map process over
+block_roi = Roi((0,), (block_shape,))  # block ROI for parallel processing
 
 # creating a Daisy task, note that we do not specify how each
 # worker should read/write to input/output arrays
@@ -194,7 +197,7 @@ import multiprocessing
 
 reduce_shape = shape/16
 
-# while using zarr with daisy.Array can be easier to understand and less error prone, it is not a requirement.
+# while using zarr with `Array` can be easier to understand and less error prone, it is not a requirement.
 # Here we make a shared memory array for collecting results from different workers
 c = multiprocessing.Array('Q', range(int(shape/reduce_shape)))
 
@@ -205,8 +208,8 @@ def process_fn_sum_reduce(block):
     idx = (block.write_roi.offset / block.write_roi.shape)[0]
     c[idx] = s
 
-total_roi = daisy.Roi((0,), shape)  # total ROI to map process over
-block_roi = daisy.Roi((0,), reduce_shape)  # block ROI for parallel processing
+total_roi = Roi((0,), shape)  # total ROI to map process over
+block_roi = Roi((0,), reduce_shape)  # block ROI for parallel processing
 
 task1 = daisy.Task(
     total_roi=total_roi,
