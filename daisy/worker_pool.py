@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerPool:
-    '''Manages a pool of workers in individual processes. All workers are
+    """Manages a pool of workers in individual processes. All workers are
     spawned by the same user-specified function.
 
     Args:
@@ -27,10 +27,9 @@ class WorkerPool:
               A context to pass on to workers through environment variables.
               Will be augmented with ``worker_id``, a unique ID for each worker
               that is spawned by this pool.
-    '''
+    """
 
     def __init__(self, spawn_worker_function, context=None):
-
         if context is None:
             context = Context()
 
@@ -42,7 +41,7 @@ class WorkerPool:
         self.error_queue = multiprocessing.Queue(100)
 
     def set_num_workers(self, num_workers):
-        '''Set the number of workers in this pool.
+        """Set the number of workers in this pool.
 
         If higher than the current number of running workers, new workers will
         be spawned using ``spawn_worker_function``.
@@ -56,12 +55,11 @@ class WorkerPool:
             num_workers (int):
 
                   The new number of workers for this pool.
-        '''
+        """
 
         logger.debug("setting number of workers to %d", num_workers)
 
         with self.workers_lock:
-
             diff = num_workers - len(self.workers)
 
             logger.debug("current number of workers: %d", len(self.workers))
@@ -75,8 +73,8 @@ class WorkerPool:
         self.__start_workers(num_workers)
 
     def stop(self, worker_id=None):
-        '''Stop all current workers in this pool (``worker_id == None``) or a
-        specific worker.'''
+        """Stop all current workers in this pool (``worker_id == None``) or a
+        specific worker."""
 
         if worker_id is None:
             self.set_num_workers(0)
@@ -91,11 +89,11 @@ class WorkerPool:
         del self.workers[worker_id]
 
     def check_for_errors(self):
-        '''If a worker fails with an exception, this exception will be queued
+        """If a worker fails with an exception, this exception will be queued
         in this pool to be propagated to the process that created the pool.
         Call this function periodically to check the queue and raise exceptions
         coming from the workers in the calling process.
-        '''
+        """
 
         try:
             error = self.error_queue.get(block=False)
@@ -105,19 +103,14 @@ class WorkerPool:
             pass
 
     def __start_workers(self, n):
-
         logger.debug("starting %d new workers", n)
         new_workers = [
             Worker(self.spawn_function, self.context, self.error_queue)
             for _ in range(n)
         ]
-        self.workers.update({
-            worker.worker_id: worker
-            for worker in new_workers
-        })
+        self.workers.update({worker.worker_id: worker for worker in new_workers})
 
     def __stop_workers(self, n):
-
         logger.debug("stopping %d workers", n)
 
         sentenced_worker_ids = list(self.workers.keys())[-n:]

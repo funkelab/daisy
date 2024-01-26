@@ -160,9 +160,7 @@ class BlockwiseDependencyGraph:
         # TODO: Can't we remove this entirely by pre computing the write_roi
         inclusion_criteria = {
             "valid": lambda b: self.total_write_roi.contains(b.write_roi),
-            "overhang": lambda b: self.total_write_roi.contains(
-                b.write_roi.begin
-            ),
+            "overhang": lambda b: self.total_write_roi.contains(b.write_roi.begin),
             "shrink": lambda b: self.shrink_possible(b),
         }[self.fit]
         return inclusion_criteria
@@ -202,12 +200,12 @@ class BlockwiseDependencyGraph:
             level_offset,
             self._level_stride,
             num_blocks,
-            axis_blocks)
+            axis_blocks,
+        )
 
         return num_blocks
 
     def level_blocks(self, level):
-
         for block_offset in self._compute_level_block_offsets(level):
             block = Block(
                 self.total_read_roi,
@@ -230,9 +228,7 @@ class BlockwiseDependencyGraph:
 
     def _block_offset(self, block):
         # The block offset is the offset of the read roi relative to total roi
-        block_offset = (
-            block.read_roi.offset -
-            self.total_read_roi.offset)
+        block_offset = block.read_roi.offset - self.total_read_roi.offset
         return block_offset
 
     def _level(self, block):
@@ -306,7 +302,6 @@ class BlockwiseDependencyGraph:
         return conflicts
 
     def enumerate_all_dependencies(self):
-
         self._level_block_offsets = self.compute_level_block_offsets()
 
         for level in range(self.num_levels):
@@ -332,12 +327,8 @@ class BlockwiseDependencyGraph:
             self.block_write_roi
         ), "Read ROI must contain write ROI."
 
-        context_ul = (
-            self.block_write_roi.begin -
-            self.block_read_roi.begin)
-        context_lr = (
-            self.block_read_roi.end -
-            self.block_write_roi.end)
+        context_ul = self.block_write_roi.begin - self.block_read_roi.begin
+        context_lr = self.block_read_roi.end - self.block_write_roi.end
 
         max_context = Coordinate(
             (max(ul, lr) for ul, lr in zip(context_ul, context_lr))
@@ -354,10 +345,12 @@ class BlockwiseDependencyGraph:
         # to avoid overlapping write ROIs, increase the stride to the next
         # multiple of write shape
         write_shape = self.block_write_roi.shape
-        level_stride = Coordinate((
-            ((level - 1) // w + 1) * w
-            for level, w in zip(min_level_stride, write_shape)
-        ))
+        level_stride = Coordinate(
+            (
+                ((level - 1) // w + 1) * w
+                for level, w in zip(min_level_stride, write_shape)
+            )
+        )
 
         # Handle case where min_level_stride > total_write_roi.
         # This case leads to levels with no blocks in them. This makes
@@ -373,11 +366,10 @@ class BlockwiseDependencyGraph:
             ) % self.block_write_roi.shape
 
         level_stride = Coordinate(
-            (min(a, b) for a, b in zip(level_stride, write_roi_shape)))
+            (min(a, b) for a, b in zip(level_stride, write_roi_shape))
+        )
 
-        logger.debug(
-            "final level stride (multiples of write size) is %s",
-            level_stride)
+        logger.debug("final level stride (multiples of write size) is %s", level_stride)
 
         return level_stride
 
@@ -395,15 +387,10 @@ class BlockwiseDependencyGraph:
         )
 
         dim_offsets = [
-            range(0, e, step)
-            for e, step in zip(self._level_stride, write_stride)
+            range(0, e, step) for e, step in zip(self._level_stride, write_stride)
         ]
 
-        level_offsets = list(
-            reversed([
-                Coordinate(o)
-                for o in product(*dim_offsets)])
-        )
+        level_offsets = list(reversed([Coordinate(o) for o in product(*dim_offsets)]))
 
         logger.debug("level offsets: %s", level_offsets)
 
@@ -418,7 +405,6 @@ class BlockwiseDependencyGraph:
         prev_level_offset = None
 
         for level, level_offset in enumerate(self._level_offsets):
-
             # get conflicts to previous level
             if prev_level_offset is not None and self.read_write_conflict:
                 conflict_offsets = self.get_conflict_offsets(
@@ -451,10 +437,7 @@ class BlockwiseDependencyGraph:
             block_offset = Coordinate(offset)
 
             # convert to global coordinates
-            block_offset += (
-                self.total_read_roi.begin -
-                self.block_read_roi.begin
-            )
+            block_offset += self.total_read_roi.begin - self.block_read_roi.begin
             yield block_offset
 
     def compute_level_block_offsets(self) -> List[List[Coordinate]]:
@@ -465,18 +448,11 @@ class BlockwiseDependencyGraph:
         level_block_offsets = []
 
         for level in range(self.num_levels):
-
-            level_block_offsets.append(
-                list(
-                    self._compute_level_block_offsets(level)))
+            level_block_offsets.append(list(self._compute_level_block_offsets(level)))
 
         return level_block_offsets
 
-    def get_conflict_offsets(
-            self,
-            level_offset,
-            prev_level_offset,
-            level_stride):
+    def get_conflict_offsets(self, level_offset, prev_level_offset, level_stride):
         """Get the offsets to all previous level blocks that are in conflict
         with the current level blocks."""
 
@@ -495,18 +471,12 @@ class BlockwiseDependencyGraph:
             get_offsets(op, ls) for op, ls in zip(offset_to_prev, level_stride)
         ]
 
-        conflict_offsets = [
-            Coordinate(o)
-            for o in product(*conflict_dim_offsets)
-        ]
-        logger.debug(
-            "conflict offsets to previous level: %s",
-            conflict_offsets)
+        conflict_offsets = [Coordinate(o) for o in product(*conflict_dim_offsets)]
+        logger.debug("conflict offsets to previous level: %s", conflict_offsets)
 
         return conflict_offsets
 
     def shrink_possible(self, block):
-
         return self.total_write_roi.contains(block.write_roi.begin)
 
     def shrink(self, block):
@@ -536,7 +506,8 @@ class BlockwiseDependencyGraph:
             # only need to check if a blocks read_roi overlaps with sub_roi.
             # This is the same behavior as when we want write_roi overlap
             sub_roi = sub_roi.grow(
-                self.read_write_context[0], self.read_write_context[1])
+                self.read_write_context[0], self.read_write_context[1]
+            )
 
         # TODO: handle unsatisfiable sub_rois
         # i.e. sub_roi is outside of *total_write_roi
@@ -690,8 +661,7 @@ class DependencyGraph:
                             "Block dependency %s is not found for task %s."
                             % (upstream_block.block_id, task_id)
                         )
-                    self._downstream[upstream_block.block_id].add(
-                        block.block_id)
+                    self._downstream[upstream_block.block_id].add(block.block_id)
                     self._upstream[block.block_id].add(upstream_block.block_id)
 
         # enumerate all of the upstream / downstream dependencies
@@ -713,7 +683,5 @@ class DependencyGraph:
                                 "Block dependency %s is not found for task %s."
                                 % (upstream_block.block_id, task_id)
                             )
-                        self._downstream[upstream_block.block_id].add(
-                            block.block_id)
-                        self._upstream[block.block_id].add(
-                            upstream_block.block_id)
+                        self._downstream[upstream_block.block_id].add(block.block_id)
+                        self._upstream[block.block_id].add(upstream_block.block_id)

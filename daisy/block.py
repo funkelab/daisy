@@ -66,14 +66,8 @@ class Block(Freezable):
             The id of the Task that this block belongs to. Defaults to None.
 
     """
-    def __init__(
-            self,
-            total_roi,
-            read_roi,
-            write_roi,
-            block_id=None,
-            task_id=None):
 
+    def __init__(self, total_roi, read_roi, write_roi, block_id=None, task_id=None):
         self.read_roi = read_roi
         self.write_roi = write_roi
         self.requested_write_roi = write_roi  # save original write_roi
@@ -88,13 +82,10 @@ class Block(Freezable):
         self.freeze()
 
     def copy(self):
-
         return copy.deepcopy(self)
 
     def __compute_block_id(self, total_roi, write_roi, shift=None):
-        block_index = (
-            write_roi.offset - total_roi.offset
-        ) / write_roi.shape
+        block_index = (write_roi.offset - total_roi.offset) / write_roi.shape
 
         # block_id will be the cantor number for this block index
         block_id = int(cantor_number(block_index))
@@ -102,7 +93,6 @@ class Block(Freezable):
         return block_id
 
     def __repr__(self):
-
         return "%s/%d with read ROI %s and write ROI %s" % (
             self.block_id[0],
             self.block_id[1],

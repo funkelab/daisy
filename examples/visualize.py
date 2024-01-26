@@ -12,95 +12,96 @@ import zarr
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
-    '--file',
-    '-f',
-    type=str,
-    action='append',
-    help="The path to the container to show")
+    "--file", "-f", type=str, action="append", help="The path to the container to show"
+)
 parser.add_argument(
-    '--datasets',
-    '-d',
+    "--datasets",
+    "-d",
     type=str,
-    nargs='+',
-    action='append',
-    help="The datasets in the container to show")
+    nargs="+",
+    action="append",
+    help="The datasets in the container to show",
+)
 parser.add_argument(
-    '--graphs',
-    '-g',
+    "--graphs",
+    "-g",
     type=str,
-    nargs='+',
-    action='append',
-    help="The graphs in the container to show")
+    nargs="+",
+    action="append",
+    help="The graphs in the container to show",
+)
 parser.add_argument(
-    '--no-browser',
-    '-n',
+    "--no-browser",
+    "-n",
     type=bool,
-    nargs='?',
+    nargs="?",
     default=False,
     const=True,
-    help="If set, do not open a browser, just print a URL")
+    help="If set, do not open a browser, just print a URL",
+)
 
 args = parser.parse_args()
 
-neuroglancer.set_server_bind_address('0.0.0.0')
+neuroglancer.set_server_bind_address("0.0.0.0")
 viewer = neuroglancer.Viewer()
 
-def to_slice(slice_str):
 
-    values = [int(x) for x in slice_str.split(':')]
+def to_slice(slice_str):
+    values = [int(x) for x in slice_str.split(":")]
     if len(values) == 1:
         return values[0]
 
     return slice(*values)
 
-def parse_ds_name(ds):
 
-    tokens = ds.split('[')
+def parse_ds_name(ds):
+    tokens = ds.split("[")
 
     if len(tokens) == 1:
         return ds, None
 
     ds, slices = tokens
-    slices = list(map(to_slice, slices.rstrip(']').split(',')))
+    slices = list(map(to_slice, slices.rstrip("]").split(",")))
 
     return ds, slices
 
-class Project:
 
+class Project:
     def __init__(self, array, dim, value):
         self.array = array
         self.dim = dim
         self.value = value
-        self.shape = array.shape[:self.dim] + array.shape[self.dim + 1:]
+        self.shape = array.shape[: self.dim] + array.shape[self.dim + 1 :]
         self.dtype = array.dtype
 
     def __getitem__(self, key):
-        slices = key[:self.dim] + (self.value,) + key[self.dim:]
+        slices = key[: self.dim] + (self.value,) + key[self.dim :]
         ret = self.array[slices]
         return ret
 
-def slice_dataset(a, slices):
 
+def slice_dataset(a, slices):
     dims = a.roi.dims
 
     for d, s in list(enumerate(slices))[::-1]:
-
         if isinstance(s, slice):
             raise NotImplementedError("Slicing not yet implemented!")
         else:
-            index = (s - a.roi.get_begin()[d])//a.voxel_size[d]
+            index = (s - a.roi.get_begin()[d]) // a.voxel_size[d]
             a.data = Project(a.data, d, index)
             a.roi = daisy.Roi(
-                a.roi.get_begin()[:d] + a.roi.get_begin()[d + 1:],
-                a.roi.get_shape()[:d] + a.roi.get_shape()[d + 1:])
-            a.voxel_size = a.voxel_size[:d] + a.voxel_size[d + 1:]
+                a.roi.get_begin()[:d] + a.roi.get_begin()[d + 1 :],
+                a.roi.get_shape()[:d] + a.roi.get_shape()[d + 1 :],
+            )
+            a.voxel_size = a.voxel_size[:d] + a.voxel_size[d + 1 :]
 
     return a
+
 
 def open_dataset(f, ds):
     original_ds = ds
     ds, slices = parse_ds_name(ds)
-    slices_str = original_ds[len(ds):]
+    slices_str = original_ds[len(ds) :]
 
     try:
         dataset_as = []
@@ -129,7 +130,9 @@ def open_dataset(f, ds):
 
         if a.roi.dims == 2:
             print("ROI is 2D, recruiting next channel to z dimension")
-            a.roi = daisy.Roi((0,) + a.roi.get_begin(), (a.shape[-3],) + a.roi.get_shape())
+            a.roi = daisy.Roi(
+                (0,) + a.roi.get_begin(), (a.shape[-3],) + a.roi.get_shape()
+            )
             a.voxel_size = daisy.Coordinate((1,) + a.voxel_size)
 
         if a.roi.dims == 4:
@@ -143,34 +146,28 @@ def open_dataset(f, ds):
 
         return [(a, ds)]
     else:
-        return [([daisy.open_ds(f, f"{ds}/{key}") for key in zarr.open(f)[ds].keys()], ds)]
+        return [
+            ([daisy.open_ds(f, f"{ds}/{key}") for key in zarr.open(f)[ds].keys()], ds)
+        ]
+
 
 for f, datasets in zip(args.file, args.datasets):
-
     arrays = []
     for ds in datasets:
         try:
-
             print("Adding %s, %s" % (f, ds))
             dataset_as = open_dataset(f, ds)
 
         except Exception as e:
-
             print(type(e), e)
             print("Didn't work, checking if this is multi-res...")
 
-            scales = glob.glob(os.path.join(f, ds, 's*'))
+            scales = glob.glob(os.path.join(f, ds, "s*"))
             if len(scales) == 0:
                 print(f"Couldn't read {ds}, skipping...")
                 raise e
-            print("Found scales %s" % ([
-                os.path.relpath(s, f)
-                for s in scales
-            ],))
-            a = [
-                open_dataset(f, os.path.relpath(scale_ds, f))
-                for scale_ds in scales
-            ]
+            print("Found scales %s" % ([os.path.relpath(s, f) for s in scales],))
+            a = [open_dataset(f, os.path.relpath(scale_ds, f)) for scale_ds in scales]
         for a in dataset_as:
             arrays.append(a)
 
@@ -180,13 +177,11 @@ for f, datasets in zip(args.file, args.datasets):
 
 if args.graphs:
     for f, graphs in zip(args.file, args.graphs):
-
         for graph in graphs:
-
             graph_annotations = []
             try:
-                ids = daisy.open_ds(f, graph + '-ids').data
-                loc = daisy.open_ds(f, graph + '-locations').data
+                ids = daisy.open_ds(f, graph + "-ids").data
+                loc = daisy.open_ds(f, graph + "-locations").data
             except:
                 loc = daisy.open_ds(f, graph).data
                 ids = None
@@ -199,15 +194,15 @@ if args.graphs:
                     l = np.concatenate([[0], l])
                 graph_annotations.append(
                     neuroglancer.EllipsoidAnnotation(
-                        center=l[::-1],
-                        radii=(5, 5, 5),
-                        id=i))
+                        center=l[::-1], radii=(5, 5, 5), id=i
+                    )
+                )
             graph_layer = neuroglancer.AnnotationLayer(
-                annotations=graph_annotations,
-                voxel_size=(1, 1, 1))
+                annotations=graph_annotations, voxel_size=(1, 1, 1)
+            )
 
             with viewer.txn() as s:
-                s.layers.append(name='graph', layer=graph_layer)
+                s.layers.append(name="graph", layer=graph_layer)
 
 url = str(viewer)
 print(url)

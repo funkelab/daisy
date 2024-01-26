@@ -7,13 +7,11 @@ logger = logging.getLogger(__name__)
 
 
 def test_worker():
-
     client = daisy.Client()
 
     while True:
         logger.info("getting block")
         with client.acquire_block() as block:
-
             if block is None:
                 break
 
@@ -26,5 +24,4 @@ def test_worker():
 
 
 if __name__ == "__main__":
-
     test_worker()
