@@ -57,7 +57,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
 
         Args:
 
-            timeout (int, optional):
+            timeout (float, optional):
 
                 If set, wait up to `timeout` seconds for a message to arrive.
                 If no message is available after the timeout, returns ``None``.

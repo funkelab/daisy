@@ -3,7 +3,7 @@ from inspect import signature
 
 
 class Task:
-    '''Definition of a ``daisy`` task that is to be run in a block-wise
+    """Definition of a ``daisy`` task that is to be run in a block-wise
     fashion.
 
     Args:
@@ -117,13 +117,8 @@ class Task:
             The maximum number of times a task will be retried if failed
             (either due to failed post check or application crashes or network
             failure)
+    """
 
-        timeout (int, optional):
-
-            Time in seconds to wait for a block to be returned from a worker.
-            The worker is killed (and the block retried) if this time is
-            exceeded.
-    '''
     def __init__(
         self,
         task_id,
@@ -137,7 +132,6 @@ class Task:
         num_workers=1,
         max_retries=2,
         fit="valid",
-        timeout=None,
         upstream_tasks=None,
     ):
         self.task_id = task_id
@@ -155,7 +149,6 @@ class Task:
         self.fit = fit
         self.num_workers = num_workers
         self.max_retries = max_retries
-        self.timeout = timeout
         self.upstream_tasks = []
         if upstream_tasks is not None:
             self.upstream_tasks.extend(upstream_tasks)
@@ -170,7 +163,6 @@ class Task:
             self.spawn_worker_function = lambda: self._process_blocks()
 
     def _process_blocks(self):
-
         client = Client()
         while True:
             with client.acquire_block() as block:

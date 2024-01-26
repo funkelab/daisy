@@ -5,18 +5,20 @@ from multiprocessing.pool import ThreadPool
 from multiprocessing import Event
 
 
-def run_blockwise(tasks):
-    '''Schedule and run the given tasks.
+def run_blockwise(tasks, tcp_timeout=0.1):
+    """Schedule and run the given tasks.
 
-        Args:
-            list_of_tasks:
-                The tasks to schedule over.
+    Args:
+        list_of_tasks:
+            The tasks to schedule over.
+        tcp_timeout (float, optional):
+            The timeout for TCP connections to the scheduler.
 
-        Return:
-            bool:
-                `True` if all blocks in the given `tasks` were successfully
-                run, else `False`
-    '''
+    Return:
+        bool:
+            `True` if all blocks in the given `tasks` were successfully
+            run, else `False`
+    """
     task_ids = set()
     all_tasks = []
     while len(tasks) > 0:
@@ -31,7 +33,7 @@ def run_blockwise(tasks):
 
     IOLooper.clear()
     pool = ThreadPool(processes=1)
-    result = pool.apply_async(_run_blockwise, args=(tasks, stop_event))
+    result = pool.apply_async(_run_blockwise, args=(tasks, stop_event, tcp_timeout))
     try:
         return result.get()
     except KeyboardInterrupt:
@@ -39,7 +41,7 @@ def run_blockwise(tasks):
         return result.get()
 
 
-def _run_blockwise(tasks, stop_event):
-    server = Server(stop_event=stop_event)
+def _run_blockwise(tasks, stop_event, tcp_timeout):
+    server = Server(stop_event=stop_event, tcp_timeout=tcp_timeout)
     cl_monitor = CLMonitor(server)  # noqa
     return server.run_blockwise(tasks)
