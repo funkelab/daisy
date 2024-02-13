@@ -332,7 +332,7 @@ class SingleTaskDependencyGraph:
             r.get_end() - block.read_roi.get_end(),
         )
 
-        shrunk_block = block.copy()
+        shrunk_block = block
         shrunk_block.read_roi = r
         shrunk_block.write_roi = w
 

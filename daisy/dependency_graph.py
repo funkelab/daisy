@@ -516,7 +516,7 @@ class BlockwiseDependencyGraph:
         w = self.total_write_roi.intersect(block.write_roi)
         r = self.total_read_roi.intersect(block.read_roi)
 
-        shrunk_block = block.copy()
+        shrunk_block = block
         shrunk_block.read_roi = r
         shrunk_block.write_roi = w
 
