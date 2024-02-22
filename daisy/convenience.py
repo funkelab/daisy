@@ -32,13 +32,13 @@ def run_blockwise(tasks, tcp_timeout=0.1):
     stop_event = Event()
 
     IOLooper.clear()
-    pool = ThreadPool(processes=1)
-    result = pool.apply_async(_run_blockwise, args=(tasks, stop_event, tcp_timeout))
-    try:
-        return result.get()
-    except KeyboardInterrupt:
-        stop_event.set()
-        return result.get()
+    with ThreadPool(processes=1) as pool:
+        result = pool.apply_async(_run_blockwise, args=(tasks, stop_event))
+        try:
+            return result.get()
+        except KeyboardInterrupt:
+            stop_event.set()
+            return result.get()
 
 
 def _run_blockwise(tasks, stop_event, tcp_timeout):
