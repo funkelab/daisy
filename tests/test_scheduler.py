@@ -53,6 +53,7 @@ def task_1d(tmpdir):
         check_function=None,
     )
 
+
 @pytest.fixture
 def task_no_conflicts(tmpdir):
     # block ids:
@@ -155,6 +156,7 @@ def overlapping_tasks():
     )
     return task_1, task_2
 
+
 def test_simple_no_conflicts(task_no_conflicts):
     scheduler = Scheduler([task_no_conflicts])
 
@@ -166,7 +168,7 @@ def test_simple_no_conflicts(task_no_conflicts):
     assert block.read_roi == expected_block.read_roi
     assert block.write_roi == expected_block.write_roi
     assert block.block_id == expected_block.block_id
-    
+
     block = scheduler.acquire_block(task_no_conflicts.task_id)
 
     expected_block = Block(
@@ -175,6 +177,7 @@ def test_simple_no_conflicts(task_no_conflicts):
     assert block.read_roi == expected_block.read_roi
     assert block.write_roi == expected_block.write_roi
     assert block.block_id == expected_block.block_id
+
 
 def test_simple_acquire_block(task_1d):
     scheduler = Scheduler([task_1d])

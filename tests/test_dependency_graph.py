@@ -131,7 +131,6 @@ def test_get_subgraph_blocks():
 
 
 def test_shrink_downstream_upstream_equivalence():
-
     total_roi = Roi((0,), (100,))
     read_roi = Roi((0,), (7,))
     write_roi = Roi((1,), (5,))

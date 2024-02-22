@@ -1,7 +1,5 @@
 class ServerObserver:
-
     def __init__(self, server):
-
         self.server = server
         server.register_observer(self)
 
@@ -25,7 +23,6 @@ class ServerObserver:
 
 
 class ServerObservee:
-
     def __init__(self):
         self.observers = []
 

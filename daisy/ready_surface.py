@@ -53,9 +53,7 @@ class ReadySurface:
         # check if any downstream nodes need to be added to the boundary
         for down_node in self.downstream(node):
             if not self.__add_to_boundary(down_node):
-                if all(
-                        up_node in self.surface
-                        for up_node in self.upstream(down_node)):
+                if all(up_node in self.surface for up_node in self.upstream(down_node)):
                     new_ready_nodes.append(down_node)
 
         # check if any of the upstream nodes can be removed from surface

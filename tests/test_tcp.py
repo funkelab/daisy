@@ -4,9 +4,7 @@ from daisy.tcp.exceptions import NotConnected
 
 
 class TestTCPConnections(unittest.TestCase):
-
     def test_single_connection(self):
-
         # create a server
         server = TCPServer()
         host, port = server.address

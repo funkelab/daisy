@@ -30,7 +30,6 @@ def test_workers_close(tmp_path):
         fit="valid",
         num_workers=num_workers,
         max_retries=2,
-        timeout=None,
     )
 
     server = daisy.Server()

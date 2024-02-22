@@ -34,7 +34,8 @@ class TmpDirTestCase(unittest.TestCase):
     tearDownClass should explicitly call the ``super`` method in the method
     definition.
     """
-    _output_root = ''
+
+    _output_root = ""
     _cleanup = True
 
     def path_to(self, *args):
@@ -48,7 +49,8 @@ class TmpDirTestCase(unittest.TestCase):
     def setUpClass(cls):
         timestamp = datetime.now().isoformat()
         cls._output_root = mkdtemp(
-            prefix='daisy_{}_{}_'.format(cls.__name__, timestamp))
+            prefix="daisy_{}_{}_".format(cls.__name__, timestamp)
+        )
 
     def setUp(self):
         os.mkdir(self.path_to())
@@ -59,9 +61,9 @@ class TmpDirTestCase(unittest.TestCase):
             if self._cleanup:
                 shutil.rmtree(path)
             else:
-                warn('Directory {} was not deleted'.format(path))
+                warn("Directory {} was not deleted".format(path))
         except OSError as e:
-            if '[Errno 2]' in str(e):
+            if "[Errno 2]" in str(e):
                 pass
             else:
                 raise
@@ -72,13 +74,14 @@ class TmpDirTestCase(unittest.TestCase):
             if cls._cleanup:
                 os.rmdir(cls.path_to_cls())
             else:
-                warn('Directory {} was not deleted'.format(cls.path_to_cls()))
+                warn("Directory {} was not deleted".format(cls.path_to_cls()))
         except OSError as e:
-            if '[Errno 39]' in str(e):
+            if "[Errno 39]" in str(e):
                 warn(
-                    'Directory {} could not be deleted as it still had data '
-                    'in it'.format(cls.path_to_cls()))
-            elif '[Errno 2]' in str(e):
+                    "Directory {} could not be deleted as it still had data "
+                    "in it".format(cls.path_to_cls())
+                )
+            elif "[Errno 2]" in str(e):
                 pass
             else:
                 raise
