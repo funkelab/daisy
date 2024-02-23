@@ -51,35 +51,30 @@ class HDF2ZarrTask(BatchTask):
         elif self.in_ds.n_channel_dims == 1:
             num_channels = self.in_ds.shape[0]
         else:
-            raise RuntimeError(
-                "more than one channel not yet implemented, sorry...")
+            raise RuntimeError("more than one channel not yet implemented, sorry...")
 
         self.ds_roi = self.in_ds.roi
 
         sub_roi = None
         if self.roi_offset is not None or self.roi_shape is not None:
             assert self.roi_offset is not None and self.roi_shape is not None
-            self.schedule_roi = daisy.Roi(
-                tuple(self.roi_offset), tuple(self.roi_shape))
+            self.schedule_roi = daisy.Roi(tuple(self.roi_offset), tuple(self.roi_shape))
             sub_roi = self.schedule_roi
         else:
             self.schedule_roi = self.in_ds.roi
 
         if self.chunk_shape_voxel is None:
             self.chunk_shape_voxel = calculateNearIsotropicDimensions(
-                voxel_size, self.max_voxel_count)
+                voxel_size, self.max_voxel_count
+            )
             logger.info(voxel_size)
             logger.info(self.chunk_shape_voxel)
         self.chunk_shape_voxel = Coordinate(self.chunk_shape_voxel)
 
-        self.schedule_roi = self.schedule_roi.snap_to_grid(
-            voxel_size,
-            mode='grow')
-        out_ds_roi = self.ds_roi.snap_to_grid(
-            voxel_size,
-            mode='grow')
+        self.schedule_roi = self.schedule_roi.snap_to_grid(voxel_size, mode="grow")
+        out_ds_roi = self.ds_roi.snap_to_grid(voxel_size, mode="grow")
 
-        self.write_size = self.chunk_shape_voxel*voxel_size
+        self.write_size = self.chunk_shape_voxel * voxel_size
 
         scheduling_block_size = self.write_size
         self.write_roi = daisy.Roi((0, 0, 0), scheduling_block_size)
@@ -88,9 +83,9 @@ class HDF2ZarrTask(BatchTask):
             # with sub_roi, the coordinates are absolute
             # so we'd need to align total_roi to the write size too
             self.schedule_roi = self.schedule_roi.snap_to_grid(
-                self.write_size, mode='grow')
-            out_ds_roi = out_ds_roi.snap_to_grid(
-                self.write_size, mode='grow')
+                self.write_size, mode="grow"
+            )
+            out_ds_roi = out_ds_roi.snap_to_grid(self.write_size, mode="grow")
 
         logger.info(f"out_ds_roi: {out_ds_roi}")
         logger.info(f"schedule_roi: {self.schedule_roi}")
@@ -98,7 +93,7 @@ class HDF2ZarrTask(BatchTask):
         logger.info(f"voxel_size: {voxel_size}")
 
         if self.out_file is None:
-            self.out_file = '.'.join(self.in_file.split('.')[0:-1])+'.zarr'
+            self.out_file = ".".join(self.in_file.split(".")[0:-1]) + ".zarr"
         if self.out_ds_name is None:
             self.out_ds_name = self.in_ds_name
 
@@ -113,9 +108,9 @@ class HDF2ZarrTask(BatchTask):
             dtype=self.in_ds.dtype,
             num_channels=num_channels,
             force_exact_write_size=True,
-            compressor={'id': 'blosc', 'clevel': 3},
+            compressor={"id": "blosc", "clevel": 3},
             delete=delete,
-            )
+        )
 
     def prepare_task(self):
 
@@ -123,7 +118,16 @@ class HDF2ZarrTask(BatchTask):
 
         logger.info(
             "Rechunking %s/%s to %s/%s with chunk_shape_voxel %s (write_size %s, scheduling %s)"
-            % (self.in_file, self.in_ds_name, self.out_file, self.out_ds_name, self.chunk_shape_voxel, self.write_size, self.write_roi))
+            % (
+                self.in_file,
+                self.in_ds_name,
+                self.out_file,
+                self.out_ds_name,
+                self.chunk_shape_voxel,
+                self.write_size,
+                self.write_roi,
+            )
+        )
         logger.info("ROI: %s" % self.schedule_roi)
 
         worker_filename = os.path.realpath(__file__)
@@ -134,10 +138,10 @@ class HDF2ZarrTask(BatchTask):
             read_roi=self.write_roi,
             write_roi=self.write_roi,
             check_fn=lambda b: self.check_fn(b),
-            )
+        )
 
     def _worker_impl(self, block):
-        '''Worker function implementation'''
+        """Worker function implementation"""
         self.out_ds[block.write_roi] = self.in_ds[block.write_roi]
 
     def check_fn(self, block):
@@ -151,38 +155,42 @@ class HDF2ZarrTask(BatchTask):
 
 if __name__ == "__main__":
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'run_worker':
+    if len(sys.argv) > 1 and sys.argv[1] == "run_worker":
         task = HDF2ZarrTask(config_file=sys.argv[2])
         task.run_worker()
 
     else:
-        ap = argparse.ArgumentParser(
-            description="Create a zarr/N5 container from hdf.")
-        ap.add_argument("in_file", type=str, help='The input container')
-        ap.add_argument("in_ds_name", type=str, help='The name of the dataset')
+        ap = argparse.ArgumentParser(description="Create a zarr/N5 container from hdf.")
+        ap.add_argument("in_file", type=str, help="The input container")
+        ap.add_argument("in_ds_name", type=str, help="The name of the dataset")
         ap.add_argument(
-            "--out_file", type=str, default=None,
-            help='The output container, defaults to be the same as in_file+.zarr'
-            )
+            "--out_file",
+            type=str,
+            default=None,
+            help="The output container, defaults to be the same as in_file+.zarr",
+        )
         ap.add_argument(
-            "--out_ds_name", type=str, default=None,
-            help='The name of the dataset, defaults to be in_ds_name'
-            )
+            "--out_ds_name",
+            type=str,
+            default=None,
+            help="The name of the dataset, defaults to be in_ds_name",
+        )
         ap.add_argument(
-            "--chunk_shape_voxel", type=int, help='The size of a chunk in voxels',
-            nargs='+', default=None
-            )
+            "--chunk_shape_voxel",
+            type=int,
+            help="The size of a chunk in voxels",
+            nargs="+",
+            default=None,
+        )
         ap.add_argument(
-            "--max_voxel_count", type=int, default=256*1024,
-            help='If chunk_shape_voxel is not given, use this value to calculate'
-            'a near isotropic chunk shape',
-            )
-        ap.add_argument(
-            "--roi_offset", type=int, help='',
-            nargs='+', default=None)
-        ap.add_argument(
-            "--roi_shape", type=int, help='',
-            nargs='+', default=None)
+            "--max_voxel_count",
+            type=int,
+            default=256 * 1024,
+            help="If chunk_shape_voxel is not given, use this value to calculate"
+            "a near isotropic chunk shape",
+        )
+        ap.add_argument("--roi_offset", type=int, help="", nargs="+", default=None)
+        ap.add_argument("--roi_shape", type=int, help="", nargs="+", default=None)
 
         config = HDF2ZarrTask.parse_args(ap)
         task = HDF2ZarrTask(config)

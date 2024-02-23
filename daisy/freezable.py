@@ -4,8 +4,7 @@ class Freezable(object):
 
     def __setattr__(self, key, value):
         if self.__isfrozen and not hasattr(self, key):
-            raise TypeError(
-                "%r is frozen, you can't add attributes to it" % self)
+            raise TypeError("%r is frozen, you can't add attributes to it" % self)
         object.__setattr__(self, key, value)
 
     def freeze(self):

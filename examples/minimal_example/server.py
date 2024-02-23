@@ -1,7 +1,8 @@
 import multiprocessing
+
 # workaround for MacOS:
 # this needs to be set before importing any library that uses multiprocessing
-multiprocessing.set_start_method('fork')
+multiprocessing.set_start_method("fork")
 import logging
 import daisy
 import subprocess
@@ -10,12 +11,7 @@ import subprocess
 logging.basicConfig(level=logging.INFO)
 
 
-def run_scheduler(
-    total_roi,
-    read_roi,
-    write_roi,
-    num_workers
-):
+def run_scheduler(total_roi, read_roi, write_roi, num_workers):
 
     dummy_task = daisy.Task(
         "dummy_task",
@@ -51,9 +47,4 @@ if __name__ == "__main__":
     write_roi = daisy.Roi((0, 0, 0), (256, 256, 256))
     read_roi = write_roi.grow((16, 16, 16), (16, 16, 16))
 
-    run_scheduler(
-        total_roi,
-        read_roi,
-        write_roi,
-        num_workers=10
-    )
+    run_scheduler(total_roi, read_roi, write_roi, num_workers=10)

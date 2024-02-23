@@ -6,7 +6,8 @@ from .messages import (
     ReleaseBlock,
     RequestShutdown,
     SendBlock,
-    UnexpectedMessage)
+    UnexpectedMessage,
+)
 from contextlib import contextmanager
 from daisy.tcp import TCPClient, StreamClosedError
 import logging
@@ -14,8 +15,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class Client():
-    '''Client code that runs on a remote worker providing task management
+class Client:
+    """Client code that runs on a remote worker providing task management
     API for user code. It communicates with the scheduler through TCP/IP.
 
     Scheduler IP address, port, and other configurations are typically
@@ -35,12 +36,10 @@ class Client():
                         break
                     blockwise_process(block)
                     block.state = BlockStatus.SUCCESS  # (or FAILED)
-    '''
+    """
 
-    def __init__(
-            self,
-            context=None):
-        '''Initialize a client and connect to the server.
+    def __init__(self, context=None):
+        """Initialize a client and connect to the server.
 
         Args:
 
@@ -50,24 +49,24 @@ class Client():
                 given, the context will be read from environment variable
                 ``DAISY_CONTEXT``.
 
-        '''
+        """
         logger.debug("Client init")
         self.context = context
         if self.context is None:
             self.context = Context.from_env()
         logger.debug("Client context: %s", self.context)
 
-        self.host = self.context['hostname']
-        self.port = int(self.context['port'])
-        self.worker_id = int(self.context['worker_id'])
-        self.task_id = self.context['task_id']
+        self.host = self.context["hostname"]
+        self.port = int(self.context["port"])
+        self.worker_id = int(self.context["worker_id"])
+        self.task_id = self.context["task_id"]
 
         # Make TCP Connection
         self.tcp_client = TCPClient(self.host, self.port)
 
     @contextmanager
     def acquire_block(self):
-        '''API for client to get a new block.'''
+        """API for client to get a new block."""
         self.tcp_client.send_message(AcquireBlock(self.task_id))
         message = None
         try:
@@ -89,12 +88,8 @@ class Client():
                     block.status = BlockStatus.SUCCESS
             except Exception as e:
                 block.status = BlockStatus.FAILED
-                self.tcp_client.send_message(
-                        BlockFailed(e, block, self.context))
-                logger.exception(
-                    "Block %s failed in worker %d",
-                    block,
-                    self.worker_id)
+                self.tcp_client.send_message(BlockFailed(e, block, self.context))
+                logger.exception("Block %s failed in worker %d", block, self.worker_id)
             finally:
                 # if we somehow got here without setting the block status to
                 # "SUCCESS" (e.g., through KeyboardInterrupt), we assume the
