@@ -17,9 +17,9 @@ class TaskWorkerPools(ServerObserver):
             task.task_id: WorkerPool(
                 task.spawn_worker_function,
                 Context(
-                    hostname=server.hostname,
-                    port=server.port,
-                    task_id=task.task_id))
+                    hostname=server.hostname, port=server.port, task_id=task.task_id
+                ),
+            )
             for task in tasks
         }
         self.max_block_failures = max_block_failures
@@ -32,7 +32,8 @@ class TaskWorkerPools(ServerObserver):
                 logger.debug(
                     "Setting number of workers for task %s to %d",
                     task_id,
-                    tasks[task_id].num_workers)
+                    tasks[task_id].num_workers,
+                )
                 worker_pool.set_num_workers(tasks[task_id].num_workers)
 
     def stop(self):
@@ -48,8 +49,8 @@ class TaskWorkerPools(ServerObserver):
 
     def on_block_failure(self, block, exception, context):
 
-        task_id = context['task_id']
-        worker_id = int(context['worker_id'])
+        task_id = context["task_id"]
+        worker_id = int(context["worker_id"])
 
         if task_id not in self.failure_counts:
             self.failure_counts[task_id] = {}
@@ -62,8 +63,8 @@ class TaskWorkerPools(ServerObserver):
         if self.failure_counts[task_id][worker_id] > self.max_block_failures:
 
             logger.error(
-                "Worker %s failed too many times, restarting this worker...",
-                context)
+                "Worker %s failed too many times, restarting this worker...", context
+            )
 
             self.failure_counts[task_id][worker_id] = 0
             worker_pool = self.worker_pools[task_id]

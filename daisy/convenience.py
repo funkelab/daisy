@@ -6,17 +6,17 @@ from multiprocessing import Event
 
 
 def run_blockwise(tasks):
-    '''Schedule and run the given tasks.
+    """Schedule and run the given tasks.
 
-        Args:
-            list_of_tasks:
-                The tasks to schedule over.
+    Args:
+        list_of_tasks:
+            The tasks to schedule over.
 
-        Return:
-            bool:
-                `True` if all blocks in the given `tasks` were successfully
-                run, else `False`
-    '''
+    Return:
+        bool:
+            `True` if all blocks in the given `tasks` were successfully
+            run, else `False`
+    """
     task_ids = set()
     all_tasks = []
     while len(tasks) > 0:

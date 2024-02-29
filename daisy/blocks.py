@@ -138,16 +138,11 @@ class SingleTaskDependencyGraph:
             ]
             # TODO: can we do this part lazily? This might be a lot of
             # Coordinates
-            block_offsets = [
-                Coordinate(o)
-                for o in product(*block_dim_offsets)]
+            block_offsets = [Coordinate(o) for o in product(*block_dim_offsets)]
 
             # convert to global coordinates
             block_offsets = [
-                o + (
-                    self.total_roi.get_begin() -
-                    self.block_read_roi.get_begin()
-                )
+                o + (self.total_roi.get_begin() - self.block_read_roi.get_begin())
                 for o in block_offsets
             ]
 
@@ -173,12 +168,8 @@ class SingleTaskDependencyGraph:
             self.block_write_roi
         ), "Read ROI must contain write ROI."
 
-        context_ul = (
-            self.block_write_roi.get_begin() -
-            self.block_read_roi.get_begin())
-        context_lr = (
-            self.block_read_roi.get_end() -
-            self.block_write_roi.get_end())
+        context_ul = self.block_write_roi.get_begin() - self.block_read_roi.get_begin()
+        context_lr = self.block_read_roi.get_end() - self.block_write_roi.get_end()
 
         max_context = Coordinate(
             (max(ul, lr) for ul, lr in zip(context_ul, context_lr))
@@ -195,14 +186,14 @@ class SingleTaskDependencyGraph:
         # to avoid overlapping write ROIs, increase the stride to the next
         # multiple of write shape
         write_shape = self.block_write_roi.get_shape()
-        level_stride = Coordinate((
-            ((level - 1) // w + 1) * w
-            for level, w in zip(min_level_stride, write_shape)
-        ))
+        level_stride = Coordinate(
+            (
+                ((level - 1) // w + 1) * w
+                for level, w in zip(min_level_stride, write_shape)
+            )
+        )
 
-        logger.debug(
-            "final level stride (multiples of write size) is %s",
-            level_stride)
+        logger.debug("final level stride (multiples of write size) is %s", level_stride)
 
         return level_stride
 
@@ -219,26 +210,16 @@ class SingleTaskDependencyGraph:
         )
 
         dim_offsets = [
-            range(0, e, step)
-            for e, step in zip(self.level_stride, write_stride)
+            range(0, e, step) for e, step in zip(self.level_stride, write_stride)
         ]
 
-        level_offsets = list(
-            reversed([
-                Coordinate(o)
-                for o in product(*dim_offsets)
-            ])
-        )
+        level_offsets = list(reversed([Coordinate(o) for o in product(*dim_offsets)]))
 
         logger.debug("level offsets: %s", level_offsets)
 
         return level_offsets
 
-    def get_conflict_offsets(
-            self,
-            level_offset,
-            prev_level_offset,
-            level_stride):
+    def get_conflict_offsets(self, level_offset, prev_level_offset, level_stride):
         """Get the offsets to all previous level blocks that are in conflict
         with the current level blocks."""
 
@@ -250,13 +231,8 @@ class SingleTaskDependencyGraph:
             for op, ls in zip(offset_to_prev, level_stride)
         ]
 
-        conflict_offsets = [
-            Coordinate(o)
-            for o in product(*conflict_dim_offsets)
-        ]
-        logger.debug(
-            "conflict offsets to previous level: %s",
-            conflict_offsets)
+        conflict_offsets = [Coordinate(o) for o in product(*conflict_dim_offsets)]
+        logger.debug("conflict offsets to previous level: %s", conflict_offsets)
 
         return conflict_offsets
 
@@ -264,8 +240,7 @@ class SingleTaskDependencyGraph:
 
         inclusion_criteria = {
             "valid": lambda b: self.total_roi.contains(b.read_roi),
-            "overhang": lambda b: self.total_roi.contains(
-                b.write_roi.get_begin()),
+            "overhang": lambda b: self.total_roi.contains(b.write_roi.get_begin()),
             "shrink": lambda b: self.shrink_possible(b),
         }[self.fit]
 
@@ -332,7 +307,7 @@ class SingleTaskDependencyGraph:
             r.get_end() - block.read_roi.get_end(),
         )
 
-        shrunk_block = block.copy()
+        shrunk_block = block
         shrunk_block.read_roi = r
         shrunk_block.write_roi = w
 
@@ -388,10 +363,7 @@ class SingleTaskDependencyGraph:
 
 def expand_roi_to_grid(sub_roi, total_roi, read_roi, write_roi):
     """Expands given roi so that its write region is aligned to write_roi"""
-    offset = (
-        write_roi.get_begin() +
-        total_roi.get_begin() -
-        read_roi.get_begin())
+    offset = write_roi.get_begin() + total_roi.get_begin() - read_roi.get_begin()
 
     begin = sub_roi.get_begin() - offset
     end = sub_roi.get_end() - offset
@@ -405,10 +377,7 @@ def expand_roi_to_grid(sub_roi, total_roi, read_roi, write_roi):
 
 def expand_request_roi_to_grid(req_roi, total_roi, read_roi, write_roi):
     """Expands given roi so that its write region is aligned to write_roi"""
-    offset = (
-        write_roi.get_begin() +
-        total_roi.get_begin() -
-        read_roi.get_begin())
+    offset = write_roi.get_begin() + total_roi.get_begin() - read_roi.get_begin()
 
     begin = req_roi.get_begin() - offset
     end = req_roi.get_end() - offset
@@ -430,7 +399,5 @@ def expand_write_roi_to_grid(roi, write_roi):
         -(-roi.get_end() // write_roi.get_shape()),
     )  # `ceildiv`
 
-    roi = Roi(
-        roi[0] * write_roi.get_shape(),
-        (roi[1] - roi[0]) * write_roi.get_shape())
+    roi = Roi(roi[0] * write_roi.get_shape(), (roi[1] - roi[0]) * write_roi.get_shape())
     return roi

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 class TCPStream(IOLooper):
-    '''Wrapper around :class:`tornado.iostream.IOStream` to send
+    """Wrapper around :class:`tornado.iostream.IOStream` to send
     :class:`TCPMessage` objects.
 
     Args:
@@ -19,7 +19,7 @@ class TCPStream(IOLooper):
 
         address (tuple):
             The address the stream originates from.
-    '''
+    """
 
     def __init__(self, stream, address):
         super().__init__()
@@ -27,7 +27,7 @@ class TCPStream(IOLooper):
         self.address = address
 
     def send_message(self, message):
-        '''Send a message through this stream asynchronously.
+        """Send a message through this stream asynchronously.
 
         If the stream is closed, raises a :class:`StreamClosedError`.
         Successful return of this function does not guarantee that the message
@@ -39,7 +39,7 @@ class TCPStream(IOLooper):
             message (:class:`daisy.TCPMessage`):
 
                 Message to send over the stream.
-        '''
+        """
 
         if self.stream is None:
             raise StreamClosedError(*self.address)
@@ -47,7 +47,7 @@ class TCPStream(IOLooper):
         self.ioloop.add_callback(self._send_message, message)
 
     def close(self):
-        '''Close this stream.'''
+        """Close this stream."""
         try:
             self.stream.close()
         except Exception:
@@ -56,7 +56,7 @@ class TCPStream(IOLooper):
             self.stream = None
 
     def closed(self):
-        '''True if this stream was closed.'''
+        """True if this stream was closed."""
         if self.stream is None:
             return True
         return self.stream.closed()
@@ -67,7 +67,7 @@ class TCPStream(IOLooper):
             logger.error("No TCPStream available, can't send message.")
 
         pickled_data = pickle.dumps(message)
-        message_size_bytes = struct.pack('I', len(pickled_data))
+        message_size_bytes = struct.pack("I", len(pickled_data))
         message_bytes = message_size_bytes + pickled_data
 
         try:
@@ -94,8 +94,8 @@ class TCPStream(IOLooper):
         try:
 
             size = await self.stream.read_bytes(4)
-            size = struct.unpack('I', size)[0]
-            assert (size < 65535)  # TODO: parameterize max message size
+            size = struct.unpack("I", size)[0]
+            assert size < 65535  # TODO: parameterize max message size
             pickled_data = await self.stream.read_bytes(size)
 
         except tornado.iostream.StreamClosedError:
