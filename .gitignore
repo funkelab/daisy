@@ -11,3 +11,5 @@ build
 dist
 .coverage*
 .vscode
+
+daisy_logs

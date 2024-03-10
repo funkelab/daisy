@@ -47,7 +47,7 @@ tasks = {
 @pytest.mark.parametrize("test", ["iterate", "init"])
 @pytest.mark.parametrize("size", ["small", "medium", "large"])
 @pytest.mark.parametrize("block_gen", ["lazy", "enumerated"])
-def test_dep_graph(benchmark, test, size, block_gen):
+def benchmark_dep_graph(benchmark, test, size, block_gen):
     task = tasks[size]
     lazy = block_gen == "lazy"
     iterate = test == "iterate"
