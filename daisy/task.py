@@ -3,7 +3,7 @@ from inspect import signature
 
 
 class Task:
-    '''Definition of a ``daisy`` task that is to be run in a block-wise
+    """Definition of a ``daisy`` task that is to be run in a block-wise
     fashion.
 
     Args:
@@ -123,7 +123,8 @@ class Task:
             Time in seconds to wait for a block to be returned from a worker.
             The worker is killed (and the block retried) if this time is
             exceeded.
-    '''
+    """
+
     def __init__(
         self,
         task_id,
@@ -167,7 +168,7 @@ class Task:
         if len(signature(process_function).parameters) == 0:
             self.spawn_worker_function = process_function
         else:
-            self.spawn_worker_function = lambda: self._process_blocks()
+            self.spawn_worker_function = self._process_blocks
 
     def _process_blocks(self):
 

@@ -1,7 +1,5 @@
 from .exceptions import NoFreePort
-from .internal_messages import (
-    AckClientDisconnect,
-    NotifyClientDisconnect)
+from .internal_messages import AckClientDisconnect, NotifyClientDisconnect
 from .io_looper import IOLooper
 from .tcp_stream import TCPStream
 import logging
@@ -13,14 +11,14 @@ logger = logging.getLogger(__name__)
 
 
 class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
-    '''A TCP server to handle client-server communication through
+    """A TCP server to handle client-server communication through
     :class:`Message` objects.
 
     Args:
 
         max_port_tries (int, optional):
             How many times to try to find an empty random port.
-    '''
+    """
 
     def __init__(self, max_port_tries=1000):
 
@@ -43,13 +41,14 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
 
                 if i == self.max_port_tries - 1:
                     raise NoFreePort(
-                        "Could not find a free port after %d tries " %
-                        self.max_port_tries)
+                        "Could not find a free port after %d tries "
+                        % self.max_port_tries
+                    )
 
         self.address = self._get_address()
 
     def get_message(self, timeout=None):
-        '''Get a message that was sent to this server.
+        """Get a message that was sent to this server.
 
         If the stream to any of the connected clients is closed, raises a
         :class:`StreamClosedError` for this client. Other TCP related
@@ -62,7 +61,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                 If set, wait up to `timeout` seconds for a message to arrive.
                 If no message is available after the timeout, returns ``None``.
                 If not set, wait until a message arrived.
-        '''
+        """
 
         self._check_for_errors()
 
@@ -75,7 +74,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
             return None
 
     def disconnect(self):
-        '''Close all open streams to clients.'''
+        """Close all open streams to clients."""
 
         streams = list(self.client_streams)  # avoid set change error
         for stream in streams:
@@ -83,7 +82,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
             stream.close()
 
     async def handle_stream(self, stream, address):
-        ''' Overrides a function from tornado's TCPServer, and is called
+        """Overrides a function from tornado's TCPServer, and is called
         whenever there is a new IOStream from an incoming connection (not
         whenever there is new data in the IOStream).
 
@@ -96,7 +95,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
             address (tuple):
 
                 host, port that new connection comes from
-        '''
+        """
 
         logger.debug("Received new connection from %s:%d", *address)
         stream = TCPStream(stream, address)
@@ -139,7 +138,7 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
             return
 
     def _get_address(self):
-        '''Get the host and port of the tcp server'''
+        """Get the host and port of the tcp server"""
 
         sock = self._sockets[list(self._sockets.keys())[0]]
         port = sock.getsockname()[1]

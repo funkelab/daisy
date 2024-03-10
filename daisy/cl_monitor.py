@@ -6,12 +6,12 @@ import tqdm
 
 
 class TqdmLoggingHandler:
-    '''A logging handler that uses ``tqdm.tqdm.write`` in ``emit()``, such that
+    """A logging handler that uses ``tqdm.tqdm.write`` in ``emit()``, such that
     logging doesn't interfere with tqdm's progress bar.
 
     Heavily inspired by the fantastic
     https://github.com/EpicWink/tqdm-logging-wrapper/
-    '''
+    """
 
     def __init__(self, handler):
         self.handler = handler
@@ -42,8 +42,10 @@ class BlockFailure:
         self.worker_id = worker_id
 
     def __repr__(self):
-        return f"block {self.block.block_id[1]} in worker " \
+        return (
+            f"block {self.block.block_id[1]} in worker "
             f"{self.worker_id} with exception {repr(self.exception)}"
+        )
 
 
 class CLMonitor(ServerObserver):
@@ -56,13 +58,13 @@ class CLMonitor(ServerObserver):
         self._wrap_logging_handlers()
 
     def _wrap_logging_handlers(self):
-        '''This adds a TqdmLoggingHandler around each logging handler that has
+        """This adds a TqdmLoggingHandler around each logging handler that has
         a TTY stream attached to it, so that logging doesn't interfere with the
         progress bar.
 
         Heavily inspired by the fantastic
         https://github.com/EpicWink/tqdm-logging-wrapper/
-        '''
+        """
 
         logger = logging.root
         for i in range(len(logger.handlers)):
@@ -87,7 +89,8 @@ class CLMonitor(ServerObserver):
 
         task_id = block.block_id[0]
         self.summaries[task_id].block_failures.append(
-            BlockFailure(block, exception, context['worker_id']))
+            BlockFailure(block, exception, context["worker_id"])
+        )
 
     def on_task_start(self, task_id, task_state):
 
@@ -130,8 +133,10 @@ class CLMonitor(ServerObserver):
             print()
             state = summary.state
             print(f"    num blocks : {state.total_block_count}")
-            print(f"    completed ✔: {state.completed_count} "
-                  f"(skipped {state.skipped_count})")
+            print(
+                f"    completed ✔: {state.completed_count} "
+                f"(skipped {state.skipped_count})"
+            )
             print(f"    failed    ✗: {state.failed_count}")
             print(f"    orphaned  ∅: {state.orphaned_count}")
             print()
@@ -151,8 +156,8 @@ class CLMonitor(ServerObserver):
                 print()
                 for block_failure in summary.block_failures[:10]:
                     log_basename = daisy_logging.get_worker_log_basename(
-                        block_failure.worker_id,
-                        block_failure.block.block_id[0])
+                        block_failure.worker_id, block_failure.block.block_id[0]
+                    )
                     print(f"      {log_basename}.err / .out")
                 if num_block_failures > 10:
                     print("      ...")
@@ -165,18 +170,18 @@ class CLMonitor(ServerObserver):
         if task_id not in self.progresses:
             total = task_state.total_block_count
             self.progresses[task_id] = tqdm_auto(
-                total=total,
-                desc=task_id + " ▶",
-                unit='blocks',
-                leave=True)
+                total=total, desc=task_id + " ▶", unit="blocks", leave=True
+            )
 
-        self.progresses[task_id].set_postfix({
-            '⧗': task_state.pending_count,
-            '▶': task_state.processing_count,
-            '✔': task_state.completed_count,
-            '✗': task_state.failed_count,
-            '∅': task_state.orphaned_count
-        })
+        self.progresses[task_id].set_postfix(
+            {
+                "⧗": task_state.pending_count,
+                "▶": task_state.processing_count,
+                "✔": task_state.completed_count,
+                "✗": task_state.failed_count,
+                "∅": task_state.orphaned_count,
+            }
+        )
 
         completed = task_state.completed_count
         delta = completed - self.progresses[task_id].n

@@ -1,5 +1,5 @@
 class TCPMessage:
-    '''A message, to be sent between :class:`TCPServer` and :class:`TCPClient`.
+    """A message, to be sent between :class:`TCPServer` and :class:`TCPClient`.
 
     Args:
 
@@ -12,7 +12,8 @@ class TCPMessage:
             The stream the message was received from. Will be set by
             :class:`TCPStream` and is ``None`` for messages that have not been
             sent.
-    '''
+    """
+
     def __init__(self, payload=None):
 
         self.payload = payload

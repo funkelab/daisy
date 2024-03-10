@@ -8,7 +8,8 @@ from .messages import (
     ReleaseBlock,
     SendBlock,
     RequestShutdown,
-    UnexpectedMessage)
+    UnexpectedMessage,
+)
 from .scheduler import Scheduler
 from .server_observer import ServerObservee
 from .task_worker_pools import TaskWorkerPools
@@ -35,10 +36,7 @@ class Server(ServerObservee):
         self.tcp_server = TCPServer()
         self.hostname, self.port = self.tcp_server.address
 
-        logger.debug(
-            "Started server listening at %s:%s",
-            self.hostname,
-            self.port)
+        logger.debug("Started server listening at %s:%s", self.hostname, self.port)
 
     def run_blockwise(self, tasks, scheduler=None):
 
@@ -53,10 +51,7 @@ class Server(ServerObservee):
         self.finished_tasks = set()
         self.all_done = False
 
-        self.pending_requests = {
-            task.task_id: Queue()
-            for task in tasks
-        }
+        self.pending_requests = {task.task_id: Queue() for task in tasks}
 
         self._recruit_workers()
 
@@ -145,29 +140,27 @@ class Server(ServerObservee):
             if task_state.pending_count == 0:
 
                 logger.debug(
-                    "No more pending blocks for task %s, terminating "
-                    "client", message.task_id)
+                    "No more pending blocks for task %s, terminating " "client",
+                    message.task_id,
+                )
 
-                self._send_client_message(
-                    message.stream,
-                    RequestShutdown())
+                self._send_client_message(message.stream, RequestShutdown())
 
                 return
 
             # there are more blocks for this task, but none of them has its
             # dependencies fullfilled
             logger.debug(
-                "No currently ready blocks for task %s, delaying "
-                "request", message.task_id)
+                "No currently ready blocks for task %s, delaying " "request",
+                message.task_id,
+            )
             self.pending_requests[message.task_id].put(message)
 
         else:
 
             try:
                 logger.debug("Sending block %s to client", block)
-                self._send_client_message(
-                    message.stream,
-                    SendBlock(block))
+                self._send_client_message(message.stream, SendBlock(block))
             finally:
                 self.block_bookkeeper.notify_block_sent(block, message.stream)
 
@@ -179,8 +172,8 @@ class Server(ServerObservee):
         self._safe_release_block(message.block, message.stream)
 
     def _release_block(self, block):
-        '''Returns a block to the scheduler and checks whether all tasks are
-        completed.'''
+        """Returns a block to the scheduler and checks whether all tasks are
+        completed."""
 
         self.scheduler.release_block(block)
         task_states = self.scheduler.task_states
@@ -192,7 +185,7 @@ class Server(ServerObservee):
         self._recruit_workers()
 
     def _check_all_tasks_completed(self):
-        '''Check if all tasks are completed and stop'''
+        """Check if all tasks are completed and stop"""
 
         self.all_done = True
         task_states = self.scheduler.task_states
@@ -208,18 +201,15 @@ class Server(ServerObservee):
 
             self.all_done = False
 
-            logger.debug(
-                "Task %s has %d ready blocks",
-                task_id,
-                task_state.ready_count)
+            logger.debug("Task %s has %d ready blocks", task_id, task_state.ready_count)
 
         if self.all_done:
             logger.debug("All tasks finished")
             self.stop_event.set()
 
     def _safe_release_block(self, block, stream):
-        '''Releases a block, if the bookkeeper agrees that this is a valid
-        return from the given stream.'''
+        """Releases a block, if the bookkeeper agrees that this is a valid
+        return from the given stream."""
 
         valid = self.block_bookkeeper.is_valid_return(block, stream)
         if valid:
@@ -227,8 +217,8 @@ class Server(ServerObservee):
             self.block_bookkeeper.notify_block_returned(block, stream)
         else:
             logger.debug(
-                "Attempted to return unexpected block %s from %s",
-                block, stream)
+                "Attempted to return unexpected block %s from %s", block, stream
+            )
 
     def _handle_client_exception(self, message):
 
@@ -237,17 +227,15 @@ class Server(ServerObservee):
             logger.error(
                 "Block %s failed in worker %s with %s",
                 message.block,
-                message.context['worker_id'],
-                repr(message.exception))
+                message.context["worker_id"],
+                repr(message.exception),
+            )
 
             message.block.status = BlockStatus.FAILED
 
             self._safe_release_block(message.block, message.stream)
 
-            self.notify_block_failure(
-                message.block,
-                message.exception,
-                message.context)
+            self.notify_block_failure(message.block, message.exception, message.context)
 
         else:
             raise message.exception
@@ -259,16 +247,17 @@ class Server(ServerObservee):
 
         for task_id in ready_tasks.keys():
             if task_id not in self.started_tasks:
-                self.notify_task_start(
-                    task_id,
-                    self.scheduler.task_states[task_id])
+                self.notify_task_start(task_id, self.scheduler.task_states[task_id])
                 self.started_tasks.add(task_id)
                 # run the task's callback function
-                ready_tasks[task_id].init_callback_fn(Context(
+                ready_tasks[task_id].init_callback_fn(
+                    Context(
                         hostname=self.hostname,
                         port=self.port,
                         task_id=task_id,
-                        worker_id=0))
+                        worker_id=0,
+                    )
+                )
 
         self.worker_pools.recruit_workers(ready_tasks)
 
