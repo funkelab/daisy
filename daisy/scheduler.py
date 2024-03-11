@@ -7,7 +7,7 @@ from .processing_queue import ProcessingQueue
 from .task import Task
 from .block import BlockStatus
 
-from typing import List
+from typing import Any, Dict, List
 import collections
 import logging
 
@@ -41,9 +41,11 @@ class Scheduler:
             self.dependency_graph.downstream, self.dependency_graph.upstream
         )
 
-        self.task_map = {}
-        self.task_states = collections.defaultdict(TaskState)
-        self.task_queues = collections.defaultdict(ProcessingQueue)
+        self.task_map: Dict[Any, Task] = {}
+        self.task_states: Dict[Any, TaskState] = collections.defaultdict(TaskState)
+        self.task_queues: Dict[Any, ProcessingQueue] = collections.defaultdict(
+            ProcessingQueue
+        )
 
         # root tasks is a mapping from task_id -> (num_roots, root_generator)
         roots = self.dependency_graph.roots()

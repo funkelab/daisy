@@ -12,4 +12,6 @@ dist
 .coverage*
 .vscode
 
-daisy_logs
+daisy_logs/
+.pytest_cache/
+.mypy_cache/

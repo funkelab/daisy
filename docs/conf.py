@@ -19,6 +19,9 @@
 
 # -- Project information -----------------------------------------------------
 
+from typing import Dict
+
+
 project = "daisy"
 copyright = "2019, Jan Funke, Tri Nguyen, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
 author = "Jan Funke, Tri Nguyen, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
@@ -109,7 +112,7 @@ htmlhelp_basename = "daisydoc"
 
 # -- Options for LaTeX output ------------------------------------------------
 
-latex_elements = {
+latex_elements: Dict[str, str] = {
     # The paper size ('letterpaper' or 'a4paper').
     #
     # 'papersize': 'letterpaper',

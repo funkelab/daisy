@@ -1,6 +1,7 @@
 import logging
 import os
 import threading
+from typing import Dict
 import tornado.ioloop
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,8 @@ class IOLooper:
             thread per process.
     """
 
-    threads = {}
-    ioloops = {}
+    threads: Dict[int, threading.Thread] = {}
+    ioloops: Dict[int, tornado.ioloop.IOLoop] = {}
 
     @staticmethod
     def clear():
