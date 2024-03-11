@@ -410,7 +410,7 @@ class BlockwiseDependencyGraph:
 
             # get conflicts to previous level
             if prev_level_offset is not None and self.read_write_conflict:
-                conflict_offsets = self.get_conflict_offsets(
+                conflict_offsets: List[Coordinate] = self.get_conflict_offsets(
                     level_offset, prev_level_offset, self._level_stride
                 )
             else:

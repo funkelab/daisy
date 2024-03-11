@@ -1,3 +1,4 @@
+from time import time
 from .block import BlockStatus
 from .block_bookkeeper import BlockBookkeeper
 from .context import Context
@@ -69,12 +70,15 @@ class Server(ServerObservee):
         return True if self.all_done else False
 
     def _event_loop(self):
-
+        last_time = time()
         while not self.stop_event.is_set():
-
+            current_time = time()
             self._handle_client_messages()
             self._check_for_lost_blocks()
             self.worker_pools.check_worker_health()
+            if current_time - last_time > 1:
+                self._check_all_tasks_completed()
+                last_time = current_time
 
     def _get_client_message(self):
 
