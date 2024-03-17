@@ -95,7 +95,8 @@ class TCPStream(IOLooper):
 
             size = await self.stream.read_bytes(4)
             size = struct.unpack("I", size)[0]
-            assert size < 65535  # TODO: parameterize max message size
+            assert size < 2**64  # TODO: parameterize max message size
+            # assert size < 2**16  # TODO: parameterize max message size
             pickled_data = await self.stream.read_bytes(size)
 
         except tornado.iostream.StreamClosedError:
