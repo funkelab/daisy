@@ -149,6 +149,12 @@ class Server(ServerObservee):
                 )
 
                 self._send_client_message(message.stream, RequestShutdown())
+                # in the case that the scheduler skips all blocks for a task
+                # because that task has previously been recruited, we now
+                # have tasks available to start that will hang forever unless
+                # started now since no more blocks are available for the existing
+                # task and no workers are running.
+                self._recruit_workers()
 
                 return
 
