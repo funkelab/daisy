@@ -1,5 +1,5 @@
 from .client import Client
-from inspect import signature
+from inspect import getfullargspec
 
 
 class Task:
@@ -163,15 +163,22 @@ class Task:
         if init_callback_fn is not None:
             self.init_callback_fn = init_callback_fn
         else:
-            self.init_callback_fn = lambda context: None
+            self.init_callback_fn = self._default_init
 
-        if len(signature(process_function).parameters) == 0:
+        args = getfullargspec(process_function).args
+        if len(args) == 0:
+            # spawn function
             self.spawn_worker_function = process_function
+        elif len(args) == 1:
+            # process block function
+            self.spawn_worker_function = self._process_blocks
         else:
-            self.spawn_worker_function = lambda: self._process_blocks()
+            raise ValueError(f"daisy does not know what to pass into args: {args}")
+
+    def _default_init(self, context):
+        pass
 
     def _process_blocks(self):
-
         client = Client()
         while True:
             with client.acquire_block() as block:
