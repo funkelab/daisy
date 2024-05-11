@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import os
 import queue
+import dill
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,14 @@ class Worker:
         self.process = None
 
         self.start()
+
+    @property
+    def spawn_function(self):
+        return dill.loads(self._spawn_function)
+    
+    @spawn_function.setter
+    def spawn_function(self, value):
+        self._spawn_function = dill.dumps(value)
 
     def start(self):
         """Start this worker. Note that workers are automatically started when
