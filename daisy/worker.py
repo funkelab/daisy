@@ -27,6 +27,7 @@ class Worker:
     """
 
     __next_id = multiprocessing.Value("L")
+    _spawn_function = None
 
     @staticmethod
     def get_next_id():
@@ -56,7 +57,7 @@ class Worker:
         if self.process is not None:
             return
 
-        self.process = multiprocessing.Process(target=lambda: self.__spawn_wrapper())
+        self.process = multiprocessing.Process(target=self._spawn_wrapper)
         self.process.start()
 
     def stop(self):
@@ -74,7 +75,7 @@ class Worker:
         logger.debug("%s terminated", self)
         self.process = None
 
-    def __spawn_wrapper(self):
+    def _spawn_wrapper(self):
         """Thin wrapper around the user-specified spawn function to set
         environment variables, redirect output, and to capture exceptions."""
 
