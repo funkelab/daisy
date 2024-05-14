@@ -27,6 +27,7 @@ dependencies = [
   "tqdm",
   "funlib.math",
   "funlib.geometry",
+  "dill",
 ]
 
 [project.optional-dependencies]
