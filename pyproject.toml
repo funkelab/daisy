@@ -27,6 +27,7 @@ dependencies = [
   "tqdm",
   "funlib.math",
   "funlib.geometry",
+  "dill",
 ]
 
 [project.optional-dependencies]
@@ -46,5 +47,6 @@ module = [
     "funlib.*",
     "tqdm.*",
     "pkg_resources.*",
+    "dill",
 ]
 ignore_missing_imports = true

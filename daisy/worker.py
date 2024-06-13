@@ -4,6 +4,7 @@ import logging
 import multiprocessing
 import os
 import queue
+import dill
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class Worker:
     """
 
     __next_id = multiprocessing.Value("L")
+    _spawn_function = None
 
     @staticmethod
     def get_next_id():
@@ -49,6 +51,14 @@ class Worker:
 
         self.start()
 
+    @property
+    def spawn_function(self):
+        return dill.loads(self._spawn_function)
+
+    @spawn_function.setter
+    def spawn_function(self, value):
+        self._spawn_function = dill.dumps(value)
+
     def start(self):
         """Start this worker. Note that workers are automatically started when
         created. Use this function to re-start a stopped worker."""
@@ -56,7 +66,7 @@ class Worker:
         if self.process is not None:
             return
 
-        self.process = multiprocessing.Process(target=lambda: self.__spawn_wrapper())
+        self.process = multiprocessing.Process(target=self._spawn_wrapper)
         self.process.start()
 
     def stop(self):
@@ -74,7 +84,7 @@ class Worker:
         logger.debug("%s terminated", self)
         self.process = None
 
-    def __spawn_wrapper(self):
+    def _spawn_wrapper(self):
         """Thin wrapper around the user-specified spawn function to set
         environment variables, redirect output, and to capture exceptions."""
 

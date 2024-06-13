@@ -296,7 +296,7 @@ class BatchTask:
         )
 
         if check_fn is None:
-            check_fn = lambda b: self._default_check_fn(b)
+            check_fn = self._default_check_fn
 
         if self.overwrite:
             print("Dropping table %s" % self.db_id)

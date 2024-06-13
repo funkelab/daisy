@@ -67,12 +67,12 @@ class WorkerPool:
             logger.debug("current number of workers: %d", len(self.workers))
 
             if diff > 0:
-                self.__start_workers(diff)
+                self._start_workers(diff)
             elif diff < 0:
-                self.__stop_workers(-diff)
+                self._stop_workers(-diff)
 
     def inc_num_workers(self, num_workers):
-        self.__start_workers(num_workers)
+        self._start_workers(num_workers)
 
     def stop(self, worker_id=None):
         """Stop all current workers in this pool (``worker_id == None``) or a
@@ -104,7 +104,7 @@ class WorkerPool:
         except queue.Empty:
             pass
 
-    def __start_workers(self, n):
+    def _start_workers(self, n):
 
         logger.debug("starting %d new workers", n)
         new_workers = [
@@ -113,7 +113,7 @@ class WorkerPool:
         ]
         self.workers.update({worker.worker_id: worker for worker in new_workers})
 
-    def __stop_workers(self, n):
+    def _stop_workers(self, n):
 
         logger.debug("stopping %d workers", n)
 
