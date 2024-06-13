@@ -8,6 +8,7 @@ logging.basicConfig(level=logging.DEBUG)
 def process_block(block):
     print("Processing block %s" % block)
 
+
 def test_basic():
 
     task = daisy.Task(
@@ -26,4 +27,3 @@ def test_basic():
 
     server = daisy.Server()
     server.run_blockwise([task])
-
