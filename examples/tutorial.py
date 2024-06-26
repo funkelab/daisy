@@ -378,6 +378,88 @@ daisy.run_blockwise([
 plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_blockwise'][:].transpose(1, 2, 0), origin="lower")
 
 # %% [markdown]
+# ### Conclusion: Dask and Daisy
+#
+# Phew! We managed to smooth the image, and along the way you learned the basics of Daisy. In this example, we only parallelized the processing using our local computer's resources, and our "volume" was very small.
+#
+# If your task is similar to this toy example, you can use dask to do the same task with many fewer lines of code:
+
+# %%
+# %pip install dask
+
+# %%
+import dask
+import dask.array as da
+from skimage import filters
+
+
+f = zarr.open('sample_data.zarr', 'r')
+raw = da.from_array(f['raw'], chunks=(3, 64, 64))
+print("Raw dask array:", raw)
+sigma = 5.0
+context = int(sigma) * 2
+
+def smooth_in_block(x):
+    return filters.gaussian(x, sigma=sigma, channel_axis=0)
+
+smoothed = raw.map_overlap(smooth_in_block, depth=(0, context, context))
+plt.imshow(smoothed.transpose((1, 2, 0)), origin="lower")
+
+# %% [markdown]
+# Notice that there is no saving of the output in a zarr - we simply recieve the whole thing in memory. On this small example, this works very well, but when the whole volume is too large to fit in memory, we need to save the output to disk, as done in daisy. Additionally, dask generates more overhead than daisy, which can be a problem with larger and more complex problems. With daisy, the only object that is sent between the scheduler and the worker is a Block, which as we have learned is lightweight.
+
+# %% [markdown]
 # ## Distributing on the Cluster
+# TODO
+
+# %%
+# tutorial worker code in tutorial_worker.py
+
+
+# %%
+prepare_ds(
+    "sample_data.zarr",
+    "smoothed_subprocess",
+    total_roi=total_roi,
+    voxel_size=daisy.Coordinate((1,1)),
+    dtype=raw_data_float.dtype,
+    write_size=block_size,
+    num_channels=n_channels,
+)
+
+
+# %%
+# new process function to start the worker subprocess
+def start_subprocess_worker(cluster="local"):
+    import subprocess
+    if cluster == "bsub":
+        num_cpus_per_worker = 4
+        subprocess.run(["bsub", "-I", f"-n {num_cpus_per_worker}", "python", "./tutorial_worker.py"])
+    elif cluster== "local":
+        subprocess.run(["python", "./tutorial_worker.py"])
+    else:
+        raise ValueError("Only bsub and local currently supported for this tutorial")
+
+
+
+# %%
+# scheduler
+from functools import partial
+
+# note: Must be on submit node to run this
+tutorial_task = daisy.Task(
+    "smoothing_subprocess",
+    total_roi=total_roi,
+    read_roi=read_roi,
+    write_roi=block_roi,
+    process_function=partial(start_subprocess_worker, "local"),
+    num_workers=2,
+    fit="shrink",
+)
+
+daisy.run_blockwise([tutorial_task])
+
+# %%
+plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_subprocess'][:].transpose(1, 2, 0), origin="lower")
 
 # %%
