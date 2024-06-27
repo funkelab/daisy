@@ -1,0 +1,7 @@
+{
+  "input_zarr": "sample_data.zarr",
+  "output_zarr": "sample_data.zarr",
+  "input_group": "raw",
+  "output_group": "smoothed_subprocess_config",
+  "sigma": 5
+}
