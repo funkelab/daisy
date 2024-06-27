@@ -13,7 +13,7 @@ def smooth_in_block(block: daisy.Block, config: dict):
     sigma = config["sigma"]
     
     raw_ds = open_ds(config["input_zarr"], config["input_group"], "r",)
-    data = raw_ds.to_ndarray(block.read_roi)
+    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
     
     output_ds = open_ds(config["output_zarr"], config["output_group"], 'a')

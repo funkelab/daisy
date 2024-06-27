@@ -12,7 +12,7 @@ def smooth_in_block(block: daisy.Block):
     sigma = 5.0
     
     raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(block.read_roi)
+    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
     
     output_ds = open_ds('sample_data.zarr', 'smoothed_subprocess', 'a')
@@ -25,6 +25,9 @@ if __name__ == "__main__":
     client = daisy.Client()
     print("Client:", client)
 
+    # simlate long setup time (e.g. loading a model)
+    # time.sleep(50)
+
     while True:
         logger.info("getting block")
         with client.acquire_block() as block:
@@ -33,7 +36,6 @@ if __name__ == "__main__":
                 break
 
             logger.info(f"got block {block}")
-            time.sleep(0.5)
             smooth_in_block(block)
 
             logger.info(f"releasing block: {block}")

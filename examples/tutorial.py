@@ -26,8 +26,7 @@
 # %pip install scikit-image
 # %pip install zarr
 # %pip install matplotlib
-import multiprocessing
-# multiprocessing.set_start_method("fork")
+# %pip install funlib.persistence
 
 # %% [markdown]
 # # Building Blocks
@@ -332,10 +331,17 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_with_context'][:].transp
 # ### Take 3: The Daisy Way
 
 # %%
+sigma = 5
+context = int(sigma) * 2
+read_roi = block_roi.grow(context, context)
+total_read_roi = total_roi.grow(context, context)
+total_write_roi = total_roi
+
+# %%
 prepare_ds(
     "sample_data.zarr",
     "smoothed_blockwise",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=raw_data_float.dtype,
     write_size=block_size,
@@ -351,7 +357,7 @@ def smooth_in_block(block: daisy.Block):
     sigma = 5.0
     
     raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(block.read_roi)
+    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
     
     output_ds = open_ds('sample_data.zarr', 'smoothed_blockwise', 'a')
@@ -369,7 +375,7 @@ daisy.run_blockwise([
         daisy.Task(
             "Smoothing with context",
             process_function=smooth_in_block,
-            total_roi=total_roi,
+            total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
             fit="shrink",
@@ -380,6 +386,10 @@ daisy.run_blockwise([
 
 # %%
 plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_blockwise'][:].transpose(1, 2, 0), origin="lower")
+
+# %% [markdown]
+# #### Passing arguments to your process function
+# TODO
 
 # %% [markdown]
 # ## Conclusion: Dask and Daisy
@@ -437,7 +447,7 @@ prepare_ds(
 def start_subprocess_worker(cluster="local"):
     import subprocess
     if cluster == "bsub":
-        num_cpus_per_worker = 4
+        num_cpus_per_worker = 1
         subprocess.run(["bsub", "-I", f"-n {num_cpus_per_worker}", "python", "./tutorial_worker.py"])
     elif cluster== "local":
         subprocess.run(["python", "./tutorial_worker.py"])
@@ -453,10 +463,10 @@ from functools import partial
 # note: Must be on submit node to run this with bsub argument
 tutorial_task = daisy.Task(
     "smoothing_subprocess",
-    total_roi=total_roi,
+    total_roi=total_read_roi,
     read_roi=read_roi,
     write_roi=block_roi,
-    process_function=partial(start_subprocess_worker, "local"),
+    process_function=partial(start_subprocess_worker, "bsub"),
     num_workers=2,
     fit="shrink",
 )
@@ -473,7 +483,7 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_subprocess'][:].transpos
 prepare_ds(
     "sample_data.zarr",
     "smoothed_subprocess_config",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=raw_data_float.dtype,
     write_size=block_size,
@@ -498,7 +508,7 @@ def start_subprocess_worker_config(cluster="local"):
 # note: Must be on submit node to run this with bsub argument
 tutorial_task = daisy.Task(
     "smoothing_subprocess_config",
-    total_roi=total_roi,
+    total_roi=total_read_roi,
     read_roi=read_roi,
     write_roi=block_roi,
     process_function=partial(start_subprocess_worker_config, "local"),
@@ -521,7 +531,7 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_subprocess_config'][:].t
 prepare_ds(
     "sample_data.zarr",
     "fault_tolerance",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=raw_data_float.dtype,
     write_size=block_size,
@@ -543,7 +553,7 @@ def smooth_in_block_with_failure(block: daisy.Block):
     sigma = 5.0
     
     raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(block.read_roi)
+    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
     
     output_ds = open_ds('sample_data.zarr', 'fault_tolerance', 'a')
@@ -561,7 +571,7 @@ daisy.run_blockwise([
         daisy.Task(
             "fault tolerance test",
             process_function=smooth_in_block_with_failure,
-            total_roi=total_roi,
+            total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
             fit="shrink",
@@ -581,10 +591,12 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['fault_tolerance'][:].transpose(1,
 # %%
 root = zarr.open("sample_data.zarr", 'a')
 del root['fault_tolerance']
+
+# %%
 prepare_ds(
     "sample_data.zarr",
     "fault_tolerance",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=raw_data_float.dtype,
     write_size=block_size,
@@ -595,7 +607,7 @@ daisy.run_blockwise([
         daisy.Task(
             "fault tolerance test",
             process_function=smooth_in_block_with_failure,
-            total_roi=total_roi,
+            total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
             fit="shrink",
@@ -628,7 +640,7 @@ daisy.run_blockwise([
         daisy.Task(
             "fault tolerance test",
             process_function=smooth_in_block_with_failure,
-            total_roi=total_roi,
+            total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
             fit="shrink",
@@ -660,7 +672,7 @@ def smooth_in_block(output_group, block: daisy.Block):
     sigma = 5.0
     
     raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(block.read_roi)
+    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
     
     output_ds = open_ds('sample_data.zarr', output_group, 'a')
@@ -707,7 +719,7 @@ def segment_blue_objects(input_group, output_group, block):
 prepare_ds(
     "sample_data.zarr",
     "smoothed_for_seg",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=raw_data_float.dtype,
     write_size=block_size,
@@ -721,7 +733,7 @@ read_roi = block_roi.grow(context, context)
 smoothing_task = daisy.Task(
     "smooth_for_seg",
     process_function=partial(smooth_in_block, "smoothed_for_seg"),
-    total_roi=total_roi,
+    total_roi=total_read_roi,
     read_roi=read_roi,
     write_roi=block_roi,
     fit="shrink",
@@ -737,7 +749,7 @@ seg_block_roi = daisy.Roi((0,0), (128, 128))
 prepare_ds(
     "sample_data.zarr",
     "blue_objects",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=np.uint8,
     write_size=seg_block_roi.shape,
@@ -746,7 +758,7 @@ prepare_ds(
 seg_task = daisy.Task(
     "segmentation",
     process_function=partial(segment_blue_objects, "smoothed_for_seg", "blue_objects"),
-    total_roi=total_roi,
+    total_roi=total_write_roi, # Note: This task does not have context (yet...?)
     read_roi=seg_block_roi,
     write_roi=seg_block_roi,
     fit="shrink",
@@ -764,6 +776,7 @@ figure, axes = plt.subplots(1, 2)
 axes[0].imshow(zarr.open('sample_data.zarr', 'r')['smoothed_for_seg'][:].transpose(1,2,0), origin="lower")
 axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects'][:]), origin="lower")
 
+
 # %% [markdown]
 # ## Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
 
@@ -771,8 +784,6 @@ axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects'][:]),
 # How can we resolve the labels of adjacent blocks?
 
 # %%
-import logging
-
 def segment_blue_objects_with_context(input_group, output_group, block):
     import cv2
     from funlib.persistence.arrays import open_ds, Array
@@ -793,8 +804,8 @@ def segment_blue_objects_with_context(input_group, output_group, block):
         
     input_ds = open_ds('sample_data.zarr', input_group, "r",)
     output_ds = open_ds('sample_data.zarr', output_group, 'a')
-    data = input_ds.to_ndarray(block.read_roi)
-    existing_labels = output_ds.to_ndarray(block.read_roi)
+    data = input_ds.to_ndarray(block.read_roi, fill_value=0)
+    existing_labels = output_ds.to_ndarray(block.read_roi, fill_value=0)
     
     back_to_skimage = (data.transpose(1,2,0) * 255).astype(np.uint8)
     cv2_image = cv2.cvtColor(skimage.util.img_as_ubyte(back_to_skimage), cv2.COLOR_RGB2BGR)
@@ -827,13 +838,12 @@ def segment_blue_objects_with_context(input_group, output_group, block):
 
 # %%
 seg_block_roi = daisy.Roi((0,0), (128, 128))
-seg_block_read_roi = seg_block_roi.grow(10, 10)
-root = zarr.open("sample_data.zarr", 'a')
-del root['blue_objects_with_context']
+seg_block_read_roi = seg_block_roi.grow(context, context)
+
 prepare_ds(
     "sample_data.zarr",
     "blue_objects_with_context",
-    total_roi=total_roi,
+    total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
     dtype=np.uint8,
     write_size=seg_block_roi.shape,
@@ -842,7 +852,7 @@ prepare_ds(
 seg_task = daisy.Task(
     "segmentation_with_context",
     process_function=partial(segment_blue_objects_with_context, "smoothed_for_seg", "blue_objects_with_context"),
-    total_roi=total_roi,
+    total_roi=total_read_roi,
     read_roi=seg_block_read_roi,
     write_roi=seg_block_roi,
     fit="shrink",
