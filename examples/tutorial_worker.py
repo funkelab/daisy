@@ -26,7 +26,7 @@ if __name__ == "__main__":
     print("Client:", client)
 
     # simlate long setup time (e.g. loading a model)
-    # time.sleep(50)
+    time.sleep(50)
 
     while True:
         logger.info("getting block")

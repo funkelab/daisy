@@ -39,7 +39,7 @@ from skimage import data
 import numpy as np
 import matplotlib.pyplot as plt
 
-raw_data = np.flip(data.astronaut(), 0)[0:512, 0:400]
+raw_data = np.flip(data.astronaut(), 0)
 axes_image = plt.imshow(raw_data, zorder=1, origin="lower")
 
 # %% [markdown]
@@ -186,23 +186,20 @@ print("Block read roi:", block.read_roi)  # the Roi which represents the locatio
 print("Block write roi:", block.write_roi)  # the Roi which represents the location in the volume where the process should write the output data
 print("Block status:", block.status)  # The status of the block (e.g. created, in progress, succeeded, failed)
 
-# let's look at the read roi of our block on top of the original figure
+# let's look at the write roi of our block on top of the original figure
 figure = fresh_image()
-display_roi(figure.axes[0], block.read_roi, color="white")
+display_roi(figure.axes[0], block.write_roi, color="white")
 
 # %% [markdown]
 # You may be wondering why the block has a read roi and a write roi - this will be illustrated next in our simple daisy example!
 
 # %% [markdown]
 # # A Simple Example: Local Smoothing
-# TODO: Intro
+# In this next example, we will use gaussian smoothing to illustrate how to parallize a task on your local machine using daisy.
 
 # %% [markdown]
 # ## Dataset Preparation
-# As mentioned earlier, we highly recommend using a zarr backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a multiple of the write_roi.
-#
-# TODO: ....
-#
+# As mentioned earlier, we highly recommend using a zarr/n5 backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a multiple of and aligned with the write_roi. The zarr dataset must exist before you start scheudling though - we recommend using [`funlib.persistence.prepare_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L423) function to prepare the dataset. Then later, you can use [`funlib.persistence.open_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L328) to open the dataset and it will automatically read the metadata and wrap it into a `funlib.persistence.Array`.
 
 # %%
 import zarr
@@ -214,16 +211,17 @@ raw_data_float = raw_data_reshaped.astype(np.float32)/255.0
 f = zarr.open('sample_data.zarr', 'w')
 f['raw'] = raw_data_float
 f['raw'].attrs['offset'] = daisy.Coordinate((0,0))
-f['raw'].attrs['resolution'] = daisy.Coordinate((1,1))
+f['raw'].attrs['resolution'] = daisy.Coordinate((1,1))  # this attribute holds the voxel size
 
 # %%
 from funlib.persistence import prepare_ds
 # prepare an output dataset with a chunk size that is a divisor of the block roi
-n_channels = 3
+
+n_channels = 3 # our output will be an RGB image as well
 prepare_ds(
     "sample_data.zarr",
     "smoothed",
-    total_roi=total_roi,
+    total_roi=total_roi,  # if your output has a different total_roi than your input, you would need to change this
     voxel_size=daisy.Coordinate((1,1)),
     dtype=raw_data_float.dtype,
     write_size=block_size,
@@ -235,41 +233,58 @@ print("Chunk size in output dataset:",f['smoothed'].chunks)
 
 # %% [markdown]
 # ## Define our Process Function
-# TODO: Describe
+# When run locally, daisy process functions must take a block as the only argument. Depending on the multiprocessing spawn function settings on your computer, the function might not inherit the imports and variables of the scope where the scheudler is run, so it is always safer to import and define everything inside the function.
+#
+# Here is an example for smoothing. Generally, daisy process functions have the following three steps:
+# 1. Load the data from disk
+# 2. Process the data
+# 3. Save the result to disk
+#
+# Note that for now, the worker has to know where to load the data from and save the result to. Later we will show you ways around the rule that the process function must only take the block as input, to allow you to pass that information in when you start the scheduler.
 
 # %%
-def smooth_in_roi(block: daisy.Block):
+def smooth(block: daisy.Block):
+    # imports and hyperaparmeters inside scope, to be safe
     from funlib.persistence.arrays import open_ds
     from skimage import filters
-    
     sigma = 5.0
+
+    # open the raw dataset as an Array
     raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
+    # Read the data in the block read roi and turn it into a numpy array
     data = raw_ds.to_ndarray(block.read_roi)
+    # smooth the data using the gaussian filter from skimage
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
+    # open the output smoothed dataset as an Array
     output_ds = open_ds('sample_data.zarr', 'smoothed', 'a')
+    # save the result in the output dataset using the block write roi
     output_ds[block.write_roi] = smoothed
 
 
 # %%
-smooth_in_roi(block)
-
-# %%
+# Let's test the data on our block that we defined earlier and visualize the result
+smooth(block)
 plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed'][:].transpose(1, 2, 0), origin="lower")
 
 # %% [markdown]
 # ## Run daisy with local multiprocessing
-# TODO: Describe
+# We are about ready to run daisy! We need to tell the scheduler the following pieces of information:
+# - The process function, which takes a block as an argument
+# - The total roi to process (in our case, the whole image)
+# - The read roi and write roi of each block (the shape and relative offset are what is important, since they will be shifted as a pair to tile the total_roi)
+# - How many workers to spawn
+#
+# These pieces of information get wrapped into a [`daisy.Task`](https://github.com/funkelab/daisy/blob/master/daisy/task.py), along with a name for the task. Then the `daisy.run_blockwise` function starts the scheduler, which creates all the blocks that tile the total roi, spawns the workers, distributes the blocks to the workers, and reports if the blocks were successfully processed.
 
 # %%
 daisy.run_blockwise([
         daisy.Task(
-            "Smoothing",
-            process_function=smooth_in_roi,
-            total_roi=total_roi,
-            read_roi=block_roi,
-            write_roi=block_roi,
-            fit="shrink",
-            num_workers=5,
+            "Smoothing",  # task name
+            process_function=smooth,  # a function that takes a block as argument
+            total_roi=total_roi,  # The whole roi of the image
+            read_roi=block_roi,  # The roi that the worker should read from
+            write_roi=block_roi,  # the roi that the worker should write to
+            num_workers=5, 
         )
     ]
 )
@@ -279,46 +294,83 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed'][:].transpose(1, 2, 0),
 
 # %% [markdown]
 # ### Take 2: Add context!
+# The task ran successfully, but you'll notice that there are edge artefacts where the blocks border each other. This is because each worker only sees the inside of the block, and it needs more context to smooth seamlessly between blocks. If we increase the size of the read_roi so that each block sees all pixels that contribute meaningfully to the smoothed values in the interior (write_roi) of the block, the edge artefacts should disappear.
 
 # %%
-prepare_ds(
-    "sample_data.zarr",
-    "smoothed_with_context",
-    total_roi=total_roi,
-    voxel_size=daisy.Coordinate((1,1)),
-    dtype=raw_data_float.dtype,
-    write_size=block_size,
-    num_channels=n_channels,
+context = 2*sigma  # pixels beyond 2*sigma contribute almost nothing to the output
+block_read_roi = block_roi.grow(context, context)
+block_write_roi = block_roi
+# we also grow the total roi by the context, so that the write_rois are still in the same place when we tile
+total_read_roi = total_roi.grow(context, context) 
+
+block = daisy.Block(
+    total_roi = total_roi,
+    read_roi = block_read_roi,
+    write_roi = block_write_roi,
 )
 
+# let's look at the new block rois
+figure = fresh_image()
+display_roi(figure.axes[0], block.read_roi, color="purple")
+display_roi(figure.axes[0], block.write_roi, color="white")
+
+
+# %% [markdown]
+# Let's prepare another dataset to store our new and improved smoothing result in. We will be doing this repeatedly through the rest of the tutorial, so we define a helper function to prepare a smoothing result in a given group in the sample_data.zarr.
 
 # %%
-def smooth_in_roi_with_context(block: daisy.Block):
+def prepare_smoothing_ds(group):
+    prepare_ds(
+        "sample_data.zarr",
+        group,
+        total_roi=total_roi,
+        voxel_size=daisy.Coordinate((1,1)),
+        dtype=raw_data_float.dtype,
+        write_size=block_size,
+        num_channels=3,
+    )
+output_group = "smoothed_with_context"
+prepare_smoothing_ds(output_group)
+
+
+# %% [markdown]
+# Now we have to adapt our process function to crop the output before saving. It would be nice to be able to pass the output group in as an argument, so we will show you a workaround using `functools.partial` to partially evaluate the function. To use this workaround, your process function must have the block as the last argument.
+
+# %%
+def smooth_in_block(output_group: str, block: daisy.Block):
+    # imports and hyperaparmeters inside scope, to be safe
     from funlib.persistence.arrays import open_ds, Array
     from skimage import filters
+    import time
     sigma = 5.0
-    context = int(sigma) * 2
-    grown_roi = block.read_roi.grow(context, context)
-    
+    # open the raw dataset as an Array
     raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(grown_roi)
+    # Read the data in the block read roi and turn it into a numpy array
+    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)  # NOTE: this fill value allows you to read outside the total_roi without erroring
+    # smooth the data using the gaussian filter from skimage
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
-    
-    output_ds = open_ds('sample_data.zarr', 'smoothed_with_context', 'a')
-    
-    smoothed = Array(smoothed, roi=grown_roi, voxel_size=(1, 1))
+    # open the output smoothed dataset as an Array
+    output_ds = open_ds('sample_data.zarr', output_group, 'a')
+    # turn the smoothed result into an Array so we can crop it with a Roi (you can also center crop it by the context manually, but this is easier!)
+    smoothed = Array(smoothed, roi=block.read_roi, voxel_size=(1, 1))
+    # save the result in the output dataset using the block write roi
     output_ds[block.write_roi] = smoothed.to_ndarray(block.write_roi)
 
 
+# %% [markdown]
+# Now we can re-run daisy. Note these changes from the previous example:
+# - using `functools.partial` to partially evaluate our `smooth_in_block` function , turning it into a function that only takes the block as an argument
+# - the total_roi is now exapnded to include the context, as is the read_roi
+
 # %%
+from functools import partial
 daisy.run_blockwise([
         daisy.Task(
             "Smoothing with context",
-            process_function=smooth_in_roi_with_context,
-            total_roi=total_roi,
-            read_roi=block_roi,
-            write_roi=block_roi,
-            fit="shrink",
+            process_function=partial(smooth_in_block, output_group),
+            total_roi=total_read_roi,
+            read_roi=block_read_roi,
+            write_roi=block_write_roi,
             num_workers=5,
         )
     ]
@@ -328,75 +380,15 @@ daisy.run_blockwise([
 plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_with_context'][:].transpose(1, 2, 0), origin="lower")
 
 # %% [markdown]
-# ### Take 3: The Daisy Way
-
-# %%
-sigma = 5
-context = int(sigma) * 2
-read_roi = block_roi.grow(context, context)
-total_read_roi = total_roi.grow(context, context)
-total_write_roi = total_roi
-
-# %%
-prepare_ds(
-    "sample_data.zarr",
-    "smoothed_blockwise",
-    total_roi=total_write_roi,
-    voxel_size=daisy.Coordinate((1,1)),
-    dtype=raw_data_float.dtype,
-    write_size=block_size,
-    num_channels=n_channels,
-)
-
-
-# %%
-def smooth_in_block(block: daisy.Block):
-    from funlib.persistence.arrays import open_ds, Array
-    from skimage import filters
-    
-    sigma = 5.0
-    
-    raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
-    smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
-    
-    output_ds = open_ds('sample_data.zarr', 'smoothed_blockwise', 'a')
-    
-    smoothed = Array(smoothed, roi=block.read_roi, voxel_size=(1, 1))
-    output_ds[block.write_roi] = smoothed.to_ndarray(block.write_roi)
-
-
-# %%
-sigma = 5
-context = int(sigma) * 2
-read_roi = block_roi.grow(context, context)
-
-daisy.run_blockwise([
-        daisy.Task(
-            "Smoothing with context",
-            process_function=smooth_in_block,
-            total_roi=total_read_roi,
-            read_roi=read_roi,
-            write_roi=block_roi,
-            fit="shrink",
-            num_workers=5,
-        )
-    ]
-)
-
-# %%
-plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_blockwise'][:].transpose(1, 2, 0), origin="lower")
-
-# %% [markdown]
-# #### Passing arguments to your process function
-# TODO
+# Success! Notice that there is a fade to black at the border, due to the `fill_value=0` argument used when reading the data from the input Array.
+# Smoothing is poorly defined at the border of the volume - if you want different behavior, you can expand the input array to include extended data of your choice at the border, or shrink the total output roi by the context to only include the section of the output that depends on existing data.
 
 # %% [markdown]
 # ## Conclusion: Dask and Daisy
 #
-# Phew! We managed to smooth the image, and along the way you learned the basics of Daisy. In this example, we only parallelized the processing using our local computer's resources, and our "volume" was very small.
+# Congrats! You have learned the basics of Daisy. In this example, we only parallelized the processing using our local computer's resources, and our "volume" was very small.
 #
-# If your task is similar to this toy example, you can use dask to do the same task with many fewer lines of code:
+# If your task is similar to this example, you can use dask to do the same task with many fewer lines of code:
 
 # %%
 # %pip install dask
@@ -420,7 +412,11 @@ smoothed = raw.map_overlap(smooth_in_block_dask, depth=(0, context, context))
 plt.imshow(smoothed.transpose((1, 2, 0)), origin="lower")
 
 # %% [markdown]
-# Notice that there is no saving of the output in a zarr - we simply recieve the whole thing in memory. On this small example, this works very well, but when the whole volume is too large to fit in memory, we need to save the output to disk, as done in daisy. Additionally, dask generates more overhead than daisy, which can be a problem with larger and more complex problems. With daisy, the only object that is sent between the scheduler and the worker is a Block, which as we have learned is lightweight.
+# For some tasks, dask is much simpler and better suited. One key difference between dask and daisy is that in dask, functions are not supposed to have side effects. In daisy, functions are expected to have "side effects" - saving the output, rather than returning it. In general, daisy is designed for...
+# - Cases where the output is too big to be kept in memory
+# - Cases where you want to be able to pick up where you left off after an error, rather than starting the whole task over (because blocks that finished saved their results to disk)
+# - Cases where blocks should be executed in a particular order, so that certain blocks see other blocks outputs (without passing the output through the scheduler)
+# - Cases where the worker function needs setup and teardown that takes longer than processing a block (see our next example!)
 
 # %% [markdown]
 # # Distributing on the Cluster
@@ -586,7 +582,6 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['fault_tolerance'][:].transpose(1,
 
 # %% [markdown]
 # Why is so much more than 60% done? Answer: "max retries"
-# TODO: Also mention log files here
 
 # %%
 root = zarr.open("sample_data.zarr", 'a')
@@ -613,7 +608,7 @@ daisy.run_blockwise([
             fit="shrink",
             read_write_conflict=False,
             max_retries=1,
-            num_workers=3,
+            num_workers=1,
         )
     ]
 )
@@ -621,11 +616,11 @@ daisy.run_blockwise([
 # %%
 plt.imshow(zarr.open('sample_data.zarr', 'r')['fault_tolerance'][:].transpose(1, 2, 0), origin="lower")
 
-
 # %% [markdown]
 # If we re-run enough times, eventually all the holes will fill. But, we can do something smarter!
 
 # %%
+from functools import partial
 def check_complete(output_group, block):
     from funlib.persistence.arrays import open_ds
     import numpy as np
@@ -801,7 +796,7 @@ def segment_blue_objects_with_context(input_group, output_group, block):
         flattened_stacked = np.array([array1[non_zero_indices], array2[non_zero_indices]])
         intersections = np.unique(flattened_stacked, axis=1)
         return intersections  # a <number of pairs> x 2 nparray
-        
+    
     input_ds = open_ds('sample_data.zarr', input_group, "r",)
     output_ds = open_ds('sample_data.zarr', output_group, 'a')
     data = input_ds.to_ndarray(block.read_roi, fill_value=0)
@@ -827,8 +822,8 @@ def segment_blue_objects_with_context(input_group, output_group, block):
     # note: This only works if objects never span multiple rows/columns. If you have long objects like neurons, you need to do true agglomeration
     intersections = get_overlapping_labels(labels, existing_labels)
     for index in range(intersections.shape[1]):
-        new_label, old_label = intersections[:, index]
-        labels[labels == new_label] = old_label
+        new_label, existing_label = intersections[:, index]
+        labels[labels == new_label] = existing_label
 
     time.sleep(0.5)
     output_ds = open_ds('sample_data.zarr', output_group, 'a')
@@ -856,7 +851,7 @@ seg_task = daisy.Task(
     read_roi=seg_block_read_roi,
     write_roi=seg_block_roi,
     fit="shrink",
-    read_write_conflict=True,
+    read_write_conflict=False,
     num_workers=10,
     upstream_tasks=[smoothing_task],
 )
