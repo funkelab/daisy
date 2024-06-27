@@ -439,9 +439,9 @@ def start_subprocess_worker(cluster="local"):
     if cluster == "bsub":
         # this is where you define your cluster arguments specific to your task (gpus, cpus, etc)
         num_cpus_per_worker = 1
-        subprocess.run(["bsub", "-I", f"-n {num_cpus_per_worker}", "python", "./tutorial_worker.py"])
+        subprocess.run(["bsub", "-I", f"-n {num_cpus_per_worker}", "python", "./tutorial_worker.py", "tutorial_config.json"])
     elif cluster== "local":
-        subprocess.run(["python", "./tutorial_worker.py"])
+        subprocess.run(["python", "./tutorial_worker.py", "tutorial_config.json"])
     else:
         raise ValueError("Only bsub and local currently supported for this tutorial")
 
