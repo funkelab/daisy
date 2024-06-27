@@ -3,39 +3,44 @@ import logging
 import time
 from funlib.persistence.arrays import open_ds, Array
 from skimage import filters
-import time
+import sys
+import json
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-def smooth_in_block(block: daisy.Block):
-    sigma = 5.0
-    
-    raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
+# This function is the same as the local function, but we can pass as many different arguments as we want, and we don't need to import inside it
+def smooth_in_block(block: daisy.Block, config: dict):
+    sigma = config["sigma"]
+    raw_ds = open_ds(config["input_zarr"], config["input_group"], "r",)
     data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
     smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
-    
-    output_ds = open_ds('sample_data.zarr', 'smoothed_subprocess', 'a')
-    
+    output_ds = open_ds(config["output_zarr"], config["output_group"], 'a')
     smoothed = Array(smoothed, roi=block.read_roi, voxel_size=(1, 1))
     output_ds[block.write_roi] = smoothed.to_ndarray(block.write_roi)
 
 
 if __name__ == "__main__":
+    # load a config path or other parameters from the sysargs (recommended to use argparse argument parser for anything more complex)
+    config_path = sys.argv[1]
+    
+    # load the config
+    with open(config_path) as f:
+        config = json.load(f)
+    
+    # simulate long setup time (e.g. loading a model)
+    time.sleep(20)
+    
+    # set up the daisy client (this is done by daisy automatically in the local example)
+    # it depends on environment variables to determine configuration
     client = daisy.Client()
-    print("Client:", client)
-
-    # simlate long setup time (e.g. loading a model)
-    time.sleep(50)
 
     while True:
-        logger.info("getting block")
+        # ask for a block from the scheduler
         with client.acquire_block() as block:
 
+            # The scheduler will return None when there are no more blocks left
             if block is None:
                 break
 
-            logger.info(f"got block {block}")
-            smooth_in_block(block)
-
-            logger.info(f"releasing block: {block}")
+            # process your block! 
+            # Note: you can now define whatever function signature you want, rather than being limited to one block argument
+            smooth_in_block(block, config)
