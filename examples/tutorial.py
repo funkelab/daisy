@@ -293,7 +293,7 @@ daisy.run_blockwise([
 plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed'][:].transpose(1, 2, 0), origin="lower")
 
 # %% [markdown]
-# ### Take 2: Add context!
+# ## Take 2: Add context!
 # The task ran successfully, but you'll notice that there are edge artefacts where the blocks border each other. This is because each worker only sees the inside of the block, and it needs more context to smooth seamlessly between blocks. If we increase the size of the read_roi so that each block sees all pixels that contribute meaningfully to the smoothed values in the interior (write_roi) of the block, the edge artefacts should disappear.
 
 # %%
@@ -523,30 +523,28 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed_subprocess'][:].transpos
 # # Important Features
 
 # %% [markdown]
+# There are a few more features that you should know about to take full advantage of daisy!
+
+# %% [markdown]
 # ## Fault tolerance and the pre-check function
 
+# %% [markdown]
+# Even if your code is completely bug-free, things will always go wrong eventually when scaling up to millions of workers. Perhaps your node on the cluster was shared with another process that temporarily hogged too much memory, or you forgot to set a longer timeout and the process was killed after 8 hours. Let's see how daisy can help you handle these issues, by seeing what happens when we add random failures to our smoothing task.
+
 # %%
-prepare_ds(
-    "sample_data.zarr",
-    "fault_tolerance",
-    total_roi=total_write_roi,
-    voxel_size=daisy.Coordinate((1,1)),
-    dtype=raw_data_float.dtype,
-    write_size=block_size,
-    num_channels=n_channels,
-)
+# as always, prepare a new output smoothing  dataset
+prepare_smoothing_ds("fault_tolerance")
 
 
 # %%
 # simulate failing 50% of the time
 def smooth_in_block_with_failure(block: daisy.Block):
     import random
+    from funlib.persistence.arrays import open_ds, Array
+    from skimage import filters
 
     if random.random() < 0.5:
         raise ValueError("Simulating random failure")
-
-    from funlib.persistence.arrays import open_ds, Array
-    from skimage import filters
     
     sigma = 5.0
     
@@ -572,7 +570,6 @@ daisy.run_blockwise([
             total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
-            fit="shrink",
             read_write_conflict=False,
             num_workers=5,
         )
@@ -582,24 +579,23 @@ daisy.run_blockwise([
 # %%
 plt.imshow(zarr.open('sample_data.zarr', 'r')['fault_tolerance'][:].transpose(1, 2, 0), origin="lower")
 
+
 # %% [markdown]
-# Why is so much more than 60% done? Answer: "max retries"
+# Debugging multi-process code is inherently difficult, but daisy tries to provide as much information as possible. First, you see the progress bar, which also reports the number of blocks at each state, including failed blocks. Any worker error messages are also logged to the scheduler log, although not the full traceback. Upon completion, daisy provides an error summary, which informs you of the final status of all the blocks, and points you to the full output and error logs for each worker, which can be found in `daisy_logs/<task_name>`. The worker error log will contain the full traceback for debugging the exact source of an error.
+
+# %% [markdown]
+# You may have noticed that while we coded the task to fail 50% of the time, much more than 50% of the blocks succeeded. This is because daisy by default retries each block 3 times (on different workers) before marking it as failed, to deal gracefully with random error.  We will re-run this example, but set max_retries=1 to see the effect of this parameter.
 
 # %%
-root = zarr.open("sample_data.zarr", 'a')
-del root['fault_tolerance']
+# delete and re-create the dataset, so that we start from zeros again
+def delete_ds(group):
+    root = zarr.open("sample_data.zarr", 'a')
+    if group in root:
+        del root[group]
+delete_ds("fault_tolerance")
+prepare_smoothing_ds("fault_tolerance")
 
 # %%
-prepare_ds(
-    "sample_data.zarr",
-    "fault_tolerance",
-    total_roi=total_write_roi,
-    voxel_size=daisy.Coordinate((1,1)),
-    dtype=raw_data_float.dtype,
-    write_size=block_size,
-    num_channels=n_channels,
-)
-
 daisy.run_blockwise([
         daisy.Task(
             "fault tolerance test",
@@ -607,10 +603,9 @@ daisy.run_blockwise([
             total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
-            fit="shrink",
             read_write_conflict=False,
             max_retries=1,
-            num_workers=1,
+            num_workers=5,
         )
     ]
 )
@@ -618,11 +613,15 @@ daisy.run_blockwise([
 # %%
 plt.imshow(zarr.open('sample_data.zarr', 'r')['fault_tolerance'][:].transpose(1, 2, 0), origin="lower")
 
+
 # %% [markdown]
-# If we re-run enough times, eventually all the holes will fill. But, we can do something smarter!
+# We still have greater than 50% success! This is because if a specific worker fails multiple times, daisy will assume something might have gone wrong with that worker. The scheduler will shut down and restart the worker, and retry the blocks that failed on that worker. So daisy is very robust to random error. 
+#
+# But what about non-random error, like stopping after 8 hours? If you don't want to re-process all the already processed blocks from a prior run, you can write a function that takes a block and checks if it is complete, and pass it to the scheduler. The scheduler will run this check function on each block and skip the block if the check function returns true.
+#
+# Here is an example check function for our smoothing task, that checks if there are any non-zero values in the output array
 
 # %%
-from functools import partial
 def check_complete(output_group, block):
     from funlib.persistence.arrays import open_ds
     import numpy as np
@@ -631,8 +630,12 @@ def check_complete(output_group, block):
         return True
     else:
         return False
-    
 
+
+# %% [markdown]
+# If we re-run the task, but with the check function provided, you should see in the execution summary that all the blocks that finished before are skipped. You can continue re-running until you reach 100% completion, without ever re-processing those same blocks
+
+# %%
 daisy.run_blockwise([
         daisy.Task(
             "fault tolerance test",
@@ -640,9 +643,9 @@ daisy.run_blockwise([
             total_roi=total_read_roi,
             read_roi=read_roi,
             write_roi=block_roi,
-            fit="shrink",
             read_write_conflict=False,
             max_retries=1,
+            num_workers=5,
             check_function=partial(check_complete, "fault_tolerance")
         )
     ]
@@ -653,116 +656,109 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['fault_tolerance'][:].transpose(1,
 
 
 # %% [markdown]
-# Note: your pre-check function has to be faster than your actual function for this to be worth it. We recommend saving the block id as a file in a shared file system or database at the end of the worker function.
+# Unfortunately, this is a pretty inefficient pre-check function, because you have to actually read the output data to see if the block is completed. Since this will be run on the scheduler on every block before it is passed to a worker, it might not even be faster than just re-processing the blocks (which is at least distributed). If you plan to have extremely long running jobs that might get killed in the middle, we recommend including a step in your process function after you write out the result of a block, in which you write out the block id to a database or a file. Then, the pre-check function can just check if the block id is in the file system or database, which is much faster than reading the actual data.
 
 # %% [markdown]
 # ## Task chaining
 
 # %% [markdown]
-# Say we have a function to segment out instances of blue objects in an image, and we want to apply it after smoothing. We can define two tasks and run them sequentially in the scheduler.
-
-# %%
-def smooth_in_block(output_group, block: daisy.Block):
-    from funlib.persistence.arrays import open_ds, Array
-    from skimage import filters
-    
-    sigma = 5.0
-    
-    raw_ds = open_ds('sample_data.zarr', 'raw', "r",)
-    data = raw_ds.to_ndarray(block.read_roi, fill_value=0)
-    smoothed = filters.gaussian(data, sigma=sigma, channel_axis=0)
-    
-    output_ds = open_ds('sample_data.zarr', output_group, 'a')
-    
-    smoothed = Array(smoothed, roi=block.read_roi, voxel_size=(1, 1))
-    output_ds[block.write_roi] = smoothed.to_ndarray(block.write_roi)
-
+# Frequently, image processing pipelines involve multiple tasks, where some tasks depend on the output of other tasks. For example, we have a function to segment out instances of blue objects in an image, and we want to apply it after smoothing. We can define two tasks and run them sequentially in the scheduler. Daisy will even begin the second task as soon as a single block can be run, rather than waiting for the first task to fully complete before starting the second task.
 
 # %%
 # %pip install opencv-python
 
 # %%
+# here is our function to segment blue objects
+# it is just thresholding in HSV space, so unlike smoothing, the neighboring pixels do not affect the outcome
+# There is probably a nicer way to get the image into hsv space, but this gets the job done!
 def segment_blue_objects(input_group, output_group, block):
     import cv2
     from funlib.persistence.arrays import open_ds, Array
     import numpy as np
     import skimage
-    
+
+    # load the data as usual
     input_ds = open_ds('sample_data.zarr', input_group, "r",)
     data = input_ds.to_ndarray(block.read_roi)
-    
+
+    # massage the data into open cv hsv format :/
     back_to_skimage = (data.transpose(1,2,0) * 255).astype(np.uint8)
     cv2_image = cv2.cvtColor(skimage.util.img_as_ubyte(back_to_skimage), cv2.COLOR_RGB2BGR)
     hsv_image = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2HSV)
+    
     # Define the color range for detection
     lower_blue = np.array([100,30,0])
     upper_blue = np.array([150,255,255])
-    # Threshold the image to get only blue colors
-    mask = cv2.inRange(hsv_image, lower_blue, upper_blue)
-    mask = mask.astype(np.uint16)
     
-    mask = mask // 255
+    # Threshold the image to get only blue colors
+    mask = cv2.inRange(hsv_image, lower_blue, upper_blue)  # this returns 0 and 255
+    mask = mask.astype(np.uint16)
+    mask = mask // 255  # turn into 0/1 labels
+
+    # give each connected component its own instance segmentation label
     labels = skimage.measure.label(mask)
+    
     # get a unique ID for each element in the whole volume (avoid repeats between blocks)
     block_id_mask = mask * (block.block_id[1])
     labels = labels + block_id_mask
 
+    # save the output
     output_ds = open_ds('sample_data.zarr', output_group, 'a')
     output_ds[block.write_roi] = labels
 
 
+# %% [markdown]
+# Previously, we always defined our `daisy.Task` inside the call to `daisy.run_blockwise`. Now, we need to save our smoothing task in a variable so we can reference it as a dependency our segmentation task.
+
 # %%
+# as always, prepare the output dataset
+delete_ds("smoothed_for_seg")
+prepare_smoothing_ds("smoothed_for_seg")
 
-prepare_ds(
-    "sample_data.zarr",
-    "smoothed_for_seg",
-    total_roi=total_write_roi,
-    voxel_size=daisy.Coordinate((1,1)),
-    dtype=raw_data_float.dtype,
-    write_size=block_size,
-    num_channels=n_channels,
-)
-
-sigma = 5
-context = int(sigma) * 2
-read_roi = block_roi.grow(context, context)
-
+# same smoothing task as usual, with unqiue output dataset
 smoothing_task = daisy.Task(
     "smooth_for_seg",
     process_function=partial(smooth_in_block, "smoothed_for_seg"),
     total_roi=total_read_roi,
     read_roi=read_roi,
     write_roi=block_roi,
-    fit="shrink",
-    num_workers=5,
+    num_workers=1,
     read_write_conflict=False,
     check_function=partial(check_complete, "smoothed_for_seg")
 )
+
+# %% [markdown]
+# Next, we make our segmentatation task. Each task can have different hyperaparameters, including block sizes and total rois. For the segmentation, we will double the block size and not add context, since unlike smoothing, thresholding does not depend on neighboring pixels.
+#
+# Since our instance segmentation output has different output data type, no channels, and a different total output roi, we need to change our arguments to `prepare_ds` for this task.
 
 # %%
 # you can have different block sizes in different tasks
 seg_block_roi = daisy.Roi((0,0), (128, 128))
 
+delete_ds("blue_objects")
 prepare_ds(
     "sample_data.zarr",
     "blue_objects",
-    total_roi=total_write_roi,
+    total_roi=total_roi,
     voxel_size=daisy.Coordinate((1,1)),
-    dtype=np.uint8,
-    write_size=seg_block_roi.shape,
+    dtype=np.uint16,  # This is different! Our labels will be uint16
+    write_size=seg_block_roi.shape,  # use the new block roi to determine the chunk size
 )
 
 seg_task = daisy.Task(
     "segmentation",
     process_function=partial(segment_blue_objects, "smoothed_for_seg", "blue_objects"),
-    total_roi=total_write_roi, # Note: This task does not have context (yet...?)
-    read_roi=seg_block_roi,
-    write_roi=seg_block_roi,
-    fit="shrink",
+    total_roi=total_roi, # Note: This task does not have context (yet...?)
+    read_roi=seg_block_roi, # again, no context
+    write_roi=seg_block_roi,  # so read and write rois are the same
     read_write_conflict=False,
     num_workers=5,
-    upstream_tasks=[smoothing_task],
+    upstream_tasks=[smoothing_task],  # Here is where we define that this task depends on the output of the smoothing task
 )
+
+# %% [markdown]
+# Note the `upstream_tasks` argument - this is how you tell the scheduler that this task depends on the output of the smoothing task. Then, we can pass both tasks into `run_blockwise`. You should see that the process bar for the segmentation task starts before the smoothing progress bar completes.
 
 # %%
 daisy.run_blockwise([smoothing_task, seg_task])
@@ -773,14 +769,55 @@ figure, axes = plt.subplots(1, 2)
 axes[0].imshow(zarr.open('sample_data.zarr', 'r')['smoothed_for_seg'][:].transpose(1,2,0), origin="lower")
 axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects'][:]), origin="lower")
 
+# %% [markdown]
+# Success! On the task chaining, anyways. Now let's discuss how to fix the issue with blue objects that are split across blocks having different labels.
 
 # %% [markdown]
 # ## Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
 
 # %% [markdown]
-# How can we resolve the labels of adjacent blocks?
+# So far, we have always written process functions that read from one input array and write to one output array. However, we have much more flexibility than that - daisy just gives the worker the block, and the worker can do whatever it wants. 
+#
+# Say we expand our read_roi as before. Then each block can check the existing output dataset to see if its neighbors assigned any labels, and extend them if they are there. Let's visualize an example:
+#
 
 # %%
+context = 10  # It could be as low as 1, but we use 10 for ease of visualization
+seg_block_roi = daisy.Roi((128,128), (128, 128))
+seg_read_roi = seg_block_roi.grow(context, context)
+seg_write_roi = seg_block_roi
+seg_total_read_roi = total_roi.grow(context, context) 
+
+seg_block = daisy.Block(
+    total_roi = seg_total_read_roi,
+    read_roi = seg_read_roi,
+    write_roi = seg_write_roi,
+)
+
+# simulate this block not being completed yet
+from funlib.persistence import open_ds
+output_ds = open_ds("sample_data.zarr", "blue_objects", "a")
+output_ds[seg_block.write_roi] = 0
+
+from skimage.color import label2rgb
+figure, axes = plt.subplots(1, 2)
+axes[0].imshow(zarr.open('sample_data.zarr', 'r')['smoothed_for_seg'][:].transpose(1,2,0), origin="lower")
+axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects'][:]), origin="lower")
+display_roi(figure.axes[0], seg_block.read_roi, color="purple")
+display_roi(figure.axes[0], seg_block.write_roi, color="white")
+display_roi(figure.axes[1], seg_block.read_roi, color="purple")
+display_roi(figure.axes[1], seg_block.write_roi, color="white")
+
+
+# %% [markdown]
+# Here the purple is the read_roi of our current block, and the white is the write_roi. As before, the process function will read the input image in the read_roi and segment it. From the previous result visualization, we can see that the function will detect the top half of the crest and assign it the pink label.
+#
+# Before we write out the pink object to the write_roi of the output dataset, however, we can adapt the process function to **also read in the existing results in the output dataset** in the read_roi. The existing blue label will then overlap with the pink label, and our process function can relabel the top half of the crest blue based on this information, before writing to the write_roi.
+#
+# This approach only works if the overlapping blocks are run sequentially. If they are run in parallel, it is possible that the blue label will not yet be there when our current block reads existing labels, but also that our pink label will not yet be there when the block containing the blue object reads existing labels. If `read_write_conflicts` argument is set to True in a task, the daisy scheduler will ensure that pairs of blocks with overlapping read/write rois will never be run at the same time, thus avoiding this race condition.
+
+# %%
+# here is the new and improved segmentation function that reads in neighboring output context
 def segment_blue_objects_with_context(input_group, output_group, block):
     import cv2
     from funlib.persistence.arrays import open_ds, Array
@@ -790,6 +827,7 @@ def segment_blue_objects_with_context(input_group, output_group, block):
     import time
     
     def get_overlapping_labels(array1, array2):
+        """ A function to get all pairs of labels that intsersect between two arrays"""
         array1 = array1.flatten()
         array2 = array2.flatten()
         # get indices where both are not zero (ignore background)
@@ -799,50 +837,64 @@ def segment_blue_objects_with_context(input_group, output_group, block):
         intersections = np.unique(flattened_stacked, axis=1)
         return intersections  # a <number of pairs> x 2 nparray
     
+    # load the data as usual
     input_ds = open_ds('sample_data.zarr', input_group, "r",)
-    output_ds = open_ds('sample_data.zarr', output_group, 'a')
-    data = input_ds.to_ndarray(block.read_roi, fill_value=0)
-    existing_labels = output_ds.to_ndarray(block.read_roi, fill_value=0)
-    
+    data = input_ds.to_ndarray(block.read_roi, fill_value=0) # add the fill value because context
+
+    # massage the data into open cv hsv format :/
     back_to_skimage = (data.transpose(1,2,0) * 255).astype(np.uint8)
     cv2_image = cv2.cvtColor(skimage.util.img_as_ubyte(back_to_skimage), cv2.COLOR_RGB2BGR)
     hsv_image = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2HSV)
+    
     # Define the color range for detection
     lower_blue = np.array([100,30,0])
     upper_blue = np.array([150,255,255])
-    # Threshold the image to get only blue colors
-    mask = cv2.inRange(hsv_image, lower_blue, upper_blue)
-    mask = mask.astype(np.uint16)
     
-    mask = mask // 255
+    # Threshold the image to get only blue colors
+    mask = cv2.inRange(hsv_image, lower_blue, upper_blue)  # this returns 0 and 255
+    mask = mask.astype(np.uint16)
+    mask = mask // 255  # turn into 0/1 labels
+
+    # give each connected component its own instance segmentation label
     labels = skimage.measure.label(mask)
+    
     # get a unique ID for each element in the whole volume (avoid repeats between blocks)
     block_id_mask = mask * (block.block_id[1])
     labels = labels + block_id_mask
 
+    # load the existing labels in the output
+    output_ds = open_ds('sample_data.zarr', output_group, 'a')
+    existing_labels = output_ds.to_ndarray(block.read_roi, fill_value=0)
+    
     # if there are existing labels, change the label to match
-    # note: This only works if objects never span multiple rows/columns. If you have long objects like neurons, you need to do true agglomeration
+    # note: This only works if objects never span multiple rows/columns. 
+    # If you have long objects like neurons, you need to do true agglomeration
     intersections = get_overlapping_labels(labels, existing_labels)
     for index in range(intersections.shape[1]):
-        new_label, existing_label = intersections[:, index]
-        labels[labels == new_label] = existing_label
+        label, existing_label = intersections[:, index]
+        # Change the label to the one that was already in the neighbor
+        labels[labels == label] = existing_label
 
-    time.sleep(0.5)
-    output_ds = open_ds('sample_data.zarr', output_group, 'a')
+    time.sleep(0.5)  # included to show that read_write_conflicts=False leads to race conditions
+
+    # center crop and save the output dataset
     output_array = Array(labels, roi=block.read_roi, voxel_size=(1, 1))
     output_ds[block.write_roi] = output_array.to_ndarray(block.write_roi)
 
 
 # %%
+
+# %%
 seg_block_roi = daisy.Roi((0,0), (128, 128))
 seg_block_read_roi = seg_block_roi.grow(context, context)
 
+delete_ds("blue_objects_with_context")
 prepare_ds(
     "sample_data.zarr",
     "blue_objects_with_context",
     total_roi=total_write_roi,
     voxel_size=daisy.Coordinate((1,1)),
-    dtype=np.uint8,
+    dtype=np.uint16,
     write_size=seg_block_roi.shape,
 )
 
@@ -852,8 +904,7 @@ seg_task = daisy.Task(
     total_roi=total_read_roi,
     read_roi=seg_block_read_roi,
     write_roi=seg_block_roi,
-    fit="shrink",
-    read_write_conflict=False,
+    read_write_conflict=True,  # this ensures neighboring blocks aren't run at the same time
     num_workers=10,
     upstream_tasks=[smoothing_task],
 )
@@ -864,5 +915,13 @@ from skimage.color import label2rgb
 figure, axes = plt.subplots(1, 2)
 axes[0].imshow(zarr.open('sample_data.zarr', 'r')['smoothed_for_seg'][:].transpose(1,2,0), origin="lower")
 axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects_with_context'][:]), origin="lower")
+
+# %% [markdown]
+# All the labels are now consistent! If you re-run the previous cell with `read_write_conflict=False`, you should see an inconsistent result again due to the race conditions, even though the process function still reads the neighboring output.
+
+# %% [markdown]
+# This pattern where one block wants to see the output of its neighbors so it can incorporate them into its processing comes up surprisingly often, from agglomeration to tracking. See [this blog post](https://localshapedescriptors.github.io/#throughput) for visualizations of this process in neuron segmentation. Setting `read_write_conflicts=True` allows you to solve many complex tasks in this manner. 
+#
+# **IMPORTANT PERFORMANCE NOTE:** Be aware that `read_write_conflicts` is set to `True` by default and can lead to performance hits in cases where you don't need it, so be sure to turn it off if you want every block to be run in parallel!
 
 # %%
