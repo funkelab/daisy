@@ -781,7 +781,7 @@ axes[0].imshow(zarr.open('sample_data.zarr', 'r')['smoothed_for_seg'][:].transpo
 axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects'][:]), origin="lower")
 
 # %% [markdown]
-# Success! On the task chaining, anyways. Now let's discuss how to fix the issue with blue objects that are split across blocks having different labels.
+# Now we know how to chain tasks together, but we've created another issue. If objects crossed block boundaries, they were assigned different IDs. We will address this problem in the next section.
 
 # %% [markdown]
 # ## Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
@@ -789,7 +789,7 @@ axes[1].imshow(label2rgb(zarr.open('sample_data.zarr', 'r')['blue_objects'][:]),
 # %% [markdown]
 # So far, we have always written process functions that read from one input array and write to one output array. However, we have much more flexibility than that - daisy just gives the worker the block, and the worker can do whatever it wants. 
 #
-# Say we expand our read_roi as before. Then each block can check the existing output dataset to see if its neighbors assigned any labels, and extend them if they are there. Let's visualize an example:
+# Say we expand our read_roi as before. Reading more of the input context of a block does not help us resolve our conflicting labels, but looking at the block's neighbors' output can help! Let's visualize an example:
 #
 
 # %%
