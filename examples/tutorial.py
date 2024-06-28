@@ -199,7 +199,7 @@ display_roi(figure.axes[0], block.write_roi, color="white")
 
 # %% [markdown]
 # ## Dataset Preparation
-# As mentioned earlier, we highly recommend using a zarr/n5 backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a multiple of and aligned with the write_roi. The zarr dataset must exist before you start scheudling though - we recommend using [`funlib.persistence.prepare_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L423) function to prepare the dataset. Then later, you can use [`funlib.persistence.open_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L328) to open the dataset and it will automatically read the metadata and wrap it into a `funlib.persistence.Array`.
+# As mentioned earlier, we highly recommend using a zarr/n5 backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a divisor of and aligned with the write_roi. The zarr dataset must exist before you start scheduling though - we recommend using [`funlib.persistence.prepare_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L423) function to prepare the dataset. Then later, you can use [`funlib.persistence.open_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L328) to open the dataset and it will automatically read the metadata and wrap it into a `funlib.persistence.Array`.
 
 # %%
 import zarr
@@ -297,6 +297,7 @@ plt.imshow(zarr.open('sample_data.zarr', 'r')['smoothed'][:].transpose(1, 2, 0),
 # The task ran successfully, but you'll notice that there are edge artefacts where the blocks border each other. This is because each worker only sees the inside of the block, and it needs more context to smooth seamlessly between blocks. If we increase the size of the read_roi so that each block sees all pixels that contribute meaningfully to the smoothed values in the interior (write_roi) of the block, the edge artefacts should disappear.
 
 # %%
+sigma = 5
 context = 2*sigma  # pixels beyond 2*sigma contribute almost nothing to the output
 block_read_roi = block_roi.grow(context, context)
 block_write_roi = block_roi
@@ -360,7 +361,7 @@ def smooth_in_block(output_group: str, block: daisy.Block):
 # %% [markdown]
 # Now we can re-run daisy. Note these changes from the previous example:
 # - using `functools.partial` to partially evaluate our `smooth_in_block` function , turning it into a function that only takes the block as an argument
-# - the total_roi is now exapnded to include the context, as is the read_roi
+# - the total_roi is now expanded to include the context, as is the read_roi
 
 # %%
 from functools import partial
@@ -499,17 +500,19 @@ def start_subprocess_worker(cluster="local"):
 
 
 # %% [markdown]
-# The most important thing to notice about the new worker script is the use of the `client.acquire_block()` function. No longer does our process function accept a block as input - instead, it has no arguments, and is expected to specifically request a block. This means that rather than spawning one worker per block, the workers are persistent for the full time the task is running, and can request process and return many blocks.
+# The most important thing to notice about the new worker script is the use of the `client.acquire_block()` function. No longer does our process function accept a block as input - instead, it has no arguments, and is expected to specifically request a block. If you provide a process function that takes a block as input, daisy will create the `daisy.Client`, `while` loop, and `client.acquire_block()` context for you. 
 #
-# This is particularly helpful when worker startup is expensive - loading saved network weights can be more expensive than actually predicting for one block, so you definitely would not want to load the model separately for each block. We have simulated this by using time.sleep() in the setup of the worker, so when you run the next cell, it should take 20 seconds to start up and then the blocks should process quickly after that.
+# Doing the `daisy.Client` set up yourself is helpful when worker startup is expensive - loading saved network weights can be more expensive than actually predicting for one block, so you definitely would not want to load the model separately for each block. We have simulated this by using time.sleep() in the setup of the worker, so when you run the next cell, it should take 20 seconds to start up and then the blocks should process quickly after that.
 
 # %%
 # note: Must be on submit node to run this with bsub argument
+# For Janelians: Don't use the login node to run the scheduler! 
+#     Instead, use the submit node, which can handle more computational load
 tutorial_task = daisy.Task(
     "smoothing_subprocess",
     total_roi=total_read_roi,
-    read_roi=read_roi,
-    write_roi=block_roi,
+    read_roi=block_read_roi,
+    write_roi=block_write_roi,
     process_function=partial(start_subprocess_worker, "local"),
     num_workers=2,
 )
