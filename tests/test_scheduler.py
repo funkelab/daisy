@@ -513,3 +513,31 @@ def test_zero_levels_failure(task_zero_levels):
         task_state.failed_count + task_state.orphaned_count
         == task_state.total_block_count
     ), task_state
+
+def test_orphan_double_counting():
+    def process_block(block):
+        pass
+
+    task = Task(
+        task_id="test_orphans",
+        total_roi=Roi((0, 0), (25, 25)),
+        read_roi=Roi((0, 0), (7, 7)),
+        write_roi=Roi((3, 3), (1, 1)),
+        process_function=process_block,
+        check_function=None,
+        read_write_conflict=True,
+    )
+    scheduler = Scheduler([task])
+
+    while True:
+        block = scheduler.acquire_block(task.task_id)
+        if block is None:
+            break
+        block.status = BlockStatus.FAILED
+        scheduler.release_block(block)
+
+    task_state = scheduler.task_states[task.task_id]
+    assert (
+        task_state.failed_count + task_state.orphaned_count
+        == task_state.total_block_count
+    ), task_state

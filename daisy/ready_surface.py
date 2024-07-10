@@ -16,7 +16,7 @@ class ReadySurface:
         2) it has downstream dependencies marked as OTHER
     A node is a BOUNDARY node iff
         1) it has been marked as failed
-        2) It has upstream dependencies marked as SURFACE
+        2) it has upstream dependencies marked as SURFACE
     """
 
     def __init__(self, get_downstream_nodes, get_upstream_nodes):
@@ -103,7 +103,7 @@ class ReadySurface:
         # recurse through downstream nodes, adding them to boundary if
         # necessary
         down_nodes = set(self.downstream(node))
-        orphans = set(down_nodes)
+        orphans = set()
         while len(down_nodes) > 0:
             down_node = down_nodes.pop()
             if self.__add_to_boundary(down_node):
@@ -111,11 +111,7 @@ class ReadySurface:
                 # nodes.
                 new_nodes = set(self.downstream(down_node)) - orphans
                 down_nodes = down_nodes.union(new_nodes)
-                orphans = orphans.union(new_nodes)
-            elif count_all_orphans:
-                new_nodes = set(self.downstream(down_node)) - orphans
-                down_nodes = down_nodes.union(new_nodes)
-                orphans - orphans.union(new_nodes)
+                orphans.add(down_node)
 
         # check if any of the upstream nodes can be removed from surface
         for up_node in up_nodes:
