@@ -1,5 +1,5 @@
 import daisy
-import unittest
+import pytest
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -9,7 +9,8 @@ def process_block(block):
     print("Processing block %s" % block)
 
 
-def test_basic():
+@pytest.mark.parametrize("server", [daisy.Server(), daisy.SerialServer()])
+def test_basic(server):
 
     task = daisy.Task(
         "test_server_task",
@@ -25,5 +26,4 @@ def test_basic():
         timeout=None,
     )
 
-    server = daisy.Server()
     server.run_blockwise([task])

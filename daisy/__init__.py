@@ -11,6 +11,7 @@ from .logging import get_worker_log_basename, redirect_stdouterr  # noqa
 from .roi import Roi  # noqa
 from .scheduler import Scheduler  # noqa
 from .server import Server  # noqa
+from .serial_server import SerialServer  # noqa
 from .task import Task  # noqa
 from .worker import Worker  # noqa
 from .worker_pool import WorkerPool  # noqa
