@@ -41,20 +41,12 @@ class SerialServer(ServerObservee):
                 self.notify_acquire_block(
                     block.task_id, scheduler.task_states[block.task_id]
                 )
-                try:
-                    process_funcs[block.task_id](block)
-                    block.status = BlockStatus.SUCCESS
-                except Exception as e:
-                    if isinstance(e, KeyboardInterrupt):
-                        raise e
-                    logger.error(f"Error processing block {block.block_id}: {e}")
-                    block.status = BlockStatus.FAILED
-                    self.notify_block_failure(block, e, {"worker_id": "serial"})
-                finally:
-                    scheduler.release_block(block)
-                    self.notify_release_block(
-                        block.task_id, scheduler.task_states[block.task_id]
-                    )
+                process_funcs[block.task_id](block)
+                block.status = BlockStatus.SUCCESS
+                scheduler.release_block(block)
+                self.notify_release_block(
+                    block.task_id, scheduler.task_states[block.task_id]
+                )
 
                 if scheduler.task_states[block.task_id].is_done():
                     self.notify_task_done(
