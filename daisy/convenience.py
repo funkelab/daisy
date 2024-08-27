@@ -39,7 +39,7 @@ def run_blockwise(tasks, multiprocessing=True):
         server = SerialServer()
         cl_monitor = CLMonitor(server)
         return server.run_blockwise(tasks)
-    
+
     else:
         stop_event = Event()
 

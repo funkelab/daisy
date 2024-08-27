@@ -166,8 +166,8 @@ class Task:
             self.init_callback_fn = self._default_init
 
         args = getfullargspec(process_function).args
-        if 'self' in args:
-            args.remove('self')
+        if "self" in args:
+            args.remove("self")
         if len(args) == 0:
             # spawn function
             self.spawn_worker_function = process_function
