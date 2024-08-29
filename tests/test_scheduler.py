@@ -514,6 +514,7 @@ def test_zero_levels_failure(task_zero_levels):
         == task_state.total_block_count
     ), task_state
 
+
 def test_orphan_double_counting():
     def process_block(block):
         pass
