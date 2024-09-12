@@ -1,5 +1,6 @@
 from .block import BlockStatus
 from .context import Context
+from .logging import set_log_basedir
 from .messages import (
     AcquireBlock,
     BlockFailed,
@@ -56,6 +57,7 @@ class Client:
             self.context = Context.from_env()
         logger.debug("Client context: %s", self.context)
 
+        set_log_basedir(self.context["logdir"])
         self.host = self.context["hostname"]
         self.port = int(self.context["port"])
         self.worker_id = int(self.context["worker_id"])

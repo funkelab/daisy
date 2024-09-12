@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+from .logging import get_log_basedir
 
 logger = logging.getLogger(__name__)
 
@@ -11,7 +12,7 @@ class Context:
 
     def __init__(self, **kwargs):
 
-        self.__dict = dict(**kwargs)
+        self.__dict = dict(logdir=get_log_basedir(), **kwargs)
 
     def copy(self):
 

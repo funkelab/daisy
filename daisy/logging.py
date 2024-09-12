@@ -22,10 +22,16 @@ def set_log_basedir(path):
     else:
         LOG_BASEDIR = None
 
+def get_log_basedir():
+    """Get the base directory for logging."""
+    global LOG_BASEDIR
+    return LOG_BASEDIR
+
 
 def get_worker_log_basename(worker_id, task_id=None):
     """Get the basename of log files for individual workers."""
-
+    global LOG_BASEDIR
+    
     if LOG_BASEDIR is None:
         return None
 
