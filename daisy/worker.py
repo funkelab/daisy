@@ -91,6 +91,8 @@ class Worker:
         try:
 
             os.environ[self.context.ENV_VARIABLE] = self.context.to_env()
+            log_base = self.context.get("logdir", daisy_logging.get_log_basedir())
+            daisy_logging.set_log_basedir(log_base)
 
             log_base = daisy_logging.get_worker_log_basename(
                 self.worker_id, self.context.get("task_id", None)

@@ -2,7 +2,6 @@ from time import time
 from .block import BlockStatus
 from .block_bookkeeper import BlockBookkeeper
 from .context import Context
-from .logging import get_log_basedir
 from .messages import (
     AcquireBlock,
     BlockFailed,
