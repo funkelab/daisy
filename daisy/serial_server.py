@@ -42,7 +42,10 @@ class SerialServer(ServerObservee):
                     block.task_id, scheduler.task_states[block.task_id]
                 )
                 process_funcs[block.task_id](block)
-                block.status = BlockStatus.SUCCESS
+                if not block.status == BlockStatus.FAILED:
+                    # unless explicitly set to failed, we assume the block is successful
+                    # if processing executed without raising an exception
+                    block.status = BlockStatus.SUCCESS
                 scheduler.release_block(block)
                 self.notify_release_block(
                     block.task_id, scheduler.task_states[block.task_id]
