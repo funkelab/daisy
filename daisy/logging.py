@@ -22,6 +22,7 @@ def set_log_basedir(path):
     else:
         LOG_BASEDIR = None
 
+
 def get_log_basedir():
     """Get the base directory for logging."""
     global LOG_BASEDIR
@@ -30,12 +31,10 @@ def get_log_basedir():
 
 def get_worker_log_basename(worker_id, task_id=None):
     """Get the basename of log files for individual workers."""
-    global LOG_BASEDIR
-    
-    if LOG_BASEDIR is None:
-        return None
 
-    basename = LOG_BASEDIR
+    basename = get_log_basedir()
+    if basename is None:
+        return None
     if task_id is not None:
         basename /= task_id
     basename /= f"worker_{worker_id}"
@@ -64,7 +63,6 @@ def redirect_stdouterr(basename, mode="w"):
 
 
 def _file_reopen(filename, mode, file_obj):
-
     new = open(filename, mode)
     newfd = new.fileno()
     targetfd = file_obj.fileno()
