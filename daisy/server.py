@@ -12,6 +12,7 @@ from .messages import (
     UnexpectedMessage,
 )
 from .scheduler import Scheduler
+from .task_state import TaskState
 from .server_observer import ServerObservee
 from .task_worker_pools import TaskWorkerPools
 from .tcp import TCPServer
@@ -39,7 +40,7 @@ class Server(ServerObservee):
 
         logger.debug("Started server listening at %s:%s", self.hostname, self.port)
 
-    def run_blockwise(self, tasks, scheduler=None):
+    def run_blockwise(self, tasks, scheduler=None) -> dict[str, TaskState]:
 
         if scheduler is None:
             self.scheduler = Scheduler(tasks)
@@ -67,7 +68,7 @@ class Server(ServerObservee):
             logger.debug("TCP streams closed.")
             self.notify_server_exit()
 
-        return True if self.all_done else False
+        return self.scheduler.task_states
 
     def _event_loop(self):
         last_time = time()

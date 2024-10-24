@@ -56,4 +56,5 @@ def run_blockwise(tasks, multiprocessing=True):
 def _run_blockwise(tasks, stop_event):
     server = Server(stop_event=stop_event)
     cl_monitor = CLMonitor(server)  # noqa
-    return server.run_blockwise(tasks)
+    task_states = server.run_blockwise(tasks)
+    return all(task_state.is_done() for task_state in task_states.values())

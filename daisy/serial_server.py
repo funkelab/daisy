@@ -1,5 +1,6 @@
 from .block import BlockStatus
 from .scheduler import Scheduler
+from .task_state import TaskState
 from .server_observer import ServerObservee
 import logging
 
@@ -10,7 +11,7 @@ class SerialServer(ServerObservee):
     def __init__(self):
         super().__init__()
 
-    def run_blockwise(self, tasks, scheduler=None):
+    def run_blockwise(self, tasks, scheduler=None) -> dict[str, TaskState]:
         if scheduler is None:
             scheduler = Scheduler(tasks)
         else:
@@ -60,6 +61,5 @@ class SerialServer(ServerObservee):
                     del process_funcs[block.task_id]
 
             if len(process_funcs) == 0:
-                return True
-
-        self.notify_server_exit()
+                self.notify_server_exit()
+                return scheduler.task_states
