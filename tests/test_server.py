@@ -26,4 +26,5 @@ def test_basic(server):
         timeout=None,
     )
 
-    server.run_blockwise([task])
+    task_state = server.run_blockwise([task])
+    assert task_state[task.task_id].is_done(), task_state[task.task_id]
