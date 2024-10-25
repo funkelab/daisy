@@ -63,6 +63,6 @@ class SerialServer(ServerObservee):
 
             if len(process_funcs) == 0:
                 break
-            
+
         self.notify_server_exit()
         return scheduler.task_states
