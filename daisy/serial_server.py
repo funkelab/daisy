@@ -62,6 +62,7 @@ class SerialServer(ServerObservee):
                     del process_funcs[block.task_id]
 
             if len(process_funcs) == 0:
-                self.notify_server_exit()
-                return scheduler.task_states
-        raise NotImplementedError("Unreachable")
+                break
+            
+        self.notify_server_exit()
+        return scheduler.task_states
