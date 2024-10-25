@@ -1,5 +1,6 @@
 from .block import BlockStatus
 from .scheduler import Scheduler
+from .task import Task
 from .task_state import TaskState
 from .server_observer import ServerObservee
 import logging
@@ -11,14 +12,16 @@ class SerialServer(ServerObservee):
     def __init__(self):
         super().__init__()
 
-    def run_blockwise(self, tasks, scheduler=None) -> dict[str, TaskState]:
+    def run_blockwise(
+        self, tasks: list[Task], scheduler=None
+    ) -> dict[str, TaskState]:
         if scheduler is None:
             scheduler = Scheduler(tasks)
         else:
             scheduler = scheduler
 
         started_tasks = set()
-        finished_tasks = set()
+        finished_tasks: set[str] = set()
         all_tasks = set(task.task_id for task in tasks)
         process_funcs = {task.task_id: task.process_function for task in tasks}
 
@@ -63,3 +66,4 @@ class SerialServer(ServerObservee):
             if len(process_funcs) == 0:
                 self.notify_server_exit()
                 return scheduler.task_states
+        raise NotImplementedError("Unreachable")
