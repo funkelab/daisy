@@ -38,7 +38,6 @@ class Worker:
         return next_id
 
     def __init__(self, spawn_function, context=None, error_queue=None):
-
         self.spawn_function = spawn_function
         self.worker_id = Worker.get_next_id()
         if context is None:
@@ -89,7 +88,6 @@ class Worker:
         environment variables, redirect output, and to capture exceptions."""
 
         try:
-
             os.environ[self.context.ENV_VARIABLE] = self.context.to_env()
             log_base = self.context.get("logdir", daisy_logging.get_log_basedir())
             daisy_logging.set_log_basedir(log_base)
@@ -102,7 +100,6 @@ class Worker:
             self.spawn_function()
 
         except Exception as e:
-
             logger.error("%s received exception: %s", self, e)
             if self.error_queue:
                 try:
@@ -113,9 +110,7 @@ class Worker:
                     )
 
         except KeyboardInterrupt:
-
             logger.debug("%s received ^C", self)
 
     def __repr__(self):
-
         return "worker (%s)" % self.context

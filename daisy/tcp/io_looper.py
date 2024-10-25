@@ -28,11 +28,9 @@ class IOLooper:
         IOLooper.ioloops = {}
 
     def __init__(self):
-
         pid = os.getpid()
 
         if pid not in IOLooper.threads:
-
             logger.debug("Creating new IOLoop for process %d...", pid)
             self.ioloop = tornado.ioloop.IOLoop()
             self.ioloops[pid] = self.ioloop
@@ -44,6 +42,5 @@ class IOLooper:
             IOLooper.threads[pid].start()
 
         else:
-
             logger.debug("Reusing IOLoop for process %d...", pid)
             self.ioloop = self.ioloops[pid]

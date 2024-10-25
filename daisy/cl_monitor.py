@@ -27,15 +27,12 @@ class TqdmLoggingHandler:
 
 
 class TaskSummary:
-
     def __init__(self, state):
-
         self.block_failures = []
         self.state = state
 
 
 class BlockFailure:
-
     def __init__(self, block, exception, worker_id):
         self.block = block
         self.exception = exception
@@ -49,7 +46,6 @@ class BlockFailure:
 
 
 class CLMonitor(ServerObserver):
-
     def __init__(self, server):
         super().__init__(server)
         self.progresses = {}
@@ -72,7 +68,6 @@ class CLMonitor(ServerObserver):
                 logger.handlers[i] = TqdmLoggingHandler(logger.handlers[i])
 
     def _is_tty_stream_handler(self, handler):
-
         return (
             hasattr(handler, "stream")
             and hasattr(handler.stream, "isatty")
@@ -86,18 +81,15 @@ class CLMonitor(ServerObserver):
         self._update_state(task_id, task_state)
 
     def on_block_failure(self, block, exception, context):
-
         task_id = block.block_id[0]
         self.summaries[task_id].block_failures.append(
             BlockFailure(block, exception, context["worker_id"])
         )
 
     def on_task_start(self, task_id, task_state):
-
         self.summaries[task_id] = TaskSummary(task_state)
 
     def on_task_done(self, task_id, task_state):
-
         if task_id not in self.summaries:
             self.summaries[task_id] = TaskSummary(task_state)
         else:
@@ -114,7 +106,6 @@ class CLMonitor(ServerObserver):
             self.progresses[task_id].close()
 
     def on_server_exit(self):
-
         for task_id, progress in self.progresses.items():
             progress.close()
 
@@ -125,7 +116,6 @@ class CLMonitor(ServerObserver):
         max_entries = 100
 
         for task_id, summary in self.summaries.items():
-
             num_block_failures = len(summary.block_failures)
 
             print()
@@ -166,7 +156,6 @@ class CLMonitor(ServerObserver):
                 print("    all blocks processed successfully")
 
     def _update_state(self, task_id, task_state):
-
         if task_id not in self.progresses:
             total = task_state.total_block_count
             self.progresses[task_id] = tqdm_auto(

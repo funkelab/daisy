@@ -15,6 +15,5 @@ class TCPMessage:
     """
 
     def __init__(self, payload=None):
-
         self.payload = payload
         self.stream = None

@@ -11,7 +11,6 @@ def process_block(block):
 
 @pytest.mark.parametrize("server", [daisy.Server(), daisy.SerialServer()])
 def test_basic(server):
-
     task = daisy.Task(
         "test_server_task",
         total_roi=daisy.Roi((0,), (100,)),

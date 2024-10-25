@@ -106,7 +106,6 @@ class SingleTaskDependencyGraph:
         prev_level_offset = None
 
         for level, level_offset in enumerate(self.level_offsets):
-
             # get conflicts to previous level
             if prev_level_offset is not None and self.read_write_conflict:
                 conflict_offsets = self.get_conflict_offsets(
@@ -121,13 +120,11 @@ class SingleTaskDependencyGraph:
         return level_conflict_offsets
 
     def create_dependency_graph(self):
-
         blocks = []
 
         for level_offset, level_conflicts in zip(
             self.level_offsets, self.level_conflicts
         ):
-
             # all block offsets of the current level (relative to total ROI
             # start)
             block_dim_offsets = [
@@ -237,7 +234,6 @@ class SingleTaskDependencyGraph:
         return conflict_offsets
 
     def enumerate_dependencies(self, conflict_offsets, block_offsets):
-
         inclusion_criteria = {
             "valid": lambda b: self.total_roi.contains(b.read_roi),
             "overhang": lambda b: self.total_roi.contains(b.write_roi.get_begin()),
@@ -253,7 +249,6 @@ class SingleTaskDependencyGraph:
         blocks = []
 
         for block_offset in block_offsets:
-
             # create a block shifted by the current offset
             block = Block(
                 self.total_roi,
@@ -269,7 +264,6 @@ class SingleTaskDependencyGraph:
             # get all blocks in conflict with the current block
             conflicts = []
             for conflict_offset in conflict_offsets:
-
                 conflict = Block(
                     self.total_roi,
                     block.read_roi + conflict_offset,
@@ -289,7 +283,6 @@ class SingleTaskDependencyGraph:
         return blocks
 
     def shrink_possible(self, block):
-
         if not self.total_roi.contains(block.write_roi.get_begin()):
             return False
 

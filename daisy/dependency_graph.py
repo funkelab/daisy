@@ -206,7 +206,6 @@ class BlockwiseDependencyGraph:
         return num_blocks
 
     def level_blocks(self, level):
-
         for block_offset in self._compute_level_block_offsets(level):
             block = Block(
                 self.total_read_roi,
@@ -303,7 +302,6 @@ class BlockwiseDependencyGraph:
         return conflicts
 
     def enumerate_all_dependencies(self):
-
         self._level_block_offsets = self.compute_level_block_offsets()
 
         for level in range(self.num_levels):
@@ -407,7 +405,6 @@ class BlockwiseDependencyGraph:
         prev_level_offset = None
 
         for level, level_offset in enumerate(self._level_offsets):
-
             # get conflicts to previous level
             if prev_level_offset is not None and self.read_write_conflict:
                 conflict_offsets: List[Coordinate] = self.get_conflict_offsets(
@@ -451,7 +448,6 @@ class BlockwiseDependencyGraph:
         level_block_offsets = []
 
         for level in range(self.num_levels):
-
             level_block_offsets.append(list(self._compute_level_block_offsets(level)))
 
         return level_block_offsets
@@ -481,7 +477,6 @@ class BlockwiseDependencyGraph:
         return conflict_offsets
 
     def shrink_possible(self, block):
-
         return self.total_write_roi.contains(block.write_roi.begin)
 
     def shrink(self, block):

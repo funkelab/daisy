@@ -12,9 +12,7 @@ class SerialServer(ServerObservee):
     def __init__(self):
         super().__init__()
 
-    def run_blockwise(
-        self, tasks: list[Task], scheduler=None
-    ) -> dict[str, TaskState]:
+    def run_blockwise(self, tasks: list[Task], scheduler=None) -> dict[str, TaskState]:
         if scheduler is None:
             scheduler = Scheduler(tasks)
         else:

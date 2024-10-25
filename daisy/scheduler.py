@@ -84,7 +84,6 @@ class Scheduler:
         while True:
             block = self.task_queues[task_id].get_next()
             if block is not None:
-
                 # update states
                 self.task_states[task_id].ready_count -= 1
                 self.task_states[task_id].processing_count += 1

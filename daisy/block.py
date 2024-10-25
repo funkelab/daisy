@@ -68,7 +68,6 @@ class Block(Freezable):
     """
 
     def __init__(self, total_roi, read_roi, write_roi, block_id=None, task_id=None):
-
         self.read_roi = read_roi
         self.write_roi = write_roi
         self.requested_write_roi = write_roi  # save original write_roi
@@ -83,7 +82,6 @@ class Block(Freezable):
         self.freeze()
 
     def copy(self):
-
         return copy.deepcopy(self)
 
     def __compute_block_id(self, total_roi, write_roi, shift=None):
@@ -95,7 +93,6 @@ class Block(Freezable):
         return block_id
 
     def __repr__(self):
-
         return "%s/%d with read ROI %s and write ROI %s" % (
             self.block_id[0],
             self.block_id[1],

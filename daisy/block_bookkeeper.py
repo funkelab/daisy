@@ -2,7 +2,6 @@ import time
 
 
 class BlockLog:
-
     def __init__(self, block, stream):
         self.block = block
         self.stream = stream
@@ -10,7 +9,6 @@ class BlockLog:
 
 
 class BlockBookkeeper:
-
     def __init__(self, processing_timeout=None):
         self.processing_timeout = processing_timeout
         self.sent_blocks = {}
@@ -68,7 +66,6 @@ class BlockBookkeeper:
 
         lost_block_ids = []
         for block_id, log in self.sent_blocks.items():
-
             # is the stream to the client still alive?
             if log.stream.closed():
                 lost_block_ids.append(block_id)
@@ -80,7 +77,6 @@ class BlockBookkeeper:
 
         lost_blocks = []
         for block_id in lost_block_ids:
-
             lost_block = self.sent_blocks[block_id].block
             lost_blocks.append(lost_block)
             del self.sent_blocks[block_id]

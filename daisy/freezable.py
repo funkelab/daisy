@@ -1,5 +1,4 @@
 class Freezable(object):
-
     __isfrozen = False
 
     def __setattr__(self, key, value):

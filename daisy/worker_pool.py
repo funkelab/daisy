@@ -30,7 +30,6 @@ class WorkerPool:
     """
 
     def __init__(self, spawn_worker_function, context=None):
-
         if context is None:
             context = Context()
 
@@ -61,7 +60,6 @@ class WorkerPool:
         logger.debug("setting number of workers to %d", num_workers)
 
         with self.workers_lock:
-
             diff = num_workers - len(self.workers)
 
             logger.debug("current number of workers: %d", len(self.workers))
@@ -105,7 +103,6 @@ class WorkerPool:
             pass
 
     def _start_workers(self, n):
-
         logger.debug("starting %d new workers", n)
         new_workers = [
             Worker(self.spawn_function, self.context, self.error_queue)
@@ -114,7 +111,6 @@ class WorkerPool:
         self.workers.update({worker.worker_id: worker for worker in new_workers})
 
     def _stop_workers(self, n):
-
         logger.debug("stopping %d workers", n)
 
         sentenced_worker_ids = list(self.workers.keys())[-n:]

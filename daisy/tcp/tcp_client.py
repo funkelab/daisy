@@ -23,7 +23,6 @@ class TCPClient(IOLooper):
     """
 
     def __init__(self, host, port):
-
         super().__init__()
 
         logger.debug("Creating new TCP client...")
@@ -38,7 +37,6 @@ class TCPClient(IOLooper):
         self.connect()
 
     def __del__(self):
-
         if self.connected():
             self.disconnect()
 
@@ -110,15 +108,12 @@ class TCPClient(IOLooper):
             raise NotConnected()
 
         try:
-
             return self.message_queue.get(block=True, timeout=timeout)
 
         except queue.Empty:
-
             return None
 
     def _check_for_errors(self):
-
         try:
             exception = self.exception_queue.get(block=False)
             raise exception
@@ -142,14 +137,11 @@ class TCPClient(IOLooper):
         logger.debug("Entering receive loop")
 
         while self.connected():
-
             try:
-
                 # raises StreamClosedError
                 message = await self.stream._get_message()
 
                 if isinstance(message, AckClientDisconnect):
-
                     # server acknowledged disconnect, close connection on
                     # our side and break out of event loop
                     try:
@@ -159,11 +151,9 @@ class TCPClient(IOLooper):
                         return
 
                 else:
-
                     self.message_queue.put(message)
 
             except Exception as e:
-
                 try:
                     self.exception_queue.put(e)
                     self.stream.close()

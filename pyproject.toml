@@ -38,9 +38,6 @@ dev = [
   "filelock",
 ]
 
-[tool.black]
-target_version = ['py37', 'py38', 'py39', 'py310']
-
 # # module specific overrides
 [[tool.mypy.overrides]]
 module = [

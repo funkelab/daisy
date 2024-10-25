@@ -62,7 +62,6 @@ class TCPStream(IOLooper):
         return self.stream.closed()
 
     async def _send_message(self, message):
-
         if self.stream is None:
             logger.error("No TCPStream available, can't send message.")
 
@@ -71,28 +70,23 @@ class TCPStream(IOLooper):
         message_bytes = message_size_bytes + pickled_data
 
         try:
-
             await self.stream.write(message_bytes)
 
         except AttributeError:
-
             # self.stream can be None even though we check earlier, due to race
             # conditions
             logger.error("No TCPStream available, can't send message.")
             pass
 
         except tornado.iostream.StreamClosedError:
-
             logger.error("TCPStream lost connection while sending data.")
             self.stream = None
 
     async def _get_message(self):
-
         if self.stream is None:
             raise StreamClosedError(*self.address)
 
         try:
-
             size = await self.stream.read_bytes(4)
             size = struct.unpack("I", size)[0]
             assert size < 2**64  # TODO: parameterize max message size
@@ -100,7 +94,6 @@ class TCPStream(IOLooper):
             pickled_data = await self.stream.read_bytes(size)
 
         except tornado.iostream.StreamClosedError:
-
             self.stream = None
             raise StreamClosedError(*self.address)
 
@@ -109,5 +102,4 @@ class TCPStream(IOLooper):
         return message
 
     def __repr__(self):
-
         return f"{self.address[0]}:{self.address[1]}"

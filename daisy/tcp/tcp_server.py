@@ -21,7 +21,6 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
     """
 
     def __init__(self, max_port_tries=1000):
-
         tornado.tcpserver.TCPServer.__init__(self)
         IOLooper.__init__(self)
 
@@ -31,14 +30,11 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
 
         # find empty port, start listening
         for i in range(max_port_tries):
-
             try:
-
                 self.listen(0)  # 0 == random port
                 break
 
             except OSError:
-
                 if i == self.max_port_tries - 1:
                     raise NoFreePort(
                         "Could not find a free port after %d tries "
@@ -66,11 +62,9 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         self._check_for_errors()
 
         try:
-
             return self.message_queue.get(block=True, timeout=timeout)
 
         except queue.Empty:
-
             return None
 
     def disconnect(self):
@@ -103,13 +97,10 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
         self.client_streams.add(stream)
 
         while True:
-
             try:
-
                 message = await stream._get_message()
 
                 if isinstance(message, NotifyClientDisconnect):
-
                     # client notifies that it disconnects, send a response
                     # indicating we are no longer using this stream and break
                     # out of event loop
@@ -118,11 +109,9 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                     return
 
                 else:
-
                     self.message_queue.put(message)
 
             except Exception as e:
-
                 try:
                     self.exception_queue.put(e)
                 finally:
@@ -130,7 +119,6 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
                     return
 
     def _check_for_errors(self):
-
         try:
             exception = self.exception_queue.get(block=False)
             raise exception
