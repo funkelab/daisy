@@ -50,6 +50,7 @@ docs = [
     "myst_nb",
     "funlib.persistence",
     "scipy",
+    "ipywidgets",
 ]
 
 # # module specific overrides

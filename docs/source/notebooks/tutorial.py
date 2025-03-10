@@ -1,6 +1,5 @@
 # %% [markdown]
-# # How to use Daisy
-
+# # Daisy Tutorial
 
 #  %% [markdown]
 # ## Needed Libraries for this Tutorial
@@ -104,7 +103,7 @@ import random
 
 
 def random_fail(block: daisy.Block):
-    if random.random() < 0.8:
+    if random.random() < 0.2:
         block.status = daisy.BlockStatus.FAILED
     return block
 
@@ -136,7 +135,7 @@ from pathlib import Path
 with tempfile.TemporaryDirectory() as tmpdir:
 
     def random_fail(block: daisy.Block):
-        if random.random() < 0.8:
+        if random.random() < 0.2:
             block.status = daisy.BlockStatus.FAILED
         else:
             Path(tmpdir, f"{block.block_id[1]}").touch()
