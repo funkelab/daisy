@@ -1,0 +1,29 @@
+name: Generate Pages
+
+on:
+  push:
+    branches:
+      - update-docs
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+        
+    - name: parse notebooks
+      run: |
+        uv run --extra [docs] jupytext --to notebook --execute ./docs/source/notebooks/tutorial.py --output ./docs/source/notebooks/tutorial.ipynb
+    - name: remove notebook scripts
+      run: rm ./docs/source/notebooks/*.py
+    - name: Build and Commit
+      uses: sphinx-notes/pages@v3
+      with:
+        documentation_path: ./docs/source
+    - name: Push changes
+      uses: ad-m/github-push-action@master
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        branch: gh-pages
