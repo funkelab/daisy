@@ -15,6 +15,7 @@ jobs:
     - name: install deps
       run: |
         uv sync --extra docs
+        source .venv/bin/activate
         python -m ipykernel install --name daisy_env --user
     - name: parse notebooks
       run: jupytext --to notebook --execute ./docs/source/notebooks/tutorial.py --output ./docs/source/notebooks/tutorial.ipynb
