@@ -37,6 +37,18 @@ dev = [
   "mypy",
   "filelock",
 ]
+docs = [
+    "matplotlib",
+    "pooch",
+    "sphinx",
+    "nbsphinx",
+    "sphinx-autodoc-typehints",
+    "sphinx-rtd-theme",
+    "myst-parser",
+    "jupytext",
+    "ipykernel",
+    "myst_nb",
+]
 
 # # module specific overrides
 [[tool.mypy.overrides]]

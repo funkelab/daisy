@@ -9,5 +9,6 @@ Daisy: Block-wise Task Scheduling
 
   api
   release
+  notebooks/tutorial
 
 * :ref:`search`

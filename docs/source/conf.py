@@ -23,13 +23,8 @@ from typing import Dict
 
 
 project = "daisy"
-copyright = "2019, Jan Funke, Tri Nguyen, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
-author = "Jan Funke, Tri Nguyen, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
-
-# The short X.Y version
-version = ""
-# The full version, including alpha/beta/rc tags
-release = "v0.2"
+copyright = "2019, Jan Funke, Tri Nguyen, William Patton, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
+author = "Jan Funke, Tri Nguyen, William Patton, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
 
 
 # -- General configuration ---------------------------------------------------
@@ -42,10 +37,16 @@ release = "v0.2"
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    "nbsphinx",
     "sphinx.ext.autodoc",
-    "sphinx.ext.mathjax",
-    "sphinx.ext.viewcode",
+    "sphinx.ext.napoleon",
+    "sphinx_autodoc_typehints",
+    "myst_nb",  # integrate ipynb
 ]
+
+nbsphinx_custom_formats = {
+    ".py": ["jupytext.reads", {"fmt", "py:percent"}],
+}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

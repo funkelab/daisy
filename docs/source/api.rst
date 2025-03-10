@@ -28,6 +28,9 @@ Block-wise Task Scheduling
 Geometry
 --------
 
+Re-exported from `funlib.geometry`. We recommend importing directly from `funlib.geometry`
+instead of using `daisy.Coordinate` and `daisy.Roi`.
+
 Coordinate
 ^^^^^^^^^^
   .. autoclass:: Coordinate
@@ -38,28 +41,4 @@ Roi
   .. autoclass:: Roi
     :members:
 
-Arrays
-------
 
-  .. autoclass:: Array
-
-  .. autofunction:: open_ds
-
-  .. autofunction:: prepare_ds
-
-Graphs
-------
-
-Graph
-^^^^^
-
-  .. autoclass:: Graph
-    :members:
-
-MongoDbGraphProvider
-^^^^^^^^^^^^^^^^^^^^
-
-  .. automodule:: daisy.persistence
-
-  .. autoclass:: MongoDbGraphProvider
-    :members:

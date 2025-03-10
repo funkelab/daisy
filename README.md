@@ -13,10 +13,10 @@ Daisy documentations are at https://daisy-docs.readthedocs.io/
 
 ### Daisy v1.0 is now available on PyPI!
 
-- Install it now with `pip install -U daisy`
+- Install it now with `pip install daisy`
 - Besides quality-of-life improvements, we have also refactored I/O-related utilities to `funlib.persistence` to make code maintenance easier. This includes everything that was in `daisy.persistence` along with `daisy.Array` and helper functions such as `daisy.open_ds`, and `daisy.prepare_ds`. 
-    - Just run `pip install git+https://github.com/funkelab/funlib.persistence`.
-    - These functions, which provide an easy to use interface to common formats such as zarr, n5, and hdf5 for arrays and interfaces for storing large spatial graphs in MongoDB or Files remain the same.
+    - Just run `pip install funlib.persistence`.
+    - These functions, which provide an easy to use interface to common formats such as zarr, n5 and any other dask friendly format for arrays and interfaces for storing large spatial graphs in SQLite, PostgreSQL, or Files remain the same.
 
 ## Overview
 
