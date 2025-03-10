@@ -5,6 +5,10 @@ on:
     branches:
       - update-docs
 
+permissions:
+  id-token: write
+  contents: write
+
 jobs:
   docs:
     runs-on: ubuntu-latest
