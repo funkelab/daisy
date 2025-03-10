@@ -23,12 +23,15 @@ jobs:
         uv run --extra docs jupytext --to notebook --execute ./docs/source/notebooks/tutorial.py --output ./docs/source/notebooks/tutorial.ipynb
     - name: Build
       run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
+    - name: Set permissions
+      run: chmod -R a+rX ./docs/build/html
     - name: Upload artifacts
       uses: actions/upload-artifact@v4
       with:
         name: html-docs
         path: docs/build/html/
-
+    - name: Clean build directory
+      run: rm -rf docs/build/html
     - name: Deploy to GitHub Pages
       id: deployment
       uses: actions/deploy-pages@v4
