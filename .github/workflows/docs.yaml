@@ -21,14 +21,17 @@ jobs:
       run: |
         uv run --extra docs python -m ipykernel install --name daisy_env --user
         uv run --extra docs jupytext --to notebook --execute ./docs/source/notebooks/tutorial.py --output ./docs/source/notebooks/tutorial.ipynb
-    - name: remove notebook scripts
-      run: rm ./docs/source/notebooks/*.py
-    - name: Build and Commit
-      uses: sphinx-notes/pages@v3
+    - name: Build
+      run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
       with:
-        documentation_path: ./docs/source
-    - name: Push changes
-      uses: ad-m/github-push-action@master
+        name: html-docs
+        path: docs/build/html/
+
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
       with:
-        github_token: ${{ secrets.GITHUB_TOKEN }}
-        branch: gh-pages
+        token: ${{ secrets.GITHUB_TOKEN }}
+        artifact_name: html-docs
