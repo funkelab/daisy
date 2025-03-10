@@ -49,6 +49,7 @@ docs = [
     "ipykernel",
     "myst_nb",
     "funlib.persistence",
+    "scipy",
 ]
 
 # # module specific overrides
