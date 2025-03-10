@@ -48,6 +48,7 @@ docs = [
     "jupytext",
     "ipykernel",
     "myst_nb",
+    "funlib.persistence",
 ]
 
 # # module specific overrides
