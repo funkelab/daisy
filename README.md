@@ -1,3 +1,5 @@
+![daisy](docs/source/_static/daisy.jpg)
+
 # Daisy: A Blockwise Task Scheduler
 
 > Blockwise task scheduler for processing large volumetric data
