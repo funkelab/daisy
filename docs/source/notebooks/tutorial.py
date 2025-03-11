@@ -140,10 +140,9 @@ with tempfile.TemporaryDirectory() as tmpdir:
         else:
             Path(tmpdir, f"{block.block_id[1]}").touch()
         return block
-    
+
     def check_block(block: daisy.Block) -> bool:
         return Path(tmpdir, f"{block.block_id[1]}").exists()
-
 
     while True:
         # Create a super simple task
@@ -308,3 +307,50 @@ ax[0].imshow(in_array[:])
 ax[1].imshow(out_array[:])
 plt.show()
 
+
+# %% [markdown]
+# ### Task Chaining
+#
+# It is also possible to chain multiple tasks together in such a way that
+# they either run in parallel or in sequence. If running in parallel, we
+# simply start the workers for both tasks at once. If running in sequence,
+# blocks will only be realeased once their dependencies in previous tasks
+# have been completed.
+
+# %%
+total_roi = Roi((0, 0), (1250, 1250))
+read_roi_shape = (400, 400)
+write_roi_shape = (250, 250)
+context = Coordinate(75, 75)
+
+task_a_to_b = daisy.Task(
+    "A_to_B",
+    total_roi=total_roi.grow(
+        context,
+        context,
+    ),
+    read_roi=Roi((0, 0), read_roi_shape),
+    write_roi=Roi(context, write_roi_shape),
+    process_function=lambda b: ...,
+    read_write_conflict=False,
+)
+task_b_to_c = daisy.Task(
+    "B_to_C",
+    total_roi=total_roi.grow(
+        context,
+        context,
+    ),
+    read_roi=Roi((0, 0), read_roi_shape),
+    write_roi=Roi(context, write_roi_shape),
+    process_function=lambda b: ...,
+    read_write_conflict=False,
+    upstream_tasks=[task_a_to_b],
+)
+
+daisy.run_blockwise([task_a_to_b, task_b_to_c], multiprocessing=False)
+
+# %% [markdown]
+#
+# Here is an mp4 visualization of the above task
+#
+# ![task chaining](../_static/task_chaining.gif)
