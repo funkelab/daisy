@@ -25,16 +25,8 @@ jobs:
       run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
     - name: Set permissions
       run: chmod -R a+rX ./docs/build/html
-    - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+    - name: Deploy
+      uses: peaceiris/actions-gh-pages@v4
       with:
-        name: html-docs
-        path: docs/build/html/
-    - name: Clean build directory
-      run: rm -rf docs/build/html
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        artifact_name: html-docs
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: docs/build/html
