@@ -1,0 +1,705 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>API Reference &mdash; daisy  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Release notes" href="release.html" />
+    <link rel="prev" title="Daisy: Block-wise Task Scheduling" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            daisy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#convenience-api">Convenience API</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.run_blockwise"><code class="docutils literal notranslate"><span class="pre">run_blockwise()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#block-wise-task-scheduling">Block-wise Task Scheduling</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.Block"><code class="docutils literal notranslate"><span class="pre">Block</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#daisy.Block.status"><code class="docutils literal notranslate"><span class="pre">Block.status</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#daisy.Block.block_id"><code class="docutils literal notranslate"><span class="pre">Block.block_id</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#daisy.Block.task_id"><code class="docutils literal notranslate"><span class="pre">Block.task_id</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.Scheduler"><code class="docutils literal notranslate"><span class="pre">Scheduler</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.Client"><code class="docutils literal notranslate"><span class="pre">Client</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.Context"><code class="docutils literal notranslate"><span class="pre">Context</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.Task"><code class="docutils literal notranslate"><span class="pre">Task</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#daisy.DependencyGraph"><code class="docutils literal notranslate"><span class="pre">DependencyGraph</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#geometry">Geometry</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#coordinate">Coordinate</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#daisy.Coordinate"><code class="docutils literal notranslate"><span class="pre">Coordinate</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="#roi">Roi</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#daisy.Roi"><code class="docutils literal notranslate"><span class="pre">Roi</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="release.html">Release notes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/tutorial.html">Daisy Tutorial</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">daisy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">API Reference</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/api.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="module-daisy">
+<span id="api-reference"></span><span id="sec-api"></span><h1>API Reference<a class="headerlink" href="#module-daisy" title="Link to this heading"></a></h1>
+<section id="convenience-api">
+<h2>Convenience API<a class="headerlink" href="#convenience-api" title="Link to this heading"></a></h2>
+<blockquote>
+<div><dl class="py function">
+<dt class="sig sig-object py" id="daisy.run_blockwise">
+<span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">run_blockwise</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tasks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">multiprocessing</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.run_blockwise" title="Link to this definition"></a></dt>
+<dd><p>Schedule and run the given tasks.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>list_of_tasks</strong> – The tasks to schedule over.</p></li>
+<li><p><strong>multiprocessing</strong> (<em>bool</em>) – If <cite>False</cite>, all multiprocessing is avoided and blocks are processed
+sequentially. This is useful for debugging. This will only work for
+tasks with a <cite>process_function</cite> that takes a single block as input
+since a worker process would not be able to start a client and hook
+up to the server.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p><cite>True</cite> if all blocks in the given <cite>tasks</cite> were successfully
+run, else <cite>False</cite></p>
+</dd>
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p>bool</p>
+</dd>
+</dl>
+</dd></dl>
+
+</div></blockquote>
+</section>
+<section id="block-wise-task-scheduling">
+<h2>Block-wise Task Scheduling<a class="headerlink" href="#block-wise-task-scheduling" title="Link to this heading"></a></h2>
+<blockquote>
+<div><dl class="py class">
+<dt class="sig sig-object py" id="daisy.Block">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Block</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">total_roi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_roi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">write_roi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">block_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">task_id</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Block" title="Link to this definition"></a></dt>
+<dd><p>Describes a block to process with attributes:</p>
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">read_roi</span> <span class="pre">(`class</span></span></dt>
+<dd><p>Roi`):</p>
+<p>The region of interest (ROI) to read from.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py">
+<span class="sig-name descname"><span class="pre">write_roi</span> <span class="pre">(`class</span></span></dt>
+<dd><p>Roi`):</p>
+<p>The region of interest (ROI) to write to.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="daisy.Block.status">
+<span class="sig-name descname"><span class="pre">status</span></span><a class="headerlink" href="#daisy.Block.status" title="Link to this definition"></a></dt>
+<dd><p>Stores the processing status of the block. Block status should be
+updated as it goes through the lifecycle of scheduler to client and
+back.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">BlockStatus</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="daisy.Block.block_id">
+<span class="sig-name descname"><span class="pre">block_id</span></span><a class="headerlink" href="#daisy.Block.block_id" title="Link to this definition"></a></dt>
+<dd><p>A unique ID for this block (within all blocks tiling the total ROI
+to process).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="daisy.Block.task_id">
+<span class="sig-name descname"><span class="pre">task_id</span></span><a class="headerlink" href="#daisy.Block.task_id" title="Link to this definition"></a></dt>
+<dd><p>The id of the Task that this block belongs to.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><code class="docutils literal notranslate"><span class="pre">int</span></code></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>total_roi</strong><strong>(</strong><strong>`class</strong> – <p>Roi`):</p>
+<p>The total ROI that the blocks are tiling, needed to find unique
+block IDs.</p>
+</p></li>
+<li><p><strong>(</strong><strong>`class</strong> (<em>write_roi</em>) – <p>Roi`):</p>
+<p>The region of interest (ROI) to read from.</p>
+</p></li>
+<li><p><strong>(</strong><strong>`class</strong> – <p>Roi`):</p>
+<p>The region of interest (ROI) to write to.</p>
+</p></li>
+<li><p><strong>block_id</strong> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, optional) – The ID to assign to this block. The ID is normally computed from
+the write ROI and the total ROI, such that each block has a unique
+ID.</p></li>
+<li><p><strong>task_id</strong> (<code class="docutils literal notranslate"><span class="pre">int</span></code>, optional) – The id of the Task that this block belongs to. Defaults to None.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="daisy.Scheduler">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Scheduler</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tasks</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">count_all_orphans</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Scheduler" title="Link to this definition"></a></dt>
+<dd><p>This is the main scheduler that tracks states of tasks.</p>
+<p>The Scheduler takes a list of tasks, and upon request will
+provide the next block available for processing.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>tasks</strong> (<span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code>[<a class="reference internal" href="#daisy.Task" title="daisy.task.Task"><code class="xref py py-class docutils literal notranslate"><span class="pre">Task</span></code></a>]</span>) – the list of tasks to schedule. If any of the tasks have
+upstream dependencies these will be recursively enumerated
+and added to the scheduler.</p></li>
+<li><p><strong>count_all_orphans</strong> – bool:
+Whether to guarantee accurate counting of all orphans. This
+can be inefficient if your dependency tree is particularly
+deep rather than just wide, so consider flipping this to
+False if you are having performance issues.
+If False, orphaned blocks will be counted as “pending” in
+the task state since there is no way to tell the difference
+between the two types without enumerating all orphans.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="daisy.Client">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Client</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">context</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Client" title="Link to this definition"></a></dt>
+<dd><p>Client code that runs on a remote worker providing task management
+API for user code. It communicates with the scheduler through TCP/IP.</p>
+<p>Scheduler IP address, port, and other configurations are typically
+passed to <code class="docutils literal notranslate"><span class="pre">Client</span></code> through an environment variable named
+‘DAISY_CONTEXT’.</p>
+<p>Example usage:</p>
+<blockquote>
+<div><dl>
+<dt>def blockwise_process(block):</dt><dd><p>…</p>
+</dd>
+<dt>def main():</dt><dd><p>client = Client()
+while True:</p>
+<blockquote>
+<div><dl>
+<dt>with client.acquire_block() as block:</dt><dd><dl class="simple">
+<dt>if block is None:</dt><dd><p>break</p>
+</dd>
+</dl>
+<p>blockwise_process(block)
+block.state = BlockStatus.SUCCESS  # (or FAILED)</p>
+</dd>
+</dl>
+</div></blockquote>
+</dd>
+</dl>
+</div></blockquote>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="daisy.Context">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Context</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Context" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="daisy.Task">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Task</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task_id</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">total_roi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_roi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">write_roi</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">process_function</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">check_function</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">init_callback_fn</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">read_write_conflict</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">num_workers</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">max_retries</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fit</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'valid'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">timeout</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">upstream_tasks</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Task" title="Link to this definition"></a></dt>
+<dd><p>Definition of a <code class="docutils literal notranslate"><span class="pre">daisy</span></code> task that is to be run in a block-wise
+fashion.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<code class="docutils literal notranslate"><span class="pre">string</span></code>) – The unique name of the task.</p></li>
+<li><p><strong>(</strong><strong>`class</strong> (<em>write_roi</em>) – <p>daisy.Roi`):</p>
+<p>The region of interest (ROI) of the complete volume to process.</p>
+</p></li>
+<li><p><strong>(</strong><strong>`class</strong> – <p>daisy.Roi`):</p>
+<p>The ROI every block needs to read data from. Will be shifted over
+the <code class="docutils literal notranslate"><span class="pre">total_roi</span></code> to cover the whole volume.</p>
+</p></li>
+<li><p><strong>(</strong><strong>`class</strong> – <p>daisy.Roi`):</p>
+<p>The ROI every block writes data from. Will be shifted over the
+<code class="docutils literal notranslate"><span class="pre">total_roi</span></code> to cover the whole volume.</p>
+</p></li>
+<li><p><strong>process_function</strong> (<em>function</em>) – <p>A function that will be called as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">process_function</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>with <code class="docutils literal notranslate"><span class="pre">block</span></code> being the shifted read and write ROI for each
+location in the volume.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">read_write_conflict</span></code> is <code class="docutils literal notranslate"><span class="pre">True`,</span> <span class="pre">the</span> <span class="pre">callee</span> <span class="pre">can</span> <span class="pre">assume</span> <span class="pre">that</span>
+<span class="pre">there</span> <span class="pre">are</span> <span class="pre">no</span> <span class="pre">read/write</span> <span class="pre">concurencies,</span> <span class="pre">i.e.,</span> <span class="pre">at</span> <span class="pre">any</span> <span class="pre">given</span> <span class="pre">point</span> <span class="pre">in</span>
+<span class="pre">time</span> <span class="pre">the</span> <span class="pre">``read_roi</span></code> does not overlap with the <code class="docutils literal notranslate"><span class="pre">write_roi</span></code> of
+another process.</p>
+</p></li>
+<li><p><strong>check_function</strong> (<em>function</em><em>, </em><em>optional</em>) – <p>A function that will be called as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">check_function</span><span class="p">(</span><span class="n">block</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>This function should return <code class="docutils literal notranslate"><span class="pre">True</span></code> if the block was completed.
+This is used internally to avoid processing blocks that are already
+done and to check if a block was correctly processed.</p>
+<p>If a tuple of two functions is given, the first one will be called
+to check if the block needs to be run, and if so, the second one
+will be called after it was run to check if the run succeeded.</p>
+</p></li>
+<li><p><strong>init_callback_fn</strong> (<em>function</em><em>, </em><em>optional</em>) – <p>A function that Daisy will call once when the task is started.
+It will be called as:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">init_callback_fn</span><span class="p">(</span><span class="n">context</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Where <cite>context</cite> is the <cite>daisy.Context</cite> string that can be used
+by the daisy clients to connect to the server.</p>
+</p></li>
+<li><p><strong>read_write_conflict</strong> (<code class="docutils literal notranslate"><span class="pre">bool</span></code>, optional) – Whether the read and write ROIs are conflicting, i.e., accessing
+the same resource. If set to <code class="docutils literal notranslate"><span class="pre">False</span></code>, all blocks can run at the
+same time in parallel. In this case, providing a <code class="docutils literal notranslate"><span class="pre">read_roi</span></code> is
+simply a means of convenience to ensure no out-of-bound accesses
+and to avoid re-computation of it in each block.</p></li>
+<li><p><strong>fit</strong> (<code class="docutils literal notranslate"><span class="pre">string</span></code>, optional) – <p>How to handle cases where shifting blocks by the size of
+<code class="docutils literal notranslate"><span class="pre">write_roi</span></code> does not tile the <code class="docutils literal notranslate"><span class="pre">total_roi</span></code>. Possible options
+are:</p>
+<p>”valid”: Skip blocks that would lie outside of <code class="docutils literal notranslate"><span class="pre">total_roi</span></code>. This
+is the default:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">|---------------------------|</span>     <span class="n">total</span> <span class="n">ROI</span>
+
+<span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>                <span class="n">block</span> <span class="mi">1</span>
+       <span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>         <span class="n">block</span> <span class="mi">2</span>
+                                  <span class="n">no</span> <span class="n">further</span> <span class="n">block</span>
+</pre></div>
+</div>
+<p>”overhang”: Add all blocks that overlap with <code class="docutils literal notranslate"><span class="pre">total_roi</span></code>, even if
+they leave it. Client code has to take care of save access beyond
+<code class="docutils literal notranslate"><span class="pre">total_roi</span></code> in this case.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">|---------------------------|</span>     <span class="n">total</span> <span class="n">ROI</span>
+
+<span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>                <span class="n">block</span> <span class="mi">1</span>
+       <span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>         <span class="n">block</span> <span class="mi">2</span>
+              <span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>  <span class="n">block</span> <span class="mi">3</span> <span class="p">(</span><span class="n">overhanging</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>”shrink”: Like “overhang”, but shrink the boundary blocks’ read and
+write ROIs such that they are guaranteed to lie within
+<code class="docutils literal notranslate"><span class="pre">total_roi</span></code>. The shrinking will preserve the context, i.e., the
+difference between the read ROI and write ROI stays the same.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="o">|---------------------------|</span>     <span class="n">total</span> <span class="n">ROI</span>
+
+<span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>                <span class="n">block</span> <span class="mi">1</span>
+       <span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">wwwwww</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>         <span class="n">block</span> <span class="mi">2</span>
+              <span class="o">|</span><span class="n">rrrr</span><span class="o">|</span><span class="n">www</span><span class="o">|</span><span class="n">rrrr</span><span class="o">|</span>     <span class="n">block</span> <span class="mi">3</span> <span class="p">(</span><span class="n">shrunk</span><span class="p">)</span>
+</pre></div>
+</div>
+</p></li>
+<li><p><strong>num_workers</strong> (<em>int</em><em>, </em><em>optional</em>) – The number of parallel processes to run.</p></li>
+<li><p><strong>max_retries</strong> (<em>int</em><em>, </em><em>optional</em>) – The maximum number of times a task will be retried if failed
+(either due to failed post check or application crashes or network
+failure)</p></li>
+<li><p><strong>timeout</strong> (<em>int</em><em>, </em><em>optional</em>) – Time in seconds to wait for a block to be returned from a worker.
+The worker is killed (and the block retried) if this time is
+exceeded.</p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="daisy.DependencyGraph">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">DependencyGraph</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">tasks</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.DependencyGraph" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+</div></blockquote>
+</section>
+<section id="geometry">
+<h2>Geometry<a class="headerlink" href="#geometry" title="Link to this heading"></a></h2>
+<p>Re-exported from <cite>funlib.geometry</cite>. We recommend importing directly from <cite>funlib.geometry</cite>
+instead of using <cite>daisy.Coordinate</cite> and <cite>daisy.Roi</cite>.</p>
+<section id="coordinate">
+<h3>Coordinate<a class="headerlink" href="#coordinate" title="Link to this heading"></a></h3>
+<blockquote>
+<div><dl class="py class">
+<dt class="sig sig-object py" id="daisy.Coordinate">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Coordinate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">array_like</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Coordinate" title="Link to this definition"></a></dt>
+<dd><p>A <code class="docutils literal notranslate"><span class="pre">tuple</span></code> of integers.</p>
+<p>Allows the following element-wise operators: addition, subtraction,
+multiplication, division, absolute value, and negation. All operations are
+applied element wise and support both Coordinates and Numbers. This allows to
+perform simple arithmetics with coordinates, e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">shape</span> <span class="o">=</span> <span class="n">Coordinate</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">,</span> <span class="mi">4</span><span class="p">)</span>
+<span class="n">voxel_size</span> <span class="o">=</span> <span class="n">Coordinate</span><span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+<span class="n">size</span> <span class="o">=</span> <span class="n">shape</span><span class="o">*</span><span class="n">voxel_size</span> <span class="c1"># == Coordinate(20, 15, 4)</span>
+<span class="n">size</span> <span class="o">*</span> <span class="mi">2</span> <span class="o">+</span> <span class="mi">1</span> <span class="c1"># == Coordinate(41, 31, 9)</span>
+</pre></div>
+</div>
+<p>Coordinates can be initialized with any iterable of ints, e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Coordinate</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">))</span>
+<span class="n">Coordinate</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">])</span>
+<span class="n">Coordinate</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">]))</span>
+</pre></div>
+</div>
+<p>Coordinates can also pack multiple args into an iterable, e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Coordinate</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="mi">2</span><span class="p">,</span><span class="mi">3</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Coordinate.is_multiple_of">
+<span class="sig-name descname"><span class="pre">is_multiple_of</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">coordinate</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Coordinate.is_multiple_of" title="Link to this definition"></a></dt>
+<dd><p>Test if this coordinate is a multiple of the given coordinate.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Coordinate.round_division">
+<span class="sig-name descname"><span class="pre">round_division</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Coordinate.round_division" title="Link to this definition"></a></dt>
+<dd><p>Will always round down if self % other == other / 2.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Coordinate" title="funlib.geometry.coordinate.Coordinate"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coordinate</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div></blockquote>
+</section>
+<section id="roi">
+<h3>Roi<a class="headerlink" href="#roi" title="Link to this heading"></a></h3>
+<blockquote>
+<div><dl class="py class">
+<dt class="sig sig-object py" id="daisy.Roi">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">daisy.</span></span><span class="sig-name descname"><span class="pre">Roi</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">offset</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">shape</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi" title="Link to this definition"></a></dt>
+<dd><p>A rectangular region of interest, defined by an offset and a shape.
+Special Cases:</p>
+<blockquote>
+<div><dl class="simple">
+<dt>An infinite/unbounded ROI:</dt><dd><p>offset = (None, None, …)
+shape = (None, None, …)</p>
+</dd>
+<dt>An empty ROI (e.g. output of intersecting two non overlapping Rois):</dt><dd><p>offset = (None, None, …)
+shape = (0, 0, …)</p>
+</dd>
+</dl>
+<p>A ROI that only specifies a shape is not supported (just use
+Coordinate).</p>
+<p>There is no guessing size of offset or shape (expanding to number of
+dims of the other).</p>
+</div></blockquote>
+<dl>
+<dt>Basic Operations:</dt><dd><p>Addition/subtraction (Coordinate or int) - shifts the offset
+elementwise (alias for shift)</p>
+<p>Multiplication/division (Coordiante or int) - multiplies/divides the
+offset and the shape, elementwise</p>
+</dd>
+<dt>Roi Operations:</dt><dd><p>Intersect, union</p>
+</dd>
+</dl>
+<p>Similar to <a class="reference internal" href="#daisy.Coordinate" title="daisy.Coordinate"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coordinate</span></code></a>, supports simple arithmetics, e.g.:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">roi</span> <span class="o">=</span> <span class="n">Roi</span><span class="p">((</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+<span class="n">voxel_size</span> <span class="o">=</span> <span class="n">Coordinate</span><span class="p">((</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">))</span>
+<span class="n">roi</span> <span class="o">*</span> <span class="n">voxel_size</span> <span class="o">=</span> <span class="n">Roi</span><span class="p">((</span><span class="mi">10</span><span class="p">,</span> <span class="mi">5</span><span class="p">,</span> <span class="mi">1</span><span class="p">),</span> <span class="p">(</span><span class="mi">100</span><span class="p">,</span> <span class="mi">50</span><span class="p">,</span> <span class="mi">10</span><span class="p">))</span>
+<span class="n">scale_shift</span> <span class="o">=</span> <span class="n">roi</span><span class="o">*</span><span class="n">voxel_size</span> <span class="o">+</span> <span class="mi">1</span> <span class="c1"># == Roi((11, 6, 2), (101, 51, 11))</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>offset</strong> (array-like of <code class="docutils literal notranslate"><span class="pre">int</span></code>) – The offset of the ROI. Entries can be <code class="docutils literal notranslate"><span class="pre">None</span></code> to indicate
+there is no offset (either unbounded or empty).</p></li>
+<li><p><strong>shape</strong> (array-like of <code class="docutils literal notranslate"><span class="pre">int</span></code>) – The shape of the ROI. Entries can be <code class="docutils literal notranslate"><span class="pre">None</span></code> to indicate
+unboundedness.</p></li>
+</ul>
+</dd>
+</dl>
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.begin">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">begin</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#daisy.Coordinate" title="funlib.geometry.coordinate.Coordinate"><span class="pre">Coordinate</span></a></em><a class="headerlink" href="#daisy.Roi.begin" title="Link to this definition"></a></dt>
+<dd><p>Smallest coordinate inside ROI.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.center">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">center</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#daisy.Coordinate" title="funlib.geometry.coordinate.Coordinate"><span class="pre">Coordinate</span></a></em><a class="headerlink" href="#daisy.Roi.center" title="Link to this definition"></a></dt>
+<dd><p>Get the center of this ROI.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.contains">
+<span class="sig-name descname"><span class="pre">contains</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.contains" title="Link to this definition"></a></dt>
+<dd><p>Test if this ROI contains <code class="docutils literal notranslate"><span class="pre">other</span></code>, which can be another
+<a class="reference internal" href="#daisy.Roi" title="daisy.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a>, <a class="reference internal" href="#daisy.Coordinate" title="daisy.Coordinate"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coordinate</span></code></a>, or <code class="docutils literal notranslate"><span class="pre">tuple</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.copy">
+<span class="sig-name descname"><span class="pre">copy</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.copy" title="Link to this definition"></a></dt>
+<dd><p>Create a copy of this ROI.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Roi" title="funlib.geometry.roi.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.dims">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">dims</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span></em><a class="headerlink" href="#daisy.Roi.dims" title="Link to this definition"></a></dt>
+<dd><p>The the number of dimensions of this ROI.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.empty">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">empty</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#daisy.Roi.empty" title="Link to this definition"></a></dt>
+<dd><p>Test if this ROI is empty.</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.end">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">end</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#daisy.Coordinate" title="funlib.geometry.coordinate.Coordinate"><span class="pre">Coordinate</span></a></em><a class="headerlink" href="#daisy.Roi.end" title="Link to this definition"></a></dt>
+<dd><p>Smallest coordinate which is component-wise larger than any
+inside ROI.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.get_bounding_box">
+<span class="sig-name descname"><span class="pre">get_bounding_box</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.get_bounding_box" title="Link to this definition"></a></dt>
+<dd><p>Alias for <code class="docutils literal notranslate"><span class="pre">to_slices()</span></code>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">slice</span></code>, <code class="xref py py-data docutils literal notranslate"><span class="pre">...</span></code>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.grow">
+<span class="sig-name descname"><span class="pre">grow</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">amount_neg</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">amount_pos</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.grow" title="Link to this definition"></a></dt>
+<dd><p>Grow a ROI by the given amounts in each direction:</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>amount_neg</strong> (<a class="reference internal" href="#daisy.Coordinate" title="daisy.Coordinate"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coordinate</span></code></a> or <code class="docutils literal notranslate"><span class="pre">int</span></code>) – Amount (per dimension) to grow into the negative direction.
+Passing in a single integer grows that amount in all
+dimensions. Defaults to zero.</p></li>
+<li><p><strong>amount_pos</strong> (<a class="reference internal" href="#daisy.Coordinate" title="daisy.Coordinate"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coordinate</span></code></a> or <code class="docutils literal notranslate"><span class="pre">int</span></code>) – Amount (per dimension) to grow into the positive direction.
+Passing in a single integer grows that amount in all
+dimensions. Defaults to zero.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Roi" title="funlib.geometry.roi.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.intersect">
+<span class="sig-name descname"><span class="pre">intersect</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.intersect" title="Link to this definition"></a></dt>
+<dd><p>Get the intersection of this ROI with another <a class="reference internal" href="#daisy.Roi" title="daisy.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Roi" title="funlib.geometry.roi.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.intersects">
+<span class="sig-name descname"><span class="pre">intersects</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.intersects" title="Link to this definition"></a></dt>
+<dd><p>Test if this ROI intersects with another <a class="reference internal" href="#daisy.Roi" title="daisy.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.shift">
+<span class="sig-name descname"><span class="pre">shift</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">by</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.shift" title="Link to this definition"></a></dt>
+<dd><p>Shift this ROI.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Roi" title="funlib.geometry.roi.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.size">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">size</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">int</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#daisy.Roi.size" title="Link to this definition"></a></dt>
+<dd><p>Get the volume of this ROI. Returns <code class="docutils literal notranslate"><span class="pre">None</span></code> if the ROI is
+unbounded.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.snap_to_grid">
+<span class="sig-name descname"><span class="pre">snap_to_grid</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">voxel_size</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mode</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'grow'</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.snap_to_grid" title="Link to this definition"></a></dt>
+<dd><p>Align a ROI with a given voxel size.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>voxel_size</strong> (<a class="reference internal" href="#daisy.Coordinate" title="daisy.Coordinate"><code class="xref py py-class docutils literal notranslate"><span class="pre">Coordinate</span></code></a> or <code class="docutils literal notranslate"><span class="pre">tuple</span></code>) – The voxel size of the grid to snap to.</p></li>
+<li><p><strong>mode</strong> (<em>string</em><em>, </em><em>optional</em>) – How to align the ROI if it is not a multiple of the voxel size.
+Available modes are ‘grow’, ‘shrink’, and ‘closest’. Defaults
+to ‘grow’.</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Roi" title="funlib.geometry.roi.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.to_slices">
+<span class="sig-name descname"><span class="pre">to_slices</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.to_slices" title="Link to this definition"></a></dt>
+<dd><p>Get a <code class="docutils literal notranslate"><span class="pre">tuple</span></code> of <code class="docutils literal notranslate"><span class="pre">slice</span></code> that represent this ROI and can be used
+to index arrays.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-class docutils literal notranslate"><span class="pre">tuple</span></code>[<code class="xref py py-class docutils literal notranslate"><span class="pre">slice</span></code>, <code class="xref py py-data docutils literal notranslate"><span class="pre">...</span></code>]</span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="daisy.Roi.unbounded">
+<em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">unbounded</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">bool</span></em><a class="headerlink" href="#daisy.Roi.unbounded" title="Link to this definition"></a></dt>
+<dd><p>Test if this ROI is unbounded.</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="daisy.Roi.union">
+<span class="sig-name descname"><span class="pre">union</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">other</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#daisy.Roi.union" title="Link to this definition"></a></dt>
+<dd><p>Get the union of this ROI with another <a class="reference internal" href="#daisy.Roi" title="daisy.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference internal" href="#daisy.Roi" title="funlib.geometry.roi.Roi"><code class="xref py py-class docutils literal notranslate"><span class="pre">Roi</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</div></blockquote>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="Daisy: Block-wise Task Scheduling" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="release.html" class="btn btn-neutral float-right" title="Release notes" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2019, Jan Funke, Tri Nguyen, William Patton, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

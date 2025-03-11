@@ -1,5 +1,0 @@
-scikit-image
-h5py
-zarr
-git+https://github.com/trivoldus28/funlib.show.neuroglancer@acd5a3a
-#egg=funlib.show.neuroglancer

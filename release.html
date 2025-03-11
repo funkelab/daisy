@@ -1,0 +1,227 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Release notes &mdash; daisy  documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=e59714d7" />
+      <link rel="stylesheet" type="text/css" href="_static/mystnb.4510f1fc1dee50b3e5859aac5469c37c29e427902b24a333a5f9fcb2f0b3ac41.css" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=5929fcd5"></script>
+      <script src="_static/doctools.js?v=9bcbadda"></script>
+      <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
+      <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Daisy Tutorial" href="notebooks/tutorial.html" />
+    <link rel="prev" title="API Reference" href="api.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            daisy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Release notes</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#release-v1-2-2">Release v1.2.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#release-v1-2-1">Release v1.2.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#release-v1-2">Release v1.2</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#release-v1-1-1">Release v1.1.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#release-v1-1">Release v1.1</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#release-v1-0">Release v1.0</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#release-v0-2">Release v0.2</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#major-changes">Major changes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#notable-features">Notable features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#maintenance">Maintenance</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/tutorial.html">Daisy Tutorial</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">daisy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Release notes</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/release.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="release-notes">
+<h1>Release notes<a class="headerlink" href="#release-notes" title="Link to this heading"></a></h1>
+<section id="release-v1-2-2">
+<span id="id1"></span><h2>Release v1.2.2<a class="headerlink" href="#release-v1-2-2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>bugfix: the serial server had would not return task states in some cases.</p></li>
+</ul>
+</section>
+<section id="release-v1-2-1">
+<h2>Release v1.2.1<a class="headerlink" href="#release-v1-2-1" title="Link to this heading"></a></h2>
+<p>Fix small bugs:</p>
+<ul class="simple">
+<li><p>Server.run_blockwise now returns the task state dict mapping task names to task states. This is useful if you ever want to know how many blocks failed, skipped, were orphaned etc.</p></li>
+<li><p>bugfix: more reliable log directory setter. We now no longer produce a daisy_logs directory as an artifact when running tests</p></li>
+<li><p>bugfix: serial server doesn’t mark all blocks as success. If block marked as failed it is released as a failed block</p></li>
+</ul>
+</section>
+<section id="release-v1-2">
+<h2>Release v1.2<a class="headerlink" href="#release-v1-2" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>add support for MacOS and Windows (via supporting multiprocessing start method “spawn”)</p></li>
+<li><p>add a Serial Server. run_blockwise convenience function can be run with multiprocessing=False
+class methods can now be used as worker start functions and process block functions</p></li>
+<li><p>bugfix: no longer double counts orphans in some cases</p></li>
+</ul>
+</section>
+<section id="release-v1-1-1">
+<h2>Release v1.1.1<a class="headerlink" href="#release-v1-1-1" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Fixes a bug where daisy would hang indefinitely if the check_function skipped all blocks in all available tasks resulting in downstream tasks never having their workers recruited.</p></li>
+</ul>
+</section>
+<section id="release-v1-1">
+<h2>Release v1.1<a class="headerlink" href="#release-v1-1" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>increased max message size from 2**16 to 2**64</p></li>
+<li><p>check every second for whether all blocks have finished in the server event loop</p></li>
+<li><p>use context manager within run_blockwise to ensure process terminates</p></li>
+<li><p>remove deep copy in the calls to shrink. This was significantly slowing down the scheduler with excessive copying</p></li>
+</ul>
+</section>
+<section id="release-v1-0">
+<h2>Release v1.0<a class="headerlink" href="#release-v1-0" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Overhauled the internals of daisy to clearly separate the “Scheduler”,
+“Worker”, “Client”, “Server” and “Task” components. Much of the functionality
+remains the same, with the main entry point being the <cite>run_blockwise</cite> function
+that takes some <cite>Task</cite> instances. Some code related to IO has been moved to
+<cite>funlib.persistence</cite> which includes <cite>Array</cite> and <cite>Graph</cite> classes.</p></li>
+</ul>
+</section>
+<section id="release-v0-2">
+<h2>Release v0.2<a class="headerlink" href="#release-v0-2" title="Link to this heading"></a></h2>
+<section id="major-changes">
+<h3>Major changes<a class="headerlink" href="#major-changes" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Use Tornado for worker-scheduler communication.
+Communication between scheduler and workers is now using <code class="docutils literal notranslate"><span class="pre">tornado</span></code> instead of <code class="docutils literal notranslate"><span class="pre">dask</span></code> to be more lightweight and reliable. Furthermore, a worker client is persistent across blocks, allowing it to request and receive multiple blocks to process on. This change is heavily motivated by the long queuing delay of <code class="docutils literal notranslate"><span class="pre">lsf</span></code>/<code class="docutils literal notranslate"><span class="pre">slurm</span></code> and bring-up delay of <code class="docutils literal notranslate"><span class="pre">tensorflow</span></code>.
+Furthermore, the user now has an API for acquiring and releasing block, allowing them to write their own Python module implementation of workers.
+By <a href="#id2"><span class="problematic" id="id3">:user:`Tri Nguyen &lt;trivoldus28&gt;`</span></a>, <a href="#id4"><span class="problematic" id="id5">:user:`Jan Junke &lt;funkey&gt;`</span></a></p></li>
+<li><p>Introduce <code class="xref py py-class docutils literal notranslate"><span class="pre">Task</span></code> and <code class="xref py py-class docutils literal notranslate"><span class="pre">Parameter</span></code>, and <code class="xref py py-func docutils literal notranslate"><span class="pre">daisy.distribute()</span></code> to execute <code class="xref py py-class docutils literal notranslate"><span class="pre">Task</span></code> chain.</p></li>
+<li><p>Changed <code class="xref py py-class docutils literal notranslate"><span class="pre">SharedGraphProvider</span></code> and <code class="xref py py-class docutils literal notranslate"><span class="pre">SharedSubGraph</span></code> APIs, and added many new features
+including ability to have directed and undirected graphs. For the mongo backend, also added the ability to
+store node/edge features in separate collections, and filter by node/edge feature values.</p></li>
+</ul>
+</section>
+<section id="notable-features">
+<h3>Notable features<a class="headerlink" href="#notable-features" title="Link to this heading"></a></h3>
+<ul>
+<li><p><code class="xref py py-class docutils literal notranslate"><span class="pre">Task</span></code> sub-ROI request.
+A sub-region of a task’s available <code class="docutils literal notranslate"><span class="pre">total_roi</span></code> can be restricted/requested
+explicitly using the <code class="xref py py-func docutils literal notranslate"><span class="pre">daisy.distribute()</span></code> interface.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">task_spec</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;task&#39;</span><span class="p">:</span> <span class="n">mytask</span><span class="p">,</span> <span class="s1">&#39;request&#39;</span><span class="p">:</span> <span class="p">[</span><span class="n">daisy</span><span class="o">.</span><span class="n">Roi</span><span class="p">((</span><span class="mi">3</span><span class="p">,),</span> <span class="p">(</span><span class="mi">2</span><span class="p">,))]}</span>
+<span class="n">daisy</span><span class="o">.</span><span class="n">distribute</span><span class="p">([</span><span class="n">task_spec</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">request</span></code> will be expanded to align with <code class="docutils literal notranslate"><span class="pre">write_roi</span></code>.</p>
+</li>
+<li><p>Multiple <code class="xref py py-class docutils literal notranslate"><span class="pre">Task</span></code> targets.
+A single <code class="xref py py-func docutils literal notranslate"><span class="pre">daisy.distribute()</span></code> can execute multiple target tasks simultaneous.</p>
+<p>Example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">task_spec0</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;task&#39;</span><span class="p">:</span> <span class="n">mytask0</span><span class="p">}</span>
+<span class="n">task_spec1</span> <span class="o">=</span> <span class="p">{</span><span class="s1">&#39;task&#39;</span><span class="p">:</span> <span class="n">mytask1</span><span class="p">}</span>
+<span class="n">daisy</span><span class="o">.</span><span class="n">distribute</span><span class="p">([</span><span class="n">task_spec0</span><span class="p">,</span> <span class="n">task_spec1</span><span class="p">])</span>
+</pre></div>
+</div>
+<p>Tasks’ dependencies (shared or not) will be processed correctly.</p>
+</li>
+<li><p>Periodic status report.
+Daisy gives a status report of running/finished tasks, blocks running/finished
+status, and an ETA based on the completion rate of the last 2 minutes.</p></li>
+<li><p>Z-order block-wise scheduling.</p></li>
+</ul>
+</section>
+<section id="maintenance">
+<h3>Maintenance<a class="headerlink" href="#maintenance" title="Link to this heading"></a></h3>
+<ul class="simple">
+<li><p>Drop support for Python 3.4.x and 3.5.x.
+We have moved to using Python’s <code class="docutils literal notranslate"><span class="pre">asyncio</span></code> capability as the sole backend for Tornado. Python 3.4.x does not have asyncio. While Python 3.5.x does have asyncio built-in, its implementation is buggy.</p></li>
+</ul>
+</section>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="api.html" class="btn btn-neutral float-left" title="API Reference" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="notebooks/tutorial.html" class="btn btn-neutral float-right" title="Daisy Tutorial" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2019, Jan Funke, Tri Nguyen, William Patton, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
