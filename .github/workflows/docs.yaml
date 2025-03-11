@@ -26,8 +26,11 @@ jobs:
       run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
     - name: Set permissions
       run: chmod -R a+rX ./docs/build/html
-    - name: Deploy
+    - name: Update gh branch
       uses: peaceiris/actions-gh-pages@v4
       with:
         github_token: ${{ secrets.GITHUB_TOKEN }}
         publish_dir: docs/build/html
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
