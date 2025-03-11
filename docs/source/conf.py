@@ -47,6 +47,7 @@ extensions = [
 nbsphinx_custom_formats = {
     ".py": ["jupytext.reads", {"fmt", "py:percent"}],
 }
+nbsphinx_execute = 'never'  # Never execute notebooks
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]
