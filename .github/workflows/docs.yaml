@@ -21,6 +21,7 @@ jobs:
       run: |
         uv run --extra docs python -m ipykernel install --name daisy_env --user
         uv run --extra docs jupytext --to notebook --execute ./docs/source/notebooks/tutorial.py --output ./docs/source/notebooks/tutorial.ipynb
+        rm ./docs/source/notebooks/tutorial.py
     - name: Build
       run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
     - name: Set permissions
