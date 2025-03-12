@@ -24,7 +24,7 @@
 #
 # In this tutorial we will cover a basic Daisy `Task` and build up to array processing
 #
-# `daisy`` has a two classes that you must be familiar with to get the most out of this library:
+# `daisy` has a two classes that you must be familiar with to get the most out of this library:
 #
 # 1. **daisy.Task**: All code you would like to distribute into blocks must be wrapped into a `Task` to be executed by daisy.
 #
