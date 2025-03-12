@@ -4,9 +4,11 @@
 #  %% [markdown]
 # ## Needed Libraries for this Tutorial
 # Some recurring libraries that we will use for all of our examples are:
+#
 # `funlib.geometry`: This is a helper library that defines two classes `Coordinate` and `Roi`.
 # - `Coordinate` is basically just an tuple of `n` integers with element wise operations defined on it, defining a point in n-D space.
 # - `Roi` defines a bounding box in n-D space, parameterized by two `Coordinates`: `offset` and `shape`
+# 
 # `funlib.persistence`: A helper library that provides a convenient storage interface to `zarr` and `sql` dbs for array and graph data respectively.
 # - Provides convenience functions such as `prepare_ds` and `open_ds` to create and open arrays
 # - Allows automatic parsing of metadata including voxel size and offset for various arrays, allowing us to index using `Roi`and `Coordinate` objects in
