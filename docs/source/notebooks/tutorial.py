@@ -57,18 +57,24 @@
 #     ```
 #
 
+# %% [markdown]
+
+# ### Multiprocessing
+# Here we set the start method to fork. We do this to simplify running
+# this notebook in a jupyter notebook. The "spawn" start method is
+# supported but limits the possible functions you can execute blockwise
+# (i.e. no lambda functions)
+
 # %%
 import multiprocessing
 
 multiprocessing.set_start_method("fork", force=True)
-
-import daisy
-from funlib.geometry import Coordinate, Roi
-
 # %% [markdown]
 # ### The simplest possible task
 
 # %%
+import daisy
+from funlib.geometry import Coordinate, Roi
 import time
 
 # Create a super simple task
