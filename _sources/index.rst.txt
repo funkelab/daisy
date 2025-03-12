@@ -7,8 +7,9 @@ Daisy: Block-wise Task Scheduling
 .. toctree::
   :maxdepth: 2
 
+  will_tutorial
+  caroline_tutorial
   api
   release
-  notebooks/tutorial
 
 * :ref:`search`
