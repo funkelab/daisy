@@ -585,7 +585,7 @@ tutorial_task = daisy.Task(
     num_workers=2,
 )
 
-daisy.run_blockwise([tutorial_task])
+# daisy.run_blockwise([tutorial_task])
 
 # %%
 plt.imshow(
