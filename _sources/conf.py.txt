@@ -23,8 +23,8 @@ from typing import Dict
 
 
 project = "daisy"
-copyright = "2019, Jan Funke, Tri Nguyen, William Patton, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
-author = "Jan Funke, Tri Nguyen, William Patton, Carolin Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
+copyright = "2019, Jan Funke, Tri Nguyen, William Patton, Caroline Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
+author = "Jan Funke, Tri Nguyen, William Patton, Caroline Malin-Mayor, Arlo Sheridan, Philipp Hanslovsky, Chris Barnes"
 
 
 # -- General configuration ---------------------------------------------------
