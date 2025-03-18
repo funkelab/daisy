@@ -1,11 +1,9 @@
-.. daisy documentation master file, created by
-   sphinx-quickstart on Mon Mar 25 14:53:44 2019.
-
-Daisy: Block-wise Task Scheduling
-=================================
+.. include:: ../../README.md 
+  :parser: myst_parser.sphinx_
 
 .. toctree::
   :maxdepth: 2
+  :hidden:
 
   will_tutorial
   caroline_tutorial
