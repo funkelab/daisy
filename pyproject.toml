@@ -47,7 +47,6 @@ docs = [
     "myst-parser",
     "jupytext",
     "ipykernel",
-    "myst_nb",
     "funlib.persistence",
     "scipy",
     "ipywidgets",
