@@ -18,6 +18,8 @@ jobs:
     - uses: actions/checkout@master
     - name: Install uv
       uses: astral-sh/setup-uv@v5
+    - name: Install Pandoc
+      run: sudo apt-get update && sudo apt-get install -y pandoc
     - name: Turn script into notebook
       run: |
         uv run --extra docs python -m ipykernel install --name daisy_env --user
