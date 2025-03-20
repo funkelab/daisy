@@ -18,6 +18,10 @@ jobs:
     - uses: actions/checkout@master
     - name: Install uv
       uses: astral-sh/setup-uv@v5
+    - name: Install pandoc
+      uses: pandoc/actions/setup@v1
+      with:
+        version: 2.19
     - name: Turn script into notebook
       run: |
         uv run --extra docs python -m ipykernel install --name daisy_env --user
