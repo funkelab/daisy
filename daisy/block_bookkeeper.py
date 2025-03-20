@@ -1,4 +1,7 @@
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BlockLog:
@@ -50,10 +53,12 @@ class BlockBookkeeper:
 
         # block was never sent or already returned
         if block.block_id not in self.sent_blocks:
+            logger.debug("Block %s not in sent blocks: %s", block, self.sent_blocks)
             return False
 
         # block is returned by different client than expected
         if self.sent_blocks[block.block_id].stream != stream:
+            logger.debug("Block %s returned by wrong client %s", block, stream)
             return False
 
         return True

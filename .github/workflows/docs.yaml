@@ -21,8 +21,8 @@ jobs:
     - name: Turn script into notebook
       run: |
         uv run --extra docs python -m ipykernel install --name daisy_env --user
-        uv run --extra docs jupytext --to notebook --execute ./examples/tutorial.py --output ./docs/source/caroline_tutorial.ipynb
-        uv run --extra docs jupytext --to notebook --execute ./examples/will_tutorial.py --output ./docs/source/will_tutorial.ipynb
+        uv run --extra docs jupytext --to notebook ./examples/tutorial.py
+        mv ./examples/tutorial.ipynb ./docs/source/tutorial.ipynb
     - name: Build
       run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
     - name: Set permissions

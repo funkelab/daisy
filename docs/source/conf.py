@@ -41,7 +41,6 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.napoleon",
     "sphinx_autodoc_typehints",
-    "myst_nb",  # integrate ipynb
 ]
 
 nbsphinx_custom_formats = {

@@ -14,6 +14,9 @@
 # ---
 
 # %%
+
+# before we start, we are setting the start method to fork for convenience
+# and for running in a jupyter notebook. This is not always necessary.
 import multiprocessing
 
 multiprocessing.set_start_method("fork", force=True)
@@ -29,13 +32,12 @@ multiprocessing.set_start_method("fork", force=True)
 # - key features of daisy that make it unique
 
 # %%
-# %pip install scikit-image
-# %pip install zarr
-# %pip install matplotlib
-# %pip install funlib.persistence
+# Don't forget to install daisy with dependencies for the docs before running this tutorial:
+# 
+# `pip install daisy[docs]``
 
 # %% [markdown]
-# # Building Blocks
+# ## Building Blocks
 
 # %% [markdown]
 # Daisy is designed for processing volumetric data. Therefore, it has specific ways to describe locations in a volume. We will demonstrate the common terms and utilities using this image of astronaut Eileen Collins.
@@ -49,7 +51,7 @@ raw_data = np.flip(data.astronaut(), 0)
 axes_image = plt.imshow(raw_data, zorder=1, origin="lower")
 
 # %% [markdown]
-# ## Coordinate
+# ###Coordinate
 # - A daisy Coordinate is essentially a tuple with one value per spatial dimension. In our case, the Coordinates are two-dimensional.
 # - Daisy coordinates can represent points in the volume, or distances in the volume.
 # - Daisy mostly passes around abstract placeholders of the data. Therefore, a Coordinate does not contain data, it is simply a pointer to a location in a volume.
@@ -81,7 +83,7 @@ for point, color in zip([p1, p2, p3], ["white", "yellow", "orange"]):
 figure
 
 # %% [markdown]
-# ## Roi
+# ###Roi
 # A Roi (Region of interest) is a bounding box in a volume. It is defined by two Coordinates:
 # - offset: the starting corner of the bounding box relative to the origin
 # - shape: The extent of the bounding box in each dimension
@@ -125,7 +127,7 @@ for roi, color in zip([head, nose, body, neck], ["purple", "orange", "grey", "bl
     display_roi(figure.axes[0], roi, color=color)
 
 # %% [markdown]
-# ## Array
+# ###Array
 # So far we have seen how to specify regions of the data with Rois and Coordinates, which do not contain any data. However, eventually you will need to access the actual data using your Rois! For this, we use [`funlib.persistence.arrays.Array`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/array.py). If you are familiar with dask, this is the daisy equivalent of dask arrays.
 #
 # The core information about the `funlib.persistence.arrays.Array` class is that you can slice them with Rois, along with normal numpy-like slicing. However, in order to support this type of slicing, we need to also know the Roi of the whole Array. Here we show you how to create an array from our raw data that is held in memory as a numpy array. However, we highly recommend using a zarr backend, and will show this in our simple example next!
@@ -169,7 +171,7 @@ plt.close()
 plt.imshow(body_data.transpose(1, 2, 0), origin="lower")
 
 # %% [markdown]
-# ## Block
+# ###Block
 #
 # Daisy is a blockwise task scheduler. Therefore, the concept of a block is central to Daisy. To efficiently process large volumes, Daisy splits the whole volume into a set of adjacent blocks that cover the whole image. These blocks are what is passed between the scheduler and the workers.
 #
@@ -211,11 +213,11 @@ display_roi(figure.axes[0], block.write_roi, color="white")
 # You may be wondering why the block has a read roi and a write roi - this will be illustrated next in our simple daisy example!
 
 # %% [markdown]
-# # A Simple Example: Local Smoothing
+# ## A Simple Example: Local Smoothing
 # In this next example, we will use gaussian smoothing to illustrate how to parallize a task on your local machine using daisy.
 
 # %% [markdown]
-# ## Dataset Preparation
+# ###Dataset Preparation
 # As mentioned earlier, we highly recommend using a zarr/n5 backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a divisor of and aligned with the write_roi. The zarr dataset must exist before you start scheduling though - we recommend using [`funlib.persistence.prepare_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L423) function to prepare the dataset. Then later, you can use [`funlib.persistence.open_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L328) to open the dataset and it will automatically read the metadata and wrap it into a `funlib.persistence.Array`.
 
 # %%
@@ -254,7 +256,7 @@ print("Chunk size in output dataset:", f["smoothed"].chunks)
 
 
 # %% [markdown]
-# ## Define our Process Function
+# ###Define our Process Function
 # When run locally, daisy process functions must take a block as the only argument. Depending on the multiprocessing spawn function settings on your computer, the function might not inherit the imports and variables of the scope where the scheudler is run, so it is always safer to import and define everything inside the function.
 #
 # Here is an example for smoothing. Generally, daisy process functions have the following three steps:
@@ -296,7 +298,7 @@ plt.imshow(
 )
 
 # %% [markdown]
-# ## Run daisy with local multiprocessing
+# ###Run daisy with local multiprocessing
 # We are about ready to run daisy! We need to tell the scheduler the following pieces of information:
 # - The process function, which takes a block as an argument
 # - The total roi to process (in our case, the whole image)
@@ -325,7 +327,7 @@ plt.imshow(
 )
 
 # %% [markdown]
-# ## Take 2: Add context!
+# ###Take 2: Add context!
 # The task ran successfully, but you'll notice that there are edge artefacts where the blocks border each other. This is because each worker only sees the inside of the block, and it needs more context to smooth seamlessly between blocks. If we increase the size of the read_roi so that each block sees all pixels that contribute meaningfully to the smoothed values in the interior (write_roi) of the block, the edge artefacts should disappear.
 
 # %%
@@ -438,7 +440,7 @@ plt.imshow(
 # Smoothing is poorly defined at the border of the volume - if you want different behavior, you can expand the input array to include extended data of your choice at the border, or shrink the total output roi by the context to only include the section of the output that depends on existing data.
 
 # %% [markdown]
-# ## Conclusion: Dask and Daisy
+# ###Conclusion: Dask and Daisy
 #
 # Congrats! You have learned the basics of Daisy. In this example, we only parallelized the processing using our local computer's resources, and our "volume" was very small.
 #
@@ -476,7 +478,7 @@ plt.imshow(smoothed.transpose((1, 2, 0)), origin="lower")
 # - Cases where the worker function needs setup and teardown that takes longer than processing a block (see our next example!)
 
 # %% [markdown]
-# # Distributing on the Cluster
+# ## Distributing on the Cluster
 # While daisy can run locally, it is designed to shine in a cluster computing environment. The only information passed between scheduler and workers are Blocks, which are extremely lightweight and are communicated through TCP. Therefore, workers can be distributed on the cluster with minimal communication overhead.
 #
 # Let's re-do our smoothing, but this time run each worker as a completely separate subprocess, as would be needed on a cluster. First, we prepare the output dataset.
@@ -509,7 +511,7 @@ def start_subprocess_worker(cluster="local"):
             ]
         )
     elif cluster == "local":
-        subprocess.run(["python", "./tutorial_worker.py", "tutorial_config.json"])
+        subprocess.run(["python", "tutorial_worker.py", "tutorial_config.json"])
     else:
         raise ValueError("Only bsub and local currently supported for this tutorial")
 
@@ -526,7 +528,7 @@ def start_subprocess_worker(cluster="local"):
 # import json
 #
 #
-# # This function is the same as the local function, but we can pass as many different arguments as we want, and we don't need to import inside it
+# ## This function is the same as the local function, but we can pass as many different arguments as we want, and we don't need to import inside it
 # def smooth_in_block(block: daisy.Block, config: dict):
 #     sigma = config["sigma"]
 #     raw_ds = open_ds(f"{config['input_zarr']}/{config['input_group']}", "r",)
@@ -585,7 +587,7 @@ tutorial_task = daisy.Task(
     num_workers=2,
 )
 
-# daisy.run_blockwise([tutorial_task])
+daisy.run_blockwise([tutorial_task])
 
 # %%
 plt.imshow(
@@ -594,13 +596,13 @@ plt.imshow(
 )
 
 # %% [markdown]
-# # Important Features
+# ## Important Features
 
 # %% [markdown]
 # There are a few more features that you should know about to take full advantage of daisy!
 
 # %% [markdown]
-# ## Fault tolerance and the pre-check function
+# ###Fault tolerance and the pre-check function
 
 # %% [markdown]
 # Even if your code is completely bug-free, things will always go wrong eventually when scaling up to millions of workers. Perhaps your node on the cluster was shared with another process that temporarily hogged too much memory, or you forgot to set a longer timeout and the process was killed after 8 hours. Let's see how daisy can help you handle these issues, by seeing what happens when we add random failures to our smoothing task.
@@ -747,7 +749,7 @@ plt.imshow(
 # If you plan to have extremely long running jobs that might get killed in the middle, we recommend including a step in your process function after you write out the result of a block, in which you write out the block id to a database or a file. Then, the pre-check function can just check if the block id is in the file system or database, which is much faster than reading the actual data.
 
 # %% [markdown]
-# ## Task chaining
+# ###Task chaining
 
 # %% [markdown]
 # Frequently, image processing pipelines involve multiple tasks, where some tasks depend on the output of other tasks. For example, we have a function to segment out instances of blue objects in an image, and we want to apply it after smoothing. We can define two tasks and run them sequentially in the scheduler. Daisy will even begin the second task as soon as a single block can be run, rather than waiting for the first task to fully complete before starting the second task.
@@ -883,7 +885,7 @@ axes[1].imshow(blue_objs, origin="lower", cmap=colormap, interpolation="nearest"
 # Now we know how to chain tasks together, but we've created another issue. If objects crossed block boundaries, they were assigned different IDs. We will address this problem in the next section.
 
 # %% [markdown]
-# ## Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
+# ###Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
 
 # %% [markdown]
 # There is a class of problem where it is useful for a block to see the output of its neighboring blocks. Usually, this need comes up when the task performs detection and linking in the same step. To detect an object in a block, it is useful to know if a neighbor has already detected an object that the object in the current block should link to. This is especially useful if there is some sort of continuity constraint, as in tracking objects over time. Even for tasks without a continuity constraint, like agglomeration of fragments for instance segmentation, performing the detection and linking at the same time can save you an extra pass over the dataset, which matters when the datasets are large.
@@ -1058,4 +1060,393 @@ axes[1].imshow(
 # %% [markdown]
 # **IMPORTANT PERFORMANCE NOTE:** Be aware that `read_write_conflicts` is set to `True` by default and can lead to performance hits in cases where you don't need it, so be sure to turn it off if you want every block to be run in parallel!
 
+# %% [markdown]
+# # Some Minimal Examples
+
+# %% [markdown]
+# ## Introduction and overview
+#
+# In this tutorial we will cover some basic Daisy `Task`s
+#
+# **daisy.Task**: All code you would like to distribute into blocks must be wrapped into a `Task` to be executed by daisy.
+#
+
+# %% [markdown]
+# ## Environment setup
+# If you have not already done so, I highly recommend you create an environment first.
+# You can do this with `uv` via:
+#
+# ```bash
+# uv init --python 3.12
+# ```
+# Activating the environment is as simple as `source .venv/bin/activate`
+#
+# Then, you can:
+# - add daisy directly to your dependencies with:
+#     ```bash
+#     uv add daisy
+#     ```
+# - install daisy using pip by name or via GitHub:
+#     ```bash
+#     pip install daisy
+#     ```
+#
+
+# %% [markdown]
+
+# ### Multiprocessing
+# Here we set the start method to fork. We do this to simplify running
+# this notebook in a jupyter notebook. The "spawn" start method is
+# supported but limits the possible functions you can execute blockwise
+# (i.e. no lambda functions)
+
 # %%
+import multiprocessing
+
+multiprocessing.set_start_method("fork", force=True)
+# %% [markdown]
+# ## Daisy Tasks
+
+# %% [markdown]
+# ### A Simple Task
+
+# %%
+import daisy
+from daisy import Coordinate, Roi
+import time
+
+# Create a super simple task
+dummy_task = daisy.Task(
+    "Dummy",  # We give the task a name
+    total_roi=Roi((0,), (100,)),  # a 1-D bounding box [0,100)
+    read_roi=Roi((0,), (1,)),  # We read in blocks of size [0,1)
+    write_roi=Roi((0,), (1,)),  # We write in blocks of size [0, 1)
+    process_function=lambda block: time.sleep(
+        0.05
+    ),  # Our process function takes the block and simply waits
+    num_workers=5,
+)
+
+# execute the task without any multiprocessing
+daisy.run_blockwise([dummy_task], multiprocessing=False)
+daisy.run_blockwise([dummy_task], multiprocessing=True)
+
+# %% [markdown]
+# Since there are 100 blocks to process, and we always sleep for 0.05 seconds, it takes 5 seconds
+# to run all the blocks without multiprocessing, but only 1 second with `multiprocessing=True`.
+# When you run a task with `daisy`, you get a progress bar along with a summary
+# of the execution after you have finished processing. Here no errors were thrown so we completed all 100 blocks.
+#
+# `daisy` also programatically returns a dictionary containing a summary of the execution for all given
+# tasks so that you can decide how to procede based on whether any blocks failed.
+#
+# Next lets look see what we can do to modify this task
+
+# %% [markdown]
+# ### Failing blocks
+# %%
+
+import random
+
+
+def random_fail(block: daisy.Block):
+    if random.random() < 0.2:
+        block.status = daisy.BlockStatus.FAILED
+    return block
+
+
+# Create a super simple task
+failing_task = daisy.Task(
+    "Failures",  # We give the task a name
+    total_roi=Roi((0,), (100,)),  # a 1-D bounding box [0,100)
+    read_roi=Roi((0,), (1,)),  # We read in blocks of size [0,1)
+    write_roi=Roi((0,), (1,)),  # We write in blocks of size [0, 1)
+    process_function=random_fail,  # Our process function takes the block and simply waits
+    max_retries=0,  # We do not retry failed blocks to get expected failure counts
+)
+
+# execute the task without any multiprocessing
+daisy.run_blockwise([failing_task], multiprocessing=False)
+
+# %% [markdown]
+
+# In this case, we have a 20% chance of failing each block. As you see from the execution summary,
+# about 20% of the blocks failed.
+# If your blocks are failing, you may want to rerun the task and only process failed blocks. This
+# is where we use the `check_function` argument in the `daisy.Task`.
+
+# %%
+import tempfile
+from pathlib import Path
+
+with tempfile.TemporaryDirectory() as tmpdir:
+
+    def random_fail(block: daisy.Block):
+        if random.random() < 0.2:
+            block.status = daisy.BlockStatus.FAILED
+        else:
+            Path(tmpdir, f"{block.block_id[1]}").touch()
+        return block
+
+    def check_block(block: daisy.Block) -> bool:
+        return Path(tmpdir, f"{block.block_id[1]}").exists()
+
+    while True:
+        # Create a super simple task
+        check_block_task = daisy.Task(
+            "Checking-Blocks",  # We give the task a name
+            total_roi=Roi((0,), (100,)),  # a 1-D bounding box [0,100)
+            read_roi=Roi((0,), (1,)),  # We read in blocks of size [0,1)
+            write_roi=Roi((0,), (1,)),  # We write in blocks of size [0, 1)
+            process_function=random_fail,  # Our process function takes the block and simply waits
+            check_function=check_block,  # Check if a block has been completed or not
+            max_retries=0,
+        )
+
+        # execute the task without any multiprocessing
+        task_state = daisy.run_blockwise([check_block_task], multiprocessing=False)
+        if task_state["Checking-Blocks"].failed_count == 0:
+            break
+
+# %% [markdown]
+
+# It took a few tries to complete the task since approximately 20% of the remaining blocks fail
+# on each attempt. We could also have set `max_retries` to a higher number to allow for retrying failed
+# blocks during the same task execution. This is to account for random failures due to network issues or
+# other random uncontrollable factors, but will not help if there is a logical bug in your code. In this
+# case since the failure is random, retrying does help.
+
+# %% [markdown]
+# ### Different read/write sizes and boundary handling
+
+# %%
+
+# fit: "valid", "overhang", "shrink"
+
+# Create a super simple task
+overhang_task = daisy.Task(
+    "overhang",  # We give the task a name
+    total_roi=Roi((0,), (100,)),  # a 1-D bounding box [0,100)
+    read_roi=Roi((0,), (9,)),  # We read in blocks of size [0,1)
+    write_roi=Roi((2,), (5,)),  # We write in blocks of size [0, 1)
+    process_function=lambda b: ...,  # Empty process function
+    fit="overhang",
+)
+valid_task = daisy.Task(
+    "valid",  # We give the task a name
+    total_roi=Roi((0,), (100,)),  # a 1-D bounding box [0,100)
+    read_roi=Roi((0,), (9,)),  # We read in blocks of size [0,1)
+    write_roi=Roi((2,), (5,)),  # We write in blocks of size [0, 1)
+    process_function=lambda b: ...,  # Empty process function
+    fit="valid",
+)
+
+# %% [markdown]
+# because we now have:
+#
+# total roi: [0, 100)
+#
+# read roi: [0, 9)
+#
+# write roi: [2, 7)
+#
+# There is a "context" of 2 pixels between the read_roi and write roi.
+# Removing this context from the total roi gives us a "total write roi" of [2, 98).
+# Note that the total number of pixels to tile is 96, which is not evenly divisible
+# by the chunk size of 5. So our final block will have write roi of [97, 102) and a
+# read roi of [95, 104). Depending on your task, reading, and especially writing outside
+# of the given total roi bounds can cause problems.
+# in these cases we can handle the final block in a few ways. "valid": ignore the
+# final block. "overhang": process the final block. "shrink": shrink the read/write
+# rois until the read roi is fully contained in the total roi. In this case the "shrink"
+# strategy would shrink the read roi to [95, 100) and the write roi to [97, 98).
+#
+# Now when we executing the overhang task it will have one more block processed than the
+# valid task
+
+# %%
+daisy.run_blockwise([overhang_task], multiprocessing=False)
+daisy.run_blockwise([valid_task], multiprocessing=False)
+
+# %% [markdown]
+# ### Task Chaining
+#
+# It is also possible to chain multiple tasks together in such a way that
+# they either run in parallel or in sequence. If running in parallel, we
+# simply start the workers for both tasks at once. If running in sequence,
+# blocks will only be realeased once their dependencies in previous tasks
+# have been completed.
+
+# %%
+total_roi = Roi((0, 0), (1250, 1250))
+read_roi_shape = (400, 400)
+write_roi_shape = (250, 250)
+context = Coordinate(75, 75)
+
+task_a_to_b = daisy.Task(
+    "A_to_B",
+    total_roi=total_roi.grow(
+        context,
+        context,
+    ),
+    read_roi=Roi((0, 0), read_roi_shape),
+    write_roi=Roi(context, write_roi_shape),
+    process_function=lambda b: ...,
+    read_write_conflict=False,
+)
+task_b_to_c = daisy.Task(
+    "B_to_C",
+    total_roi=total_roi.grow(
+        context,
+        context,
+    ),
+    read_roi=Roi((0, 0), read_roi_shape),
+    write_roi=Roi(context, write_roi_shape),
+    process_function=lambda b: ...,
+    read_write_conflict=False,
+    upstream_tasks=[task_a_to_b],
+)
+
+daisy.run_blockwise([task_a_to_b, task_b_to_c], multiprocessing=False)
+
+# %% [markdown]
+#
+# Here is an mp4 visualization of the above task
+#
+# ![task chaining](../_static/task_chaining.gif)
+
+# %% [markdown]
+# # Map Reduce and Some simple benchmarks
+
+# %% [markdown]
+# ## Simple data
+# %%
+import numpy as np
+import timeit
+
+shape = 4096000
+
+a = np.arange(shape, dtype=np.int64)
+b = np.empty_like(a, dtype=np.int64)
+print(f"Array a: {a[:6]} ...")
+
+# %% [markdown]
+# ## Map
+# Here we will square each element in the array `a` and store the result in a new array `b`
+
+# %%
+def process_fn():
+    # iterating and squaring each element in a and store to b
+    with np.nditer([a, b], op_flags=[["readonly"], ["readwrite"]]) as it:
+        with it:
+            for x, y in it:
+                y[...] = x**2
+
+
+print(f"Squaring array a took {timeit.timeit(process_fn, number=1)} seconds")
+print(f"Array b: {b[:6]} ...")
+
+# %%
+import daisy
+from funlib.persistence import Array
+import zarr
+
+shape = 4096000
+block_shape = 1024 * 16
+
+# input array is wrapped in Array for easy of Roi indexing
+a = Array(
+    np.arange(shape, dtype=np.int64),
+    offset=(0,),
+    voxel_size=(1,),
+)
+
+# to parallelize across processes, we need persistent read/write arrays
+# we'll use zarr here to do do that
+b = zarr.open_array(
+    zarr.TempStore(), "w", (shape,), chunks=(block_shape,), dtype=np.int64
+)
+# output array is wrapped in Array for easy of Roi indexing
+b = Array(
+    b,
+    offset=(0,),
+    voxel_size=(1,),
+)
+
+
+# %%
+# same process function as previously, but with additional code
+# to read and write data to persistent arrays
+def process_fn_daisy(block):
+    a_sub = a[block.read_roi]
+    b_sub = np.empty_like(a_sub)
+    with np.nditer(
+        [a_sub, b_sub],
+        op_flags=[["readonly"], ["readwrite"]],
+    ) as it:
+        with it:
+            for x, y in it:
+                y[...] = x**2
+
+    b[block.write_roi] = b_sub
+
+
+# %%
+total_roi = daisy.Roi((0,), shape)  # total ROI to map process over
+block_roi = daisy.Roi((0,), (block_shape,))  # block ROI for parallel processing
+
+# creating a Daisy task, note that we do not specify how each
+# worker should read/write to input/output arrays
+task = daisy.Task(
+    total_roi=total_roi,
+    read_roi=block_roi,
+    write_roi=block_roi,
+    process_function=process_fn_daisy,
+    num_workers=8,
+    task_id="square",
+)
+
+daisy.run_blockwise([task])
+print(f"Array b: {b[:6]} ...")
+
+# %%
+# run this to benchmark daisy!
+run_daisy = lambda: daisy.run_blockwise([task])
+print(f"Squaring array a with daisy took {timeit.timeit(run_daisy, number=1)} seconds")
+
+# %% [markdown]
+# ## Reduce
+# Here we will take the sum over every 16 elements in the array `b` and store the result in a new array `c`
+
+# %%
+import multiprocessing
+
+reduce_shape = shape / 16
+
+# while using zarr with daisy.Array can be easier to understand and less error prone, it is not a requirement.
+# Here we make a shared memory array for collecting results from different workers
+c = multiprocessing.Array("Q", range(int(shape / reduce_shape)))
+
+
+def process_fn_sum_reduce(block):
+    b_sub = b[block.write_roi]
+    s = np.sum(b_sub)
+    # compute c idx based on block offset and shape
+    idx = (block.write_roi.offset / block.write_roi.shape)[0]
+    c[idx] = s
+
+
+total_roi = daisy.Roi((0,), shape)  # total ROI to map process over
+block_roi = daisy.Roi((0,), reduce_shape)  # block ROI for parallel processing
+
+task1 = daisy.Task(
+    total_roi=total_roi,
+    read_roi=block_roi,
+    write_roi=block_roi,
+    process_function=process_fn_sum_reduce,
+    num_workers=8,
+    task_id="sum_reduce",
+)
+
+daisy.run_blockwise([task1])
+print(c[:])

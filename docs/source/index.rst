@@ -5,8 +5,7 @@
   :maxdepth: 2
   :hidden:
 
-  will_tutorial
-  caroline_tutorial
+  tutorial
   api
   release
 
