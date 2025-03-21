@@ -1313,7 +1313,7 @@ daisy.run_blockwise([task_a_to_b, task_b_to_c], multiprocessing=False)
 #
 # Here is an mp4 visualization of the above task
 #
-# ![task chaining](../_static/task_chaining.gif)
+# ![task chaining](_static/task_chaining.gif)
 
 # %% [markdown]
 # # Map Reduce and Some simple benchmarks
