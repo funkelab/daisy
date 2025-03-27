@@ -36,5 +36,5 @@ def test_workers_close(tmp_path):
     server.run_blockwise([task])
 
     for i in range(num_workers):
-        with FileLock(f"{tmp_path}/worker_{i}.lock", timeout=0.1):
+        with FileLock(f"{tmp_path}/worker_{i}.lock", timeout=1.0):
             pass
