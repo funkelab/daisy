@@ -17,6 +17,7 @@
       <script src="_static/doctools.js?v=9bcbadda"></script>
       <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
       <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/@jupyter-widgets/html-manager@^1.0.1/dist/embed-amd.js"></script>
       <script>window.MathJax = {"tex": {"inlineMath": [["$", "$"], ["\\(", "\\)"]], "processEscapes": true}, "options": {"ignoreHtmlClass": "tex2jax_ignore|mathjax_ignore|document", "processHtmlClass": "tex2jax_process|mathjax_process|math|output_area"}}</script>
       <script defer="defer" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script src="_static/js/theme.js"></script>
@@ -76,7 +77,11 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
              
-  <p><img alt="daisy" src="docs/source/_static/daisy.jpg" /></p>
+  <p><img alt="daisy" src="docs/source/_static/daisy.jpg" />
+<a class="reference external" href="https://github.com/funkelab/daisy/actions/workflows/tests.yaml"><img alt="tests" src="https://github.com/funkelab/daisy/actions/workflows/tests.yaml/badge.svg" /></a>
+<a class="reference external" href="https://github.com/funkelab/daisy/actions/workflows/ruff.yaml"><img alt="ruff" src="https://github.com/funkelab/daisy/actions/workflows/ruff.yaml/badge.svg" /></a>
+<a class="reference external" href="https://github.com/funkelab/daisy/actions/workflows/mypy.yaml"><img alt="mypy" src="https://github.com/funkelab/daisy/actions/workflows/mypy.yaml/badge.svg" /></a>
+<a class="reference external" href="https://pypi.org/project/daisy/"><img alt="pypi" src="https://github.com/funkelab/daisy/actions/workflows/publish.yaml/badge.svg" /></a></p>
 <section id="daisy-a-blockwise-task-scheduler">
 <h1>Daisy: A Blockwise Task Scheduler<a class="headerlink" href="#daisy-a-blockwise-task-scheduler" title="Link to this heading"></a></h1>
 <blockquote>
@@ -136,145 +141,6 @@ Daisy should also be generalizable enough to support efficient processing of dif
 <ul class="simple">
 <li><p>Daisy has a native inferface to represent of regions in a volume in real world units, easily handling voxel sizes, with convenience functions for region manipulation (intersection, union, growing or shrinking, etc.)</p></li>
 </ul>
-</section>
-</section>
-<section id="installation">
-<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading"></a></h2>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>daisy
-</pre></div>
-</div>
-<p>Alternatively, you can install from github for the latest development version:</p>
-<div class="highlight-sh notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span>git+https://github.com/funkelab/daisy#egg<span class="o">=</span>daisy
-</pre></div>
-</div>
-</section>
-<section id="quickstart">
-<h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading"></a></h2>
-<p>See the following code in a <a class="reference internal" href="#/examples/daisy_quickstart.ipynb"><span class="xref myst">IPython notebook</span></a>!</p>
-<section id="map-task">
-<h3>Map task<a class="headerlink" href="#map-task" title="Link to this heading"></a></h3>
-<p>First, let’s run a simple <code class="docutils literal notranslate"><span class="pre">map</span></code> task with Daisy. Supposed we have an array <code class="docutils literal notranslate"><span class="pre">a</span></code> that we want to compute the square for each element and store in <code class="docutils literal notranslate"><span class="pre">b</span></code></p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
-<span class="n">shape</span> <span class="o">=</span> <span class="mi">4096000</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
-<span class="n">b</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">a</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">a</span><span class="p">)</span>
-<span class="c1"># prints [0 1 2 ... 4095997 4095998 4095999]</span>
-</pre></div>
-</div>
-<p>We can use the following <code class="docutils literal notranslate"><span class="pre">process_fn</span></code>:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">process_fn</span><span class="p">():</span>
-    <span class="c1"># iterating and squaring each element in a and store to b</span>
-    <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">nditer</span><span class="p">([</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">],</span>
-                   <span class="n">op_flags</span><span class="o">=</span><span class="p">[[</span><span class="s1">&#39;readonly&#39;</span><span class="p">],</span> <span class="p">[</span><span class="s1">&#39;readwrite&#39;</span><span class="p">]])</span> <span class="k">as</span> <span class="n">it</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">it</span><span class="p">:</span>
-           <span class="k">for</span> <span class="n">x</span><span class="p">,</span><span class="n">y</span> <span class="ow">in</span> <span class="n">it</span><span class="p">:</span>
-                <span class="n">y</span><span class="p">[</span><span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="o">**</span><span class="mi">2</span>
-<span class="o">%</span><span class="n">timeit</span> <span class="n">process_fn</span><span class="p">()</span>  <span class="c1"># 3.55 s ± 22.7 ms per loop</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">b</span><span class="p">)</span>
-<span class="c1"># prints [0 1 4 ... 16777191424009 16777199616004 16777207808001]</span>
-</pre></div>
-</div>
-<p>Since <code class="docutils literal notranslate"><span class="pre">process_fn</span></code> linearly processes <code class="docutils literal notranslate"><span class="pre">a</span></code> in a single-thread, it is quite slow.
-Let’s use Daisy to break <code class="docutils literal notranslate"><span class="pre">a</span></code> into blocks and run <code class="docutils literal notranslate"><span class="pre">process_fn</span></code> in parallel.</p>
-<p>First, we’ll wrap <code class="docutils literal notranslate"><span class="pre">a</span></code> in a <code class="docutils literal notranslate"><span class="pre">daisy.Array</span></code> and make a <code class="docutils literal notranslate"><span class="pre">b</span></code> array based on <code class="docutils literal notranslate"><span class="pre">zarr</span></code> that multiple concurrent process can write to. We will also define <code class="docutils literal notranslate"><span class="pre">block_shape</span></code> - the granularity that each worker will be working at.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">daisy</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">funlib.persistence</span><span class="w"> </span><span class="kn">import</span> <span class="n">Array</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">funlib.geometry</span><span class="w"> </span><span class="kn">import</span> <span class="n">Roi</span><span class="p">,</span> <span class="n">Coordinate</span>
-<span class="kn">import</span><span class="w"> </span><span class="nn">zarr</span>
-<span class="n">shape</span> <span class="o">=</span> <span class="mi">4096000</span>
-<span class="n">block_shape</span> <span class="o">=</span> <span class="mi">1024</span><span class="o">*</span><span class="mi">16</span>
-<span class="c1"># input array is wrapped in `Array` for easy of `Roi` indexing</span>
-<span class="n">a</span> <span class="o">=</span> <span class="n">Array</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="n">shape</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
-                <span class="n">roi</span><span class="o">=</span><span class="n">Roi</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="n">shape</span><span class="p">),</span>
-                <span class="n">voxel_size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,))</span>
-<span class="c1"># to parallelize across processes, we need persistent read/write arrays</span>
-<span class="c1"># we&#39;ll use zarr here to do do that</span>
-<span class="n">b</span> <span class="o">=</span> <span class="n">zarr</span><span class="o">.</span><span class="n">open_array</span><span class="p">(</span><span class="n">zarr</span><span class="o">.</span><span class="n">TempStore</span><span class="p">(),</span> <span class="s1">&#39;w&#39;</span><span class="p">,</span> <span class="p">(</span><span class="n">shape</span><span class="p">,),</span>
-                    <span class="n">chunks</span><span class="o">=</span><span class="p">(</span><span class="n">block_shape</span><span class="p">,),</span>
-                    <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span>
-<span class="c1"># output array is wrapped in Array for easy of Roi indexing</span>
-<span class="n">b</span> <span class="o">=</span> <span class="n">Array</span><span class="p">(</span><span class="n">b</span><span class="p">,</span>
-                <span class="n">roi</span><span class="o">=</span><span class="n">Roi</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="n">shape</span><span class="p">),</span>
-                <span class="n">voxel_size</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,))</span>
-</pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">process_fn</span></code> is then modified slightly to take in a <code class="docutils literal notranslate"><span class="pre">block</span></code> object and perform read/write using the ROIs given by it.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="c1"># same process function as previously, but with additional code</span>
-<span class="c1"># to read and write data to persistent arrays</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">process_fn_daisy</span><span class="p">(</span><span class="n">block</span><span class="p">):</span>
-    <span class="n">a_sub</span> <span class="o">=</span> <span class="n">a</span><span class="p">[</span><span class="n">block</span><span class="o">.</span><span class="n">read_roi</span><span class="p">]</span><span class="o">.</span><span class="n">to_ndarray</span><span class="p">()</span>
-    <span class="n">b_sub</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty_like</span><span class="p">(</span><span class="n">a_sub</span><span class="p">)</span>
-    <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">nditer</span><span class="p">([</span><span class="n">a_sub</span><span class="p">,</span> <span class="n">b_sub</span><span class="p">],</span>
-                   <span class="n">op_flags</span><span class="o">=</span><span class="p">[[</span><span class="s1">&#39;readonly&#39;</span><span class="p">],</span> <span class="p">[</span><span class="s1">&#39;readwrite&#39;</span><span class="p">]],</span>
-                  <span class="p">)</span> <span class="k">as</span> <span class="n">it</span><span class="p">:</span>
-        <span class="k">with</span> <span class="n">it</span><span class="p">:</span>
-           <span class="k">for</span> <span class="n">x</span><span class="p">,</span><span class="n">y</span> <span class="ow">in</span> <span class="n">it</span><span class="p">:</span>
-                <span class="n">y</span><span class="p">[</span><span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="n">x</span><span class="o">**</span><span class="mi">2</span>
-
-    <span class="n">b</span><span class="p">[</span><span class="n">block</span><span class="o">.</span><span class="n">write_roi</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_sub</span>
-</pre></div>
-</div>
-<p>Next, we define <code class="docutils literal notranslate"><span class="pre">total_roi</span></code> based on total amount of work (<code class="docutils literal notranslate"><span class="pre">shape</span></code>) and <code class="docutils literal notranslate"><span class="pre">block_roi</span></code> based on scheduling block size (<code class="docutils literal notranslate"><span class="pre">block_shape</span></code>). We then make a <code class="docutils literal notranslate"><span class="pre">daisy.Task</span></code> and run it.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">total_roi</span> <span class="o">=</span> <span class="n">Roi</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="n">shape</span><span class="p">)</span>  <span class="c1"># total ROI to map process over</span>
-<span class="n">block_roi</span> <span class="o">=</span> <span class="n">Roi</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="p">(</span><span class="n">block_shape</span><span class="p">,))</span>  <span class="c1"># block ROI for parallel processing</span>
-<span class="c1"># creating a Daisy task, note that we do not specify how each</span>
-<span class="c1"># worker should read/write to input/output arrays</span>
-<span class="n">task</span> <span class="o">=</span> <span class="n">daisy</span><span class="o">.</span><span class="n">Task</span><span class="p">(</span>
-    <span class="n">total_roi</span><span class="o">=</span><span class="n">total_roi</span><span class="p">,</span>
-    <span class="n">read_roi</span><span class="o">=</span><span class="n">block_roi</span><span class="p">,</span>
-    <span class="n">write_roi</span><span class="o">=</span><span class="n">block_roi</span><span class="p">,</span>
-    <span class="n">process_function</span><span class="o">=</span><span class="n">process_fn_daisy</span><span class="p">,</span>
-    <span class="n">num_workers</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-    <span class="n">task_id</span><span class="o">=</span><span class="s1">&#39;square&#39;</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">daisy</span><span class="o">.</span><span class="n">run_blockwise</span><span class="p">([</span><span class="n">task</span><span class="p">])</span>
-<span class="sd">&#39;&#39;&#39;</span>
-<span class="sd">prints Execution Summary</span>
-<span class="sd">-----------------</span>
-<span class="sd">  Task square:</span>
-<span class="sd">    num blocks : 250</span>
-<span class="sd">    completed ✔: 250 (skipped 0)</span>
-<span class="sd">    failed    ✗: 0</span>
-<span class="sd">    orphaned  ∅: 0</span>
-<span class="sd">    all blocks processed successfully</span>
-<span class="sd">&#39;&#39;&#39;</span>
-<span class="c1"># %timeit daisy.run_blockwise([task])  # 1.26 s ± 16.1 ms per loop</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">b</span><span class="o">.</span><span class="n">to_ndarray</span><span class="p">())</span>
-<span class="c1"># prints [0 1 4 ... 16777191424009 16777199616004 16777207808001]</span>
-</pre></div>
-</div>
-<p>See that with just a minor modification, using Daisy to run multiple workers in parallel results in a 2.8176x speedups on a computer with 6 cores. For longer running tasks with larger block sizes (to minimize process spawning/joining overheads) the speedups should approach the # of threads/cores running in parallel more.</p>
-</section>
-<section id="reduce-task">
-<h3>Reduce task<a class="headerlink" href="#reduce-task" title="Link to this heading"></a></h3>
-<p>Now we’ll write and run a <code class="docutils literal notranslate"><span class="pre">reduce</span></code> task. This task performs a sum of blocks of shape <code class="docutils literal notranslate"><span class="pre">reduce_shape</span></code> from <code class="docutils literal notranslate"><span class="pre">b</span></code> and stores the results to <code class="docutils literal notranslate"><span class="pre">c</span></code>.</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">multiprocessing</span>
-<span class="n">reduce_shape</span> <span class="o">=</span> <span class="n">shape</span><span class="o">/</span><span class="mi">16</span>
-<span class="c1"># while using zarr with `Array` can be easier to understand and less error prone, it is not a requirement.</span>
-<span class="c1"># Here we make a shared memory array for collecting results from different workers</span>
-<span class="n">c</span> <span class="o">=</span> <span class="n">multiprocessing</span><span class="o">.</span><span class="n">Array</span><span class="p">(</span><span class="s1">&#39;Q&#39;</span><span class="p">,</span> <span class="nb">range</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">shape</span><span class="o">/</span><span class="n">reduce_shape</span><span class="p">)))</span>
-<span class="k">def</span><span class="w"> </span><span class="nf">process_fn_sum_reduce</span><span class="p">(</span><span class="n">block</span><span class="p">):</span>
-    <span class="n">b_sub</span> <span class="o">=</span> <span class="n">b</span><span class="p">[</span><span class="n">block</span><span class="o">.</span><span class="n">write_roi</span><span class="p">]</span><span class="o">.</span><span class="n">to_ndarray</span><span class="p">()</span>
-    <span class="n">s</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">b_sub</span><span class="p">)</span>
-    <span class="c1"># compute c idx based on block offset and shape</span>
-    <span class="n">idx</span> <span class="o">=</span> <span class="p">(</span><span class="n">block</span><span class="o">.</span><span class="n">write_roi</span><span class="o">.</span><span class="n">offset</span> <span class="o">/</span> <span class="n">block</span><span class="o">.</span><span class="n">write_roi</span><span class="o">.</span><span class="n">shape</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
-    <span class="n">c</span><span class="p">[</span><span class="n">idx</span><span class="p">]</span> <span class="o">=</span> <span class="n">s</span>
-<span class="n">total_roi</span> <span class="o">=</span> <span class="n">Roi</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="n">shape</span><span class="p">)</span>  <span class="c1"># total ROI to map process over</span>
-<span class="n">block_roi</span> <span class="o">=</span> <span class="n">Roi</span><span class="p">((</span><span class="mi">0</span><span class="p">,),</span> <span class="n">reduce_shape</span><span class="p">)</span>  <span class="c1"># block ROI for parallel processing</span>
-<span class="n">task1</span> <span class="o">=</span> <span class="n">daisy</span><span class="o">.</span><span class="n">Task</span><span class="p">(</span>
-    <span class="n">total_roi</span><span class="o">=</span><span class="n">total_roi</span><span class="p">,</span>
-    <span class="n">read_roi</span><span class="o">=</span><span class="n">block_roi</span><span class="p">,</span>
-    <span class="n">write_roi</span><span class="o">=</span><span class="n">block_roi</span><span class="p">,</span>
-    <span class="n">process_function</span><span class="o">=</span><span class="n">process_fn_sum_reduce</span><span class="p">,</span>
-    <span class="n">num_workers</span><span class="o">=</span><span class="mi">8</span><span class="p">,</span>
-    <span class="n">task_id</span><span class="o">=</span><span class="s1">&#39;sum_reduce&#39;</span><span class="p">,</span>
-<span class="p">)</span>
-<span class="n">daisy</span><span class="o">.</span><span class="n">run_blockwise</span><span class="p">([</span><span class="n">task1</span><span class="p">])</span>
-<span class="nb">print</span><span class="p">(</span><span class="n">c</span><span class="p">[:])</span>
-</pre></div>
-</div>
-<p>This concludes our quickstart tutorial. For more examples/tutorials please see the <a class="reference internal" href="#/examples"><span class="xref myst">examples/</span></a> directory.</p>
 </section>
 </section>
 <section id="citing-daisy">
