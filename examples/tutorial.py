@@ -33,7 +33,7 @@ multiprocessing.set_start_method("fork", force=True)
 
 # %%
 # Don't forget to install daisy with dependencies for the docs before running this tutorial:
-# 
+#
 # `pip install daisy[docs]``
 
 # %% [markdown]
@@ -43,9 +43,9 @@ multiprocessing.set_start_method("fork", force=True)
 # Daisy is designed for processing volumetric data. Therefore, it has specific ways to describe locations in a volume. We will demonstrate the common terms and utilities using this image of astronaut Eileen Collins.
 
 # %%
-from skimage import data
-import numpy as np
-import matplotlib.pyplot as plt
+from skimage import data  # noqa
+import numpy as np  # noqa
+import matplotlib.pyplot as plt  # noqa
 
 raw_data = np.flip(data.astronaut(), 0)
 axes_image = plt.imshow(raw_data, zorder=1, origin="lower")
@@ -62,7 +62,7 @@ axes_image = plt.imshow(raw_data, zorder=1, origin="lower")
 # Here are some example Coordinates, and a visualization of their location on the Eileen Collins volume.
 
 # %%
-import daisy
+import daisy  # noqa
 
 p1 = daisy.Coordinate(10, 10)  # white
 p2 = daisy.Coordinate(452, 250)  # yellow
@@ -103,7 +103,7 @@ body = daisy.Roi(offset=p1, shape=(330, 350))  # grey
 neck = head.intersect(body)  # blue
 
 # %%
-from matplotlib.patches import Rectangle
+from matplotlib.patches import Rectangle  # noqa
 
 
 def display_roi(axes, roi, color):
@@ -118,7 +118,6 @@ def fresh_image():
     plt.close()
     axes_image = plt.imshow(raw_data, zorder=1, origin="lower")
     figure = axes_image.figure
-    axes = figure.axes[0]
     return figure
 
 
@@ -133,7 +132,7 @@ for roi, color in zip([head, nose, body, neck], ["purple", "orange", "grey", "bl
 # The core information about the `funlib.persistence.arrays.Array` class is that you can slice them with Rois, along with normal numpy-like slicing. However, in order to support this type of slicing, we need to also know the Roi of the whole Array. Here we show you how to create an array from our raw data that is held in memory as a numpy array. However, we highly recommend using a zarr backend, and will show this in our simple example next!
 
 # %%
-from funlib.persistence.arrays import Array
+from funlib.persistence.arrays import Array  # noqa
 
 # daisy Arrays expect the channel dimension first, but our sklearn loaded image has channels last - let's fix that
 raw_data_reshaped = raw_data.transpose(2, 0, 1)
@@ -221,7 +220,7 @@ display_roi(figure.axes[0], block.write_roi, color="white")
 # As mentioned earlier, we highly recommend using a zarr/n5 backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a divisor of and aligned with the write_roi. The zarr dataset must exist before you start scheduling though - we recommend using [`funlib.persistence.prepare_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L423) function to prepare the dataset. Then later, you can use [`funlib.persistence.open_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L328) to open the dataset and it will automatically read the metadata and wrap it into a `funlib.persistence.Array`.
 
 # %%
-import zarr
+import zarr  # noqa
 
 # convert our data to float, because gaussian smoothing in scikit expects float input and output
 # recall that we already reshaped it to put channel dimension first, as the funlib.persistence Array expects
@@ -236,7 +235,7 @@ f["raw"].attrs["resolution"] = daisy.Coordinate(
 )  # this attribute holds the voxel size
 
 # %%
-from funlib.persistence import prepare_ds
+from funlib.persistence import prepare_ds  # noqa
 # prepare an output dataset with a chunk size that is a divisor of the block roi
 
 n_channels = 3  # our output will be an RGB image as well
@@ -412,7 +411,7 @@ def smooth_in_block(output_group: str, block: daisy.Block):
 # - the total_roi is now expanded to include the context, as is the read_roi
 
 # %%
-from functools import partial
+from functools import partial  # noqa
 
 daisy.run_blockwise(
     [
@@ -449,8 +448,8 @@ plt.imshow(
 # %pip install dask
 
 # %%
-import dask.array as da
-from skimage import filters
+import dask.array as da  # noqa
+from skimage import filters  # noqa
 
 
 f = zarr.open("sample_data.zarr", "r")
@@ -865,7 +864,7 @@ daisy.run_blockwise([smoothing_task, seg_task])
 # %%
 # make a colormap to display the labels as unique colors
 # This doesn't actually guarantee uniqueness, since it wraps the list at some point
-import matplotlib.colors as mcolors
+import matplotlib.colors as mcolors  # noqa
 
 colors_list = list(mcolors.XKCD_COLORS.keys())
 # colors_list.remove("black")
@@ -1089,27 +1088,15 @@ axes[1].imshow(
 #
 
 # %% [markdown]
-
-# ### Multiprocessing
-# Here we set the start method to fork. We do this to simplify running
-# this notebook in a jupyter notebook. The "spawn" start method is
-# supported but limits the possible functions you can execute blockwise
-# (i.e. no lambda functions)
-
-# %%
-import multiprocessing
-
-multiprocessing.set_start_method("fork", force=True)
-# %% [markdown]
 # ## Daisy Tasks
 
 # %% [markdown]
 # ### A Simple Task
 
 # %%
-import daisy
-from daisy import Coordinate, Roi
-import time
+import daisy  # noqa
+from daisy import Coordinate, Roi  # noqa
+import time  # noqa
 
 # Create a super simple task
 dummy_task = daisy.Task(
@@ -1142,7 +1129,7 @@ daisy.run_blockwise([dummy_task], multiprocessing=True)
 # ### Failing blocks
 # %%
 
-import random
+import random  # noqa
 
 
 def random_fail(block: daisy.Block):
@@ -1172,8 +1159,8 @@ daisy.run_blockwise([failing_task], multiprocessing=False)
 # is where we use the `check_function` argument in the `daisy.Task`.
 
 # %%
-import tempfile
-from pathlib import Path
+import tempfile  # noqa
+from pathlib import Path  # noqa
 
 with tempfile.TemporaryDirectory() as tmpdir:
 
@@ -1317,8 +1304,8 @@ daisy.run_blockwise([task_a_to_b, task_b_to_c], multiprocessing=False)
 # %% [markdown]
 # ## Simple data
 # %%
-import numpy as np
-import timeit
+import numpy as np  # noqa
+import timeit  # noqa
 
 shape = 4096000
 
@@ -1329,6 +1316,7 @@ print(f"Array a: {a[:6]} ...")
 # %% [markdown]
 # ## Map
 # Here we will square each element in the array `a` and store the result in a new array `b`
+
 
 # %%
 def process_fn():
@@ -1343,9 +1331,9 @@ print(f"Squaring array a took {timeit.timeit(process_fn, number=1)} seconds")
 print(f"Array b: {b[:6]} ...")
 
 # %%
-import daisy
-from funlib.persistence import Array
-import zarr
+import daisy  # noqa
+from funlib.persistence import Array  # noqa
+import zarr  # noqa
 
 shape = 4096000
 block_shape = 1024 * 16
@@ -1405,9 +1393,13 @@ task = daisy.Task(
 daisy.run_blockwise([task])
 print(f"Array b: {b[:6]} ...")
 
+
 # %%
 # run this to benchmark daisy!
-run_daisy = lambda: daisy.run_blockwise([task])
+def run_daisy():
+    daisy.run_blockwise([task])
+
+
 print(f"Squaring array a with daisy took {timeit.timeit(run_daisy, number=1)} seconds")
 
 # %% [markdown]
@@ -1415,7 +1407,6 @@ print(f"Squaring array a with daisy took {timeit.timeit(run_daisy, number=1)} se
 # Here we will take the sum over every 16 elements in the array `b` and store the result in a new array `c`
 
 # %%
-import multiprocessing
 
 reduce_shape = shape / 16
 
