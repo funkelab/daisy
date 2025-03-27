@@ -10,7 +10,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [ubuntu-latest, windows-latest, macos-latest]
+        # platform: [ubuntu-latest, windows-latest, macos-latest]  # hanging indefinitely on windows
+        platform: [ubuntu-latest, macos-latest]
         python-version: ['3.10', '3.11', '3.12']
 
     steps:
