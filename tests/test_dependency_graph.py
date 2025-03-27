@@ -1,6 +1,6 @@
-from daisy import DependencyGraph, BlockwiseDependencyGraph
+from daisy import BlockwiseDependencyGraph
 from daisy import Task
-from daisy import Block, BlockStatus
+from daisy import Block
 from daisy import Roi
 
 import pytest

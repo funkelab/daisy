@@ -1,6 +1,4 @@
 import argparse
-import numpy as np
-import random
 import scipy.ndimage
 import sys
 import os

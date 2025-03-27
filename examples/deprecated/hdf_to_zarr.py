@@ -2,8 +2,6 @@ import argparse
 import logging
 import os
 import sys
-import numpy as np
-import skimage.measure
 
 import daisy
 from daisy import Coordinate

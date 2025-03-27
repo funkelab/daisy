@@ -1,5 +1,4 @@
 import daisy
-import logging
 import time
 from funlib.persistence.arrays import open_ds, Array
 from skimage import filters

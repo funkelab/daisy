@@ -385,7 +385,6 @@ def smooth_in_block(output_group: str, block: daisy.Block):
     # imports and hyperaparmeters inside scope, to be safe
     from funlib.persistence.arrays import open_ds, Array
     from skimage import filters
-    import time
 
     sigma = 5.0
     # open the raw dataset as an Array
@@ -450,7 +449,6 @@ plt.imshow(
 # %pip install dask
 
 # %%
-import dask
 import dask.array as da
 from skimage import filters
 
@@ -764,7 +762,7 @@ plt.imshow(
 # There is probably a nicer way to get the image into hsv space, but this gets the job done!
 def segment_blue_objects(input_group, output_group, block):
     import cv2
-    from funlib.persistence.arrays import open_ds, Array
+    from funlib.persistence.arrays import open_ds
     import numpy as np
     import skimage
 
@@ -909,7 +907,6 @@ seg_block = daisy.Block(
 blue_objs = zarr.open("sample_data.zarr", "r")["blue_objects"][:]
 blue_objs[128:356, 128:256] = 0
 
-from skimage.color import label2rgb
 
 figure, axes = plt.subplots(1, 2)
 axes[0].imshow(
@@ -938,7 +935,6 @@ def segment_blue_objects_with_context(input_group, output_group, block):
     from funlib.persistence.arrays import open_ds, Array
     import numpy as np
     import skimage
-    import logging
     import time
 
     def get_overlapping_labels(array1, array2):

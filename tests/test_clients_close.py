@@ -1,7 +1,6 @@
 import daisy
 from daisy.logging import set_log_basedir
 
-import pytest
 
 import logging
 import subprocess

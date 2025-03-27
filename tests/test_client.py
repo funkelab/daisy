@@ -1,5 +1,4 @@
 import daisy
-import unittest
 import multiprocessing as mp
 from daisy.messages import AcquireBlock, ReleaseBlock, SendBlock, ExceptionMessage
 from daisy.tcp import TCPServer
