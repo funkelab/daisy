@@ -1,0 +1,15 @@
+name: ruff
+
+on: [push, pull_request]
+
+jobs:
+  lint:
+    name: Python Format/Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup checkout
+        uses: actions/checkout@master
+      - name: Install uv
+        uses: astral-sh/setup-uv@main
+      - name: Lint
+        run: uv run --extra dev ruff check daisy tests
