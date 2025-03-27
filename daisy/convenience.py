@@ -37,7 +37,7 @@ def run_blockwise(tasks, multiprocessing=True):
 
     if not multiprocessing:
         server = SerialServer()
-        cl_monitor = CLMonitor(server)
+        _cl_monitor = CLMonitor(server)
         return server.run_blockwise(tasks)
 
     else:
