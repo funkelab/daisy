@@ -31,8 +31,7 @@ class BlockBookkeeper:
         """Notify the bookkeeper that a block was returned."""
 
         assert block.block_id in self.sent_blocks, (
-            f"Block {block} was returned by {stream}, but is not in list "
-            "of sent blocks"
+            f"Block {block} was returned by {stream}, but is not in list of sent blocks"
         )
 
         log = self.sent_blocks[block.block_id]
@@ -40,7 +39,7 @@ class BlockBookkeeper:
         block.stopped_processing = time.time()
 
         assert stream == log.stream, (
-            f"Block {block} was returned by {stream}, but was sent to" f"{log.stream}"
+            f"Block {block} was returned by {stream}, but was sent to {log.stream}"
         )
 
         del self.sent_blocks[block.block_id]

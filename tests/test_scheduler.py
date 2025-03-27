@@ -472,12 +472,12 @@ def test_overlapping_tasks(overlapping_tasks):
         block.status = BlockStatus.SUCCESS
         scheduler.release_block(block)
 
-    assert (
-        scheduler.task_states[first.task_id].completed_count == 12
-    ), scheduler.task_states[first.task_id]
-    assert (
-        scheduler.task_states[second.task_id].completed_count == 12
-    ), scheduler.task_states[second.task_id]
+    assert scheduler.task_states[first.task_id].completed_count == 12, (
+        scheduler.task_states[first.task_id]
+    )
+    assert scheduler.task_states[second.task_id].completed_count == 12, (
+        scheduler.task_states[second.task_id]
+    )
 
 
 def test_zero_levels(task_zero_levels):

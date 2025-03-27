@@ -323,9 +323,9 @@ class BlockwiseDependencyGraph:
             self.block_write_roi,
         )
 
-        assert self.block_read_roi.contains(
-            self.block_write_roi
-        ), "Read ROI must contain write ROI."
+        assert self.block_read_roi.contains(self.block_write_roi), (
+            "Read ROI must contain write ROI."
+        )
 
         context_ul = self.block_write_roi.begin - self.block_read_roi.begin
         context_lr = self.block_read_roi.end - self.block_write_roi.end

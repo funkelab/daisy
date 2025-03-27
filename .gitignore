@@ -15,5 +15,5 @@ dist
 daisy_logs/
 .pytest_cache/
 .mypy_cache/
-.ipynb*
+*.ipynb*
 *.zarr

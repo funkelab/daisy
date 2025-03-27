@@ -150,6 +150,6 @@ def test_shrink_downstream_upstream_equivalence():
         b = remaining_blocks.pop()
         down_blocks = graph.downstream(b)
         for down_b in down_blocks:
-            assert b in set(
-                graph.upstream(down_b)
-            ), f"{b in set(graph.upstream(down_b))}, {down_b in set(graph.downstream(b))}"
+            assert b in set(graph.upstream(down_b)), (
+                f"{b in set(graph.upstream(down_b))}, {down_b in set(graph.downstream(b))}"
+            )

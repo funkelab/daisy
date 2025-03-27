@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest",
-  "black",
+  "ruff",
   "mypy",
   "filelock",
 ]
