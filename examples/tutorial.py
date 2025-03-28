@@ -51,7 +51,7 @@ raw_data = np.flip(data.astronaut(), 0)
 axes_image = plt.imshow(raw_data, zorder=1, origin="lower")
 
 # %% [markdown]
-# ###Coordinate
+# ### Coordinate
 # - A daisy Coordinate is essentially a tuple with one value per spatial dimension. In our case, the Coordinates are two-dimensional.
 # - Daisy coordinates can represent points in the volume, or distances in the volume.
 # - Daisy mostly passes around abstract placeholders of the data. Therefore, a Coordinate does not contain data, it is simply a pointer to a location in a volume.
@@ -83,7 +83,7 @@ for point, color in zip([p1, p2, p3], ["white", "yellow", "orange"]):
 figure
 
 # %% [markdown]
-# ###Roi
+# ### Roi
 # A Roi (Region of interest) is a bounding box in a volume. It is defined by two Coordinates:
 # - offset: the starting corner of the bounding box relative to the origin
 # - shape: The extent of the bounding box in each dimension
@@ -126,7 +126,7 @@ for roi, color in zip([head, nose, body, neck], ["purple", "orange", "grey", "bl
     display_roi(figure.axes[0], roi, color=color)
 
 # %% [markdown]
-# ###Array
+# ### Array
 # So far we have seen how to specify regions of the data with Rois and Coordinates, which do not contain any data. However, eventually you will need to access the actual data using your Rois! For this, we use [`funlib.persistence.arrays.Array`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/array.py). If you are familiar with dask, this is the daisy equivalent of dask arrays.
 #
 # The core information about the `funlib.persistence.arrays.Array` class is that you can slice them with Rois, along with normal numpy-like slicing. However, in order to support this type of slicing, we need to also know the Roi of the whole Array. Here we show you how to create an array from our raw data that is held in memory as a numpy array. However, we highly recommend using a zarr backend, and will show this in our simple example next!
@@ -170,7 +170,7 @@ plt.close()
 plt.imshow(body_data.transpose(1, 2, 0), origin="lower")
 
 # %% [markdown]
-# ###Block
+# ### Block
 #
 # Daisy is a blockwise task scheduler. Therefore, the concept of a block is central to Daisy. To efficiently process large volumes, Daisy splits the whole volume into a set of adjacent blocks that cover the whole image. These blocks are what is passed between the scheduler and the workers.
 #
@@ -216,7 +216,7 @@ display_roi(figure.axes[0], block.write_roi, color="white")
 # In this next example, we will use gaussian smoothing to illustrate how to parallize a task on your local machine using daisy.
 
 # %% [markdown]
-# ###Dataset Preparation
+# ### Dataset Preparation
 # As mentioned earlier, we highly recommend using a zarr/n5 backend for your volume. Daisy is designed such that no data is transmitted between the worker and the scheduler, including the output of the processing. That means that each worker is responsible for saving the results in the given block write_roi. With a zarr backend, each worker can write to a specific region of the zarr in parallel, assuming that the chunk size is a divisor of and aligned with the write_roi. The zarr dataset must exist before you start scheduling though - we recommend using [`funlib.persistence.prepare_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L423) function to prepare the dataset. Then later, you can use [`funlib.persistence.open_ds`](https://github.com/funkelab/funlib.persistence/blob/f5310dddb346585a28f3cb44f577f77d4f5da07c/funlib/persistence/arrays/datasets.py#L328) to open the dataset and it will automatically read the metadata and wrap it into a `funlib.persistence.Array`.
 
 # %%
@@ -255,7 +255,7 @@ print("Chunk size in output dataset:", f["smoothed"].chunks)
 
 
 # %% [markdown]
-# ###Define our Process Function
+# ### Define our Process Function
 # When run locally, daisy process functions must take a block as the only argument. Depending on the multiprocessing spawn function settings on your computer, the function might not inherit the imports and variables of the scope where the scheudler is run, so it is always safer to import and define everything inside the function.
 #
 # Here is an example for smoothing. Generally, daisy process functions have the following three steps:
@@ -297,7 +297,7 @@ plt.imshow(
 )
 
 # %% [markdown]
-# ###Run daisy with local multiprocessing
+# ### Run daisy with local multiprocessing
 # We are about ready to run daisy! We need to tell the scheduler the following pieces of information:
 # - The process function, which takes a block as an argument
 # - The total roi to process (in our case, the whole image)
@@ -326,7 +326,7 @@ plt.imshow(
 )
 
 # %% [markdown]
-# ###Take 2: Add context!
+# ### Take 2: Add context!
 # The task ran successfully, but you'll notice that there are edge artefacts where the blocks border each other. This is because each worker only sees the inside of the block, and it needs more context to smooth seamlessly between blocks. If we increase the size of the read_roi so that each block sees all pixels that contribute meaningfully to the smoothed values in the interior (write_roi) of the block, the edge artefacts should disappear.
 
 # %%
@@ -438,7 +438,7 @@ plt.imshow(
 # Smoothing is poorly defined at the border of the volume - if you want different behavior, you can expand the input array to include extended data of your choice at the border, or shrink the total output roi by the context to only include the section of the output that depends on existing data.
 
 # %% [markdown]
-# ###Conclusion: Dask and Daisy
+# ### Conclusion: Dask and Daisy
 #
 # Congrats! You have learned the basics of Daisy. In this example, we only parallelized the processing using our local computer's resources, and our "volume" was very small.
 #
@@ -599,7 +599,7 @@ plt.imshow(
 # There are a few more features that you should know about to take full advantage of daisy!
 
 # %% [markdown]
-# ###Fault tolerance and the pre-check function
+# ### Fault tolerance and the pre-check function
 
 # %% [markdown]
 # Even if your code is completely bug-free, things will always go wrong eventually when scaling up to millions of workers. Perhaps your node on the cluster was shared with another process that temporarily hogged too much memory, or you forgot to set a longer timeout and the process was killed after 8 hours. Let's see how daisy can help you handle these issues, by seeing what happens when we add random failures to our smoothing task.
@@ -746,7 +746,7 @@ plt.imshow(
 # If you plan to have extremely long running jobs that might get killed in the middle, we recommend including a step in your process function after you write out the result of a block, in which you write out the block id to a database or a file. Then, the pre-check function can just check if the block id is in the file system or database, which is much faster than reading the actual data.
 
 # %% [markdown]
-# ###Task chaining
+# ### Task chaining
 
 # %% [markdown]
 # Frequently, image processing pipelines involve multiple tasks, where some tasks depend on the output of other tasks. For example, we have a function to segment out instances of blue objects in an image, and we want to apply it after smoothing. We can define two tasks and run them sequentially in the scheduler. Daisy will even begin the second task as soon as a single block can be run, rather than waiting for the first task to fully complete before starting the second task.
@@ -882,7 +882,7 @@ axes[1].imshow(blue_objs, origin="lower", cmap=colormap, interpolation="nearest"
 # Now we know how to chain tasks together, but we've created another issue. If objects crossed block boundaries, they were assigned different IDs. We will address this problem in the next section.
 
 # %% [markdown]
-# ###Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
+# ### Process functions that need to read their neighbor's output (and the "read_write_conflict" flag)
 
 # %% [markdown]
 # There is a class of problem where it is useful for a block to see the output of its neighboring blocks. Usually, this need comes up when the task performs detection and linking in the same step. To detect an object in a block, it is useful to know if a neighbor has already detected an object that the object in the current block should link to. This is especially useful if there is some sort of continuity constraint, as in tracking objects over time. Even for tasks without a continuity constraint, like agglomeration of fragments for instance segmentation, performing the detection and linking at the same time can save you an extra pass over the dataset, which matters when the datasets are large.
