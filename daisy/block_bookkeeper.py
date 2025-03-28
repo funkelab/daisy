@@ -1,4 +1,7 @@
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BlockLog:
@@ -28,8 +31,7 @@ class BlockBookkeeper:
         """Notify the bookkeeper that a block was returned."""
 
         assert block.block_id in self.sent_blocks, (
-            f"Block {block} was returned by {stream}, but is not in list "
-            "of sent blocks"
+            f"Block {block} was returned by {stream}, but is not in list of sent blocks"
         )
 
         log = self.sent_blocks[block.block_id]
@@ -37,7 +39,7 @@ class BlockBookkeeper:
         block.stopped_processing = time.time()
 
         assert stream == log.stream, (
-            f"Block {block} was returned by {stream}, but was sent to" f"{log.stream}"
+            f"Block {block} was returned by {stream}, but was sent to {log.stream}"
         )
 
         del self.sent_blocks[block.block_id]
@@ -50,10 +52,12 @@ class BlockBookkeeper:
 
         # block was never sent or already returned
         if block.block_id not in self.sent_blocks:
+            logger.debug("Block %s not in sent blocks: %s", block, self.sent_blocks)
             return False
 
         # block is returned by different client than expected
         if self.sent_blocks[block.block_id].stream != stream:
+            logger.debug("Block %s returned by wrong client %s", block, stream)
             return False
 
         return True

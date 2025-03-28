@@ -1,0 +1,38 @@
+name: Generate Pages
+
+on:
+  push:
+    tags: ["*"]
+    branches:
+      - main
+
+permissions:
+  id-token: write
+  contents: write
+  pages: write
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+    - name: Install pandoc
+      uses: pandoc/actions/setup@v1
+      with:
+        version: 2.19
+    - name: Turn script into notebook
+      run: |
+        uv run --extra docs python -m ipykernel install --name daisy_env --user
+        uv run --extra docs jupytext --to notebook --execute ./examples/tutorial.py
+        mv ./examples/tutorial.ipynb ./docs/source/tutorial.ipynb
+    - name: Build
+      run: uv run --extra docs sphinx-build docs/source/ docs/build/html -b html
+    - name: Set permissions
+      run: chmod -R a+rX ./docs/build/html
+    - name: Update gh branch
+      uses: peaceiris/actions-gh-pages@v4
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        publish_dir: docs/build/html

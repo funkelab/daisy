@@ -161,9 +161,9 @@ class SingleTaskDependencyGraph:
             self.block_write_roi,
         )
 
-        assert self.block_read_roi.contains(
-            self.block_write_roi
-        ), "Read ROI must contain write ROI."
+        assert self.block_read_roi.contains(self.block_write_roi), (
+            "Read ROI must contain write ROI."
+        )
 
         context_ul = self.block_write_roi.get_begin() - self.block_read_roi.get_begin()
         context_lr = self.block_read_roi.get_end() - self.block_write_roi.get_end()

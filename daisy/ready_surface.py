@@ -44,9 +44,9 @@ class ReadySurface:
         up_nodes = self.upstream(node)
 
         # check if node is a valid input
-        assert all(
-            up_node in self.surface for up_node in up_nodes
-        ), f"Not all upstream dependencies of {node} are in the surface"
+        assert all(up_node in self.surface for up_node in up_nodes), (
+            f"Not all upstream dependencies of {node} are in the surface"
+        )
 
         self.surface.add(node)
         new_ready_nodes = []
@@ -94,9 +94,9 @@ class ReadySurface:
         up_nodes = self.upstream(node)
 
         # check if node is a valid input
-        assert all(
-            up_node in self.surface for up_node in up_nodes
-        ), f"Not all upstream dependencies of {node} are in the surface"
+        assert all(up_node in self.surface for up_node in up_nodes), (
+            f"Not all upstream dependencies of {node} are in the surface"
+        )
 
         self.boundary.add(node)
 

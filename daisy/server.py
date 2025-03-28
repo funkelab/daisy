@@ -136,7 +136,7 @@ class Server(ServerObservee):
 
             if task_state.pending_count == 0:
                 logger.debug(
-                    "No more pending blocks for task %s, terminating " "client",
+                    "No more pending blocks for task %s, terminating client",
                     message.task_id,
                 )
 
@@ -153,7 +153,7 @@ class Server(ServerObservee):
             # there are more blocks for this task, but none of them has its
             # dependencies fullfilled
             logger.debug(
-                "No currently ready blocks for task %s, delaying " "request",
+                "No currently ready blocks for task %s, delaying request",
                 message.task_id,
             )
             self.pending_requests[message.task_id].put(message)

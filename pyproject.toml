@@ -33,9 +33,25 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest",
-  "black",
+  "ruff",
   "mypy",
   "filelock",
+]
+docs = [
+    "matplotlib",
+    "pooch",
+    "sphinx",
+    "nbsphinx",
+    "sphinx-autodoc-typehints",
+    "sphinx-rtd-theme",
+    "myst-parser",
+    "jupytext",
+    "ipykernel",
+    "funlib.persistence",
+    "scipy",
+    "ipywidgets",
+    "scikit-image>=0.25.2",
+    "opencv-python>=4.11.0.86",
 ]
 
 # # module specific overrides
