@@ -2,9 +2,9 @@ name: Generate Pages
 
 on:
   push:
-    # tags: ["*"]
+    tags: ["*"]
     branches:
-      - update-docs
+      - main
 
 permissions:
   id-token: write
