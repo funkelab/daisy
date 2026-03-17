@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class Server(ServerObservee):
-    def __init__(self, stop_event=None):
+    def __init__(self, stop_event=None, host=None):
         super().__init__()
 
         if stop_event is None:
@@ -33,7 +33,7 @@ class Server(ServerObservee):
         else:
             self.stop_event = stop_event
 
-        self.tcp_server = TCPServer()
+        self.tcp_server = TCPServer(host=host)
         self.hostname, self.port = self.tcp_server.address
 
         logger.debug("Started server listening at %s:%s", self.hostname, self.port)
