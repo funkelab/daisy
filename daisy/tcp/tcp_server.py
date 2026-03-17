@@ -114,9 +114,11 @@ class TCPServer(tornado.tcpserver.TCPServer, IOLooper):
             except Exception as e:
                 try:
                     self.exception_queue.put(e)
+                except BaseException:
+                    pass
                 finally:
                     self.client_streams.remove(stream)
-                    return
+                return
 
     def _check_for_errors(self):
         try:

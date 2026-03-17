@@ -146,9 +146,11 @@ class TCPClient(IOLooper):
                     # our side and break out of event loop
                     try:
                         self.stream.close()
+                    except BaseException:
+                        pass
                     finally:
                         self.stream = None
-                        return
+                    return
 
                 else:
                     self.message_queue.put(message)
@@ -157,7 +159,9 @@ class TCPClient(IOLooper):
                 try:
                     self.exception_queue.put(e)
                     self.stream.close()
+                except BaseException:
+                    pass
                 finally:
                     # mark client as disconnected
                     self.stream = None
-                    return
+                return
