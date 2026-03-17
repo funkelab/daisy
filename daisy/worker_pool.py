@@ -102,6 +102,28 @@ class WorkerPool:
         except queue.Empty:
             pass
 
+    def reap_dead_workers(self):
+        """Detect worker processes that have exited and remove them from the
+        pool. Returns the number of workers reaped."""
+
+        dead_worker_ids = []
+        with self.workers_lock:
+            for worker_id, worker in self.workers.items():
+                if worker.process is not None and not worker.process.is_alive():
+                    logger.warning(
+                        "Worker %s (pid %d) exited with code %d",
+                        worker,
+                        worker.process.pid,
+                        worker.process.exitcode,
+                    )
+                    worker.process = None
+                    dead_worker_ids.append(worker_id)
+
+            for worker_id in dead_worker_ids:
+                del self.workers[worker_id]
+
+        return len(dead_worker_ids)
+
     def _start_workers(self, n):
         logger.debug("starting %d new workers", n)
         new_workers = [

@@ -39,8 +39,14 @@ class TaskWorkerPools(ServerObserver):
             worker_pool.stop()
 
     def check_worker_health(self):
-        for worker_pool in self.worker_pools.values():
+        for task_id, worker_pool in self.worker_pools.items():
             worker_pool.check_for_errors()
+            reaped = worker_pool.reap_dead_workers()
+            if reaped > 0:
+                logger.warning(
+                    "Replacing %d dead workers for task %s", reaped, task_id
+                )
+                worker_pool.inc_num_workers(reaped)
 
     def on_block_failure(self, block, exception, context):
         task_id = context["task_id"]
