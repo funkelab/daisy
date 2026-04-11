@@ -7,6 +7,8 @@ for messages from workers that no longer exist.
 
 import daisy
 from daisy.logging import set_log_basedir
+from daisy.worker_pool import WorkerPool
+from unittest.mock import MagicMock
 
 import logging
 import os
@@ -27,9 +29,14 @@ def test_dead_worker_replacement(tmp_path):
     set_log_basedir(tmp_path)
 
     def start_worker():
-        subprocess.run(
+        result = subprocess.run(
             [sys.executable, "tests/process_block_or_die.py", str(tmp_path)]
         )
+        # Propagate subprocess exit code so the daisy worker process also
+        # exits non-zero on crash (SystemExit bypasses _spawn_wrapper's
+        # except Exception, producing a non-zero exitcode for reaping).
+        if result.returncode != 0:
+            raise SystemExit(result.returncode)
 
     task = daisy.Task(
         "test_dead_worker_task",
@@ -53,3 +60,35 @@ def test_dead_worker_replacement(tmp_path):
     assert os.path.exists(tmp_path / "worker_crashed"), (
         "Expected first worker to crash and leave a marker file"
     )
+
+
+def test_reap_distinguishes_normal_from_crash():
+    """reap_dead_workers only removes crashed workers from the pool.
+
+    Workers that exit normally (exitcode 0) stay in the dict with
+    process=None so len(workers) stays at the target count. Only
+    crashed workers (exitcode != 0) are removed and counted.
+    """
+    pool = WorkerPool(lambda: None)
+
+    normal_worker = MagicMock()
+    normal_worker.process.is_alive.return_value = False
+    normal_worker.process.exitcode = 0
+    normal_worker.process.pid = 1000
+
+    crashed_worker = MagicMock()
+    crashed_worker.process.is_alive.return_value = False
+    crashed_worker.process.exitcode = 1
+    crashed_worker.process.pid = 1001
+
+    pool.workers = {0: normal_worker, 1: crashed_worker}
+
+    reaped = pool.reap_dead_workers()
+
+    # Only the crashed worker counts as reaped
+    assert reaped == 1
+    # Normal worker stays in dict with process=None
+    assert 0 in pool.workers
+    assert pool.workers[0].process is None
+    # Crashed worker is removed
+    assert 1 not in pool.workers
