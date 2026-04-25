@@ -20,8 +20,10 @@
 # the same result.
 
 # %%
+import tempfile
 import threading
 import time
+from pathlib import Path
 
 import lsd_lite
 import matplotlib.pyplot as plt
@@ -29,6 +31,13 @@ import mwatershed
 import numpy as np
 
 import gerbera
+import gerbera.logging as gl
+
+# Write per-worker logs to a fresh temp dir so the example doesn't
+# accumulate `gerbera_logs/` in the working directory across runs.
+_TMP = Path(tempfile.mkdtemp(prefix="gerbera_block_function_"))
+gl.set_log_basedir(_TMP / "logs")
+print(f"output paths under: {_TMP}")
 
 # %% [markdown]
 # ## Build a dummy 2D segmentation

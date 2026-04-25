@@ -19,7 +19,7 @@
 # - The failing tile's output region stays at its initial zero value.
 
 # %%
-import shutil
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -33,6 +33,13 @@ import zarr
 
 import gerbera
 import gerbera.logging as gl
+
+# Write per-worker logs and the persistent done-marker to a fresh temp
+# dir so the example doesn't accumulate `gerbera_logs/` and
+# `gerbera-markers.zarr/` in the working directory across runs.
+_TMP = Path(tempfile.mkdtemp(prefix="gerbera_worker_function_with_error_"))
+gl.set_log_basedir(_TMP / "logs")
+print(f"output paths under: {_TMP}")
 
 # %% [markdown]
 # ## Debug configuration: tee worker output to terminal + file
@@ -72,12 +79,7 @@ BLOCK = 128
 NUM_WORKERS = 4
 FAILING_TILE = (1, 2)  # (block_row, block_col) in the 4×4 grid
 TASK_ID = "mws_worker_with_error"
-MARKER_PATH = Path("gerbera-markers.zarr") / TASK_ID
-# Start from a clean marker so the example demonstrates the full
-# fail → fix → resume cycle from scratch. In real usage you would
-# *keep* the marker across runs.
-if MARKER_PATH.exists():
-    shutil.rmtree(MARKER_PATH)
+MARKER_PATH = _TMP / "markers.zarr" / TASK_ID
 
 
 def label_to_rgb(seg, bg_colour=(0, 0, 0)):
@@ -288,7 +290,7 @@ print(f"elapsed={elapsed * 1e3:.1f} ms  |  attempts={len(ATTEMPTS)}  |  "
 # notebook cell above as `run_blockwise` executed.
 
 # %%
-log_dir = Path("gerbera_logs/mws_worker_with_error")
+log_dir = _TMP / "logs" / TASK_ID
 
 print("worker log files:")
 for f in sorted(log_dir.glob("*.err")):
