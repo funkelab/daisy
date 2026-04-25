@@ -1,4 +1,5 @@
 use crate::roi::Roi;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -83,6 +84,13 @@ pub struct Task {
     /// the next run, blocks already marked done are skipped before the
     /// process function is called. See `crate::done_marker`.
     pub done_marker_path: Option<PathBuf>,
+    /// Per-worker resource cost. Empty map means this task does not
+    /// participate in global resource accounting. When non-empty, the
+    /// runner verifies at startup that one worker fits in the budget,
+    /// and bounds concurrent workers so cumulative consumption never
+    /// exceeds the budget across all tasks competing for the same
+    /// resources.
+    pub requires: HashMap<String, i64>,
 }
 
 impl Task {
@@ -110,6 +118,7 @@ pub struct TaskBuilder {
     process_function: Option<Arc<dyn ProcessBlock + Sync>>,
     spawn_function: Option<Arc<dyn SpawnWorker>>,
     done_marker_path: Option<PathBuf>,
+    requires: HashMap<String, i64>,
 }
 
 impl TaskBuilder {
@@ -129,6 +138,7 @@ impl TaskBuilder {
             process_function: None,
             spawn_function: None,
             done_marker_path: None,
+            requires: HashMap::new(),
         }
     }
 
@@ -197,6 +207,14 @@ impl TaskBuilder {
         self
     }
 
+    /// Set per-worker resource costs. Each entry is `(resource_name, amount)`
+    /// — one worker for this task consumes `amount` from the named resource
+    /// in the global budget. Empty map means "no resource accounting".
+    pub fn requires(mut self, requires: HashMap<String, i64>) -> Self {
+        self.requires = requires;
+        self
+    }
+
     pub fn build(self) -> Task {
         let total_roi = self.total_roi.expect("total_roi is required");
         let read_roi = self.read_roi.expect("read_roi is required");
@@ -223,6 +241,7 @@ impl TaskBuilder {
             process_function: self.process_function,
             spawn_function: self.spawn_function,
             done_marker_path: self.done_marker_path,
+            requires: self.requires,
         }
     }
 }

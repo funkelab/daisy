@@ -1,6 +1,6 @@
 use gerbera_core::task::{Fit, Task};
 use pyo3::prelude::*;
-use pyo3::types::PyList;
+use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -23,6 +23,8 @@ pub struct PyTask {
     pub upstream_tasks: Vec<Py<PyTask>>,
     /// Path to the persistent done-marker directory; `None` disables.
     pub done_marker_path: Option<String>,
+    /// Per-worker resource cost; empty disables resource accounting.
+    pub requires: HashMap<String, i64>,
 }
 
 #[pymethods]
@@ -41,6 +43,7 @@ impl PyTask {
         max_retries=2,
         upstream_tasks=None,
         done_marker_path=None,
+        requires=None,
     ))]
     fn new(
         task_id: String,
@@ -55,6 +58,7 @@ impl PyTask {
         max_retries: u32,
         upstream_tasks: Option<Bound<'_, PyList>>,
         done_marker_path: Option<String>,
+        requires: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let ups = if let Some(list) = upstream_tasks {
             let mut v = Vec::new();
@@ -65,6 +69,17 @@ impl PyTask {
             v
         } else {
             Vec::new()
+        };
+        let reqs: HashMap<String, i64> = if let Some(d) = requires {
+            let mut m = HashMap::new();
+            for (k, v) in d.iter() {
+                let key: String = k.extract()?;
+                let val: i64 = v.extract()?;
+                m.insert(key, val);
+            }
+            m
+        } else {
+            HashMap::new()
         };
         Ok(Self {
             task_id,
@@ -79,6 +94,7 @@ impl PyTask {
             process_function,
             upstream_tasks: ups,
             done_marker_path,
+            requires: reqs,
         })
     }
 
@@ -133,6 +149,7 @@ impl PyTask {
             process_function: None,
             upstream_tasks: Vec::new(),
             done_marker_path: None,
+            requires: HashMap::new(),
         }
     }
 
@@ -172,6 +189,9 @@ impl PyTask {
 
         if let Some(ref path) = borrow.done_marker_path {
             builder = builder.done_marker_path(path);
+        }
+        if !borrow.requires.is_empty() {
+            builder = builder.requires(borrow.requires.clone());
         }
 
         for up in upstream_arc {

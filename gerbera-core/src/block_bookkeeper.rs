@@ -40,13 +40,19 @@ impl BlockBookkeeper {
         );
     }
 
-    /// Record that a block was returned by a client. Returns true if this
-    /// was a valid return.
-    pub fn notify_block_returned(&mut self, block: &Block, client_addr: SocketAddr) -> bool {
+    /// Record that a block was returned by a client. Returns the time
+    /// the block spent in the worker (`Instant::now() - time_sent`)
+    /// when the return is valid, otherwise `None`.
+    pub fn notify_block_returned(
+        &mut self,
+        block: &Block,
+        client_addr: SocketAddr,
+    ) -> Option<std::time::Duration> {
         if let Some(log) = self.sent_blocks.get(&block.block_id) {
             if log.client_addr == client_addr {
+                let elapsed = log.time_sent.elapsed();
                 self.sent_blocks.remove(&block.block_id);
-                return true;
+                return Some(elapsed);
             }
             debug!(
                 block_id = %block.block_id,
@@ -55,7 +61,7 @@ impl BlockBookkeeper {
                 "block returned by wrong client"
             );
         }
-        false
+        None
     }
 
     /// Check whether this return is valid (block was sent to this client and

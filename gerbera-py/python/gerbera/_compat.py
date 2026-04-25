@@ -53,6 +53,8 @@ TaskState = _rs.TaskState
 class Task:
     """Maps daisy's positional constructor to gerbera's keyword-only Rust Task."""
 
+    _NUM_WORKERS_SENTINEL = object()
+
     def __init__(
         self,
         task_id,
@@ -63,12 +65,14 @@ class Task:
         check_function=None,
         init_callback_fn=None,
         read_write_conflict=True,
-        num_workers=1,
+        num_workers=_NUM_WORKERS_SENTINEL,
         max_retries=2,
         fit="valid",
         timeout=None,
         upstream_tasks=None,
         done_marker_path=None,
+        max_workers=None,
+        requires=None,
     ):
         self.task_id = task_id
         self.total_roi = total_roi
@@ -78,7 +82,23 @@ class Task:
         self.check_function = check_function
         self.init_callback_fn = init_callback_fn
         self.read_write_conflict = read_write_conflict
-        self.num_workers = num_workers
+        # `num_workers` is the legacy (daisy-compatible) name; `max_workers`
+        # is the gerbera name and matches `requires`-based resource
+        # accounting. Accept both, prefer `max_workers` when set, emit a
+        # DeprecationWarning if the legacy name is passed.
+        if num_workers is not Task._NUM_WORKERS_SENTINEL:
+            import warnings
+            warnings.warn(
+                "Task(num_workers=...) is deprecated; use max_workers=... instead. "
+                "Both currently behave identically — max_workers is a hard cap on "
+                "concurrent workers per task and composes with the runner's "
+                "global `resources=` budget when `requires=` is set.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if max_workers is None:
+                max_workers = num_workers
+        self.max_workers = 1 if max_workers is None else int(max_workers)
         self.max_retries = max_retries
         self.fit = fit
         self.timeout = timeout
@@ -88,6 +108,19 @@ class Task:
         #   - False                 → disabled for this task (override basedir)
         #   - None (default)        → fall back to global basedir + task_id
         self.done_marker_path = done_marker_path
+        # Per-worker resource cost; empty dict (or None) disables
+        # resource accounting for this task — the worker count is bounded
+        # purely by `max_workers`.
+        self.requires = dict(requires) if requires else {}
+
+    @property
+    def num_workers(self):
+        """Legacy alias for `max_workers`."""
+        return self.max_workers
+
+    @num_workers.setter
+    def num_workers(self, value):
+        self.max_workers = int(value)
 
     def _resolve_done_marker_path(self) -> str | None:
         """Resolve the effective marker path string (or None to disable)."""
@@ -111,10 +144,11 @@ class Task:
             check_function=self.check_function,
             read_write_conflict=self.read_write_conflict,
             fit=self.fit,
-            num_workers=self.num_workers,
+            num_workers=self.max_workers,
             max_retries=self.max_retries,
             upstream_tasks=upstream_rs if upstream_rs else None,
             done_marker_path=self._resolve_done_marker_path(),
+            requires=self.requires if self.requires else None,
         )
 
     def requires(self):
@@ -311,7 +345,13 @@ def _print_execution_summary(states):
     p("Execution Summary")
     p("-----------------")
 
-    for task_id, state in states.items():
+    if not states:
+        return
+
+    rows = []
+    failed_tasks = []
+    for task_id in sorted(states.keys()):
+        state = states[task_id]
         total = state.total_block_count
         completed = state.completed_count
         failed = state.failed_count
@@ -321,37 +361,54 @@ def _print_execution_summary(states):
         pending = state.pending_count
 
         if failed > 0:
-            status = " ✗"
+            status = "✗"
+            failed_tasks.append(task_id)
         elif orphaned > 0:
-            status = " ∅"
+            status = "∅"
         elif pending > 0 or processing > 0:
-            status = " …"
+            status = "…"
         else:
-            status = " ✔"
+            status = "✔"
 
+        rows.append((task_id, status, total, completed, skipped, failed, orphaned))
+
+    name_w = max(len("task"), max(len(r[0]) for r in rows))
+    cols = [
+        (name_w + 2,  f"{'task':<{name_w + 2}}"),   # name + status symbol
+        (7,           f"{'blocks':>7}"),
+        (10,          f"{'completed':>10}"),
+        (7,           f"{'skipped':>7}"),
+        (6,           f"{'failed':>6}"),
+        (8,           f"{'orphaned':>8}"),
+    ]
+    p()
+    p("    " + "  ".join(text for _, text in cols))
+    p("    " + "  ".join("─" * w for w, _ in cols))
+    for task_id, status, total, completed, skipped, failed, orphaned in rows:
+        first = f"{task_id} {status}".ljust(name_w + 2)
+        p(f"    {first}  {total:>7}  {completed:>10}  "
+          f"{skipped:>7}  {failed:>6}  {orphaned:>8}")
+
+    log_basedir = _worker_log.get_log_basedir()
+    files_written = log_basedir is not None and _worker_log.get_log_mode() != "console"
+    if failed_tasks and files_written:
         p()
-        p(f"  Task {task_id}{status}:")
-        p()
-        p(f"    num blocks : {total}")
-        p(f"    completed ✔: {completed} (skipped {skipped})")
-        p(f"    failed    ✗: {failed}")
-        p(f"    orphaned  ∅: {orphaned}")
-
-        log_basedir = _worker_log.get_log_basedir()
-        files_written = log_basedir is not None and _worker_log.get_log_mode() != "console"
-        if failed > 0 and files_written:
-            p()
-            p(f"    See worker logs for details under {log_basedir / task_id}/")
-
-        if total > 0 and completed == total:
-            p()
-            p("    all blocks processed successfully")
+        if len(failed_tasks) == 1:
+            p(f"    See worker logs for details under "
+              f"{log_basedir / failed_tasks[0]}/")
+        else:
+            p(f"    See worker logs for failed tasks under {log_basedir}/")
+            for tid in failed_tasks:
+                p(f"      {log_basedir / tid}/")
 
 
 class SerialServer:
     """Maps daisy's SerialServer().run_blockwise(tasks) to Rust."""
 
-    def run_blockwise(self, tasks):
+    def run_blockwise(self, tasks, resources=None):
+        # `resources` is accepted for API parity with `Server` but is
+        # ignored — the serial runner is single-threaded so resource
+        # accounting has no effect.
         wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                    for t in tasks]
         try:
@@ -371,17 +428,100 @@ class Server:
         self.hostname = None
         self.port = None
 
-    def run_blockwise(self, tasks):
+    def run_blockwise(self, tasks, resources=None):
         wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                    for t in tasks]
         try:
-            return _rs._run_distributed_server(_convert_tasks(wrapped))
+            states, run_stats = _rs._run_distributed_server(
+                _convert_tasks(wrapped), resources,
+            )
+            self.last_run_stats = run_stats
+            return states
         finally:
             _worker_log.close_all_log_files()
 
 
-def run_blockwise(tasks, multiprocessing=True):
+def _format_bytes(n):
+    n = float(n)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if abs(n) < 1024.0:
+            return f"{n:.1f} {unit}"
+        n /= 1024.0
+    return f"{n:.1f} PB"
+
+
+def _print_resource_utilization(stats):
+    """Daisy-style post-run report of resource utilisation."""
+    if stats is None:
+        return
+    import sys
+    out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
+
+    def p(s=""):
+        print(s, file=out)
+
+    process = stats.get("process") or {}
+    per_task = stats.get("per_task") or {}
+    if not per_task and (process.get("unavailable", False) or not process):
+        return
+
+    p()
+    p("Resource Utilization")
+    p("--------------------")
+
+    wall = process.get("wall_time_secs", 0.0)
+    cpu_total = process.get("total_cpu_time_secs", 0.0)
+    rss = process.get("peak_rss_bytes", 0)
+    disk_r = process.get("disk_read_bytes", 0)
+    disk_w = process.get("disk_write_bytes", 0)
+    cpu_eff = (cpu_total / wall) if wall > 0 else 0.0
+
+    p()
+    p("  Process:")
+    p(f"    peak RSS       : {_format_bytes(rss)}")
+    p(f"    total CPU time : {cpu_total:.2f} s   (across all threads)")
+    p(f"    wall time      : {wall:.2f} s")
+    p(f"    cpu efficiency : {cpu_eff:.2f}x   (≈ {cpu_eff:.1f} cores busy on average)")
+    p(f"    disk read      : {_format_bytes(disk_r)}")
+    p(f"    disk write     : {_format_bytes(disk_w)}")
+
+    if not per_task:
+        return
+
+    p()
+    p("  Per-task:")
+    p(f"    {'task':<14}{'blocks':>8}{'max conc':>10}"
+      f"    {'mean ms ∠ slope':<22}{'cpu busy':>10}{'wall':>10}")
+    p(f"    {'─' * 14}{'─' * 8}{'─' * 10}    "
+      f"{'─' * 22}{'─' * 10}{'─' * 10}")
+    for task_id in sorted(per_task.keys()):
+        t = per_task[task_id]
+        blocks = int(t.get("blocks_processed", 0))
+        max_conc = int(t.get("max_concurrent_workers", 0))
+        mean_ms = float(t.get("mean_block_ms", 0.0))
+        slope = float(t.get("block_ms_slope", 0.0))
+        # CPU busy = sum(block durations) / sum(worker wall) — what
+        # fraction of the time a worker had a block in hand vs. idle.
+        block_total = float(t.get("total_block_time_secs", 0.0))
+        worker_wall = float(t.get("total_wall_time_secs", 0.0))
+        busy = (block_total / worker_wall * 100.0) if worker_wall > 0 else 0.0
+        wall_t = worker_wall
+        trend = f"{mean_ms:6.2f} ∠ {slope:+.4f}"
+        p(f"    {task_id:<14}{blocks:>8}{max_conc:>10}"
+          f"    {trend:<22}{busy:>9.0f}%{wall_t:>9.2f}s")
+
+
+def run_blockwise(tasks, multiprocessing=True, resources=None):
+    """Run the given tasks to completion.
+
+    `resources` is an optional `dict[str, int]` global budget consumed by
+    tasks whose `requires=...` declares non-empty entries. Tasks with
+    empty `requires` are bounded only by their own `max_workers` cap.
+    Hard-errors at startup if any task's `requires` exceeds the budget.
+    Ignored in serial mode.
+    """
     server = Server() if multiprocessing else SerialServer()
-    states = server.run_blockwise(tasks)
+    states = server.run_blockwise(tasks, resources=resources)
     _print_execution_summary(states)
+    _print_resource_utilization(getattr(server, "last_run_stats", None))
     return all(s.is_done() for s in states.values())

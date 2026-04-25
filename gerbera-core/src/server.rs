@@ -3,6 +3,8 @@ use crate::block_bookkeeper::BlockBookkeeper;
 use crate::client::Client;
 use crate::framing::{read_message, write_message};
 use crate::protocol::Message;
+use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
+use crate::run_stats::{thread_cpu_time, WorkerStats};
 use crate::scheduler::Scheduler;
 use crate::task::Task;
 use crate::task_state::TaskState;
@@ -11,6 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Instant;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -67,12 +70,21 @@ impl Server {
     /// Run blockwise with Rust-managed worker threads. Workers call back
     /// into Python via the trait implementations on the task's
     /// process_function / spawn_function.
+    ///
+    /// `resources` is an optional global budget (e.g. `{"cpu": 32,
+    /// "gpu": 8}`). Tasks whose `requires` declares non-empty entries
+    /// are gated by this budget — concurrent worker counts are bounded
+    /// so the sum across all tasks competing for a resource never
+    /// exceeds the corresponding budget. Tasks with empty `requires`
+    /// ignore the budget entirely and are bounded only by their own
+    /// `num_workers` cap (the legacy behaviour).
     pub async fn run_blockwise(
         &self,
         listener: TcpListener,
         tasks: &[Arc<Task>],
         worker_pools: &mut HashMap<String, WorkerPool>,
-    ) -> std::io::Result<HashMap<String, TaskState>> {
+        resources: ResourceBudget,
+    ) -> std::io::Result<(HashMap<String, TaskState>, crate::run_stats::RunStats)> {
         let mut scheduler = Scheduler::new(tasks, true);
         if let Err(e) = scheduler.init_done_markers() {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
@@ -137,27 +149,97 @@ impl Server {
 
         let mut pending: VecDeque<ClientMessage> = VecDeque::new();
 
-        // Spawn worker threads for each task.
+        // Resource accounting + worker registry.
+        let mut allocator = ResourceAllocator::new(resources);
+        if let Err(e) = allocator.validate(tasks) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                e.to_string(),
+            ));
+        }
         let mut workers: Vec<(WorkerSpec, WorkerThread)> = Vec::new();
         let mut next_worker_id: u64 = 0;
+        // Channel each worker thread signals on just before it exits,
+        // so the main loop can rebalance immediately rather than
+        // waiting for the next 500ms health tick. The payload also
+        // carries that worker's resource-utilisation stats — collected
+        // here for the post-run report.
+        let (worker_exit_tx, mut worker_exit_rx) =
+            mpsc::unbounded_channel::<WorkerStats>();
+        let mut collected_worker_stats: Vec<WorkerStats> = Vec::new();
+        // Per-task list of `release_index → duration_ms`, so we can fit
+        // a linear trend at the end and report whether processing time
+        // grew/shrank as the run progressed.
+        let mut task_block_durations: HashMap<String, Vec<f64>> = HashMap::new();
 
-        for task in tasks {
-            if task.process_function.is_none() && task.spawn_function.is_none() {
-                continue;
+        // Process-wide sampler: peak RSS / virt and disk I/O deltas
+        // updated every 200ms by a background tokio task.
+        let process_stats = std::sync::Arc::new(std::sync::Mutex::new(
+            crate::run_stats::ProcessStats::default(),
+        ));
+        let stats_started = Instant::now();
+        let process_stats_clone = process_stats.clone();
+        let (sampler_stop_tx, mut sampler_stop_rx) = tokio::sync::oneshot::channel::<()>();
+        let sampler_handle = tokio::spawn(async move {
+            use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
+            let pid = Pid::from_u32(std::process::id());
+            let mut system = System::new_with_specifics(
+                RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+            );
+            let mut baseline_disk_read: u64 = 0;
+            let mut baseline_disk_write: u64 = 0;
+            let mut first = true;
+            let mut interval = tokio::time::interval(std::time::Duration::from_millis(200));
+            loop {
+                tokio::select! {
+                    _ = &mut sampler_stop_rx => break,
+                    _ = interval.tick() => {
+                        system.refresh_processes_specifics(
+                            ProcessesToUpdate::Some(&[pid]),
+                            true,
+                            ProcessRefreshKind::everything(),
+                        );
+                        if let Some(p) = system.process(pid) {
+                            let mut g = process_stats_clone.lock().unwrap();
+                            g.peak_rss_bytes = g.peak_rss_bytes.max(p.memory());
+                            g.peak_virt_bytes = g.peak_virt_bytes.max(p.virtual_memory());
+                            let disk = p.disk_usage();
+                            if first {
+                                baseline_disk_read = disk.total_read_bytes;
+                                baseline_disk_write = disk.total_written_bytes;
+                                first = false;
+                            }
+                            g.disk_read_bytes =
+                                disk.total_read_bytes.saturating_sub(baseline_disk_read);
+                            g.disk_write_bytes =
+                                disk.total_written_bytes.saturating_sub(baseline_disk_write);
+                            g.total_cpu_time = std::time::Duration::from_secs_f64(
+                                p.run_time() as f64 * (p.cpu_usage() as f64 / 100.0),
+                            );
+                            g.unavailable = false;
+                        } else {
+                            process_stats_clone.lock().unwrap().unavailable = true;
+                        }
+                    }
+                }
             }
-            for _ in 0..task.num_workers {
-                let spec = WorkerSpec {
-                    task_id: task.task_id.clone(),
-                    task: task.clone(),
-                    worker_id: next_worker_id,
-                    host: self.host.clone(),
-                    port: self.port,
-                };
-                let handle = Self::spawn_worker(&spec);
-                workers.push((spec, WorkerThread::Running(handle)));
-                next_worker_id += 1;
-            }
-        }
+        });
+
+        // Initial fill — only tasks that already have ready blocks
+        // (i.e. roots) get workers up front. Downstream tasks get
+        // workers spawned later, when upstream completion makes their
+        // first blocks ready. Capped by per-task `num_workers` and the
+        // global resource budget.
+        Self::rebalance_workers(
+            &self.host,
+            self.port,
+            tasks,
+            &scheduler,
+            &mut allocator,
+            &mut workers,
+            &mut next_worker_id,
+            &worker_exit_tx,
+        );
 
         self.recruit_workers(&scheduler, worker_pools)?;
 
@@ -168,10 +250,54 @@ impl Server {
         while !all_done {
             tokio::select! {
                 Some(cm) = msg_rx.recv() => {
-                    self.handle_message(
+                    let updated = self.handle_message(
                         cm, &mut scheduler, &mut bookkeeper,
                         &mut pending, worker_pools,
+                        &mut task_block_durations,
                     )?;
+                    // Rebalance only when this release has actually
+                    // unlocked a previously-blocked task — i.e. some
+                    // task in the changed-states map has ready work
+                    // but no workers spawned yet. Steady-state releases
+                    // (a downstream task that's already running picks
+                    // up new blocks via its existing workers) don't
+                    // trigger rebalance here; the 500ms health tick
+                    // covers any drift.
+                    let needs_rebalance = updated.iter().any(|(tid, state)| {
+                        state.ready_count > 0 && allocator.alive(tid) == 0
+                    });
+                    if needs_rebalance {
+                        Self::rebalance_workers(
+                            &self.host,
+                            self.port,
+                            tasks,
+                            &scheduler,
+                            &mut allocator,
+                            &mut workers,
+                            &mut next_worker_id,
+                            &worker_exit_tx,
+                        );
+                    }
+                }
+
+                Some(stats) = worker_exit_rx.recv() => {
+                    // A worker thread just signalled it's exiting and
+                    // handed back its utilisation stats. Stash them
+                    // for the report, reap the thread (frees its
+                    // resource slot via the allocator), and rebalance
+                    // immediately so freed budget can grow other tasks.
+                    collected_worker_stats.push(stats);
+                    Self::check_thread_health(&mut workers, &mut allocator);
+                    Self::rebalance_workers(
+                        &self.host,
+                        self.port,
+                        tasks,
+                        &scheduler,
+                        &mut allocator,
+                        &mut workers,
+                        &mut next_worker_id,
+                        &worker_exit_tx,
+                    );
                 }
 
                 _ = health_interval.tick() => {
@@ -189,8 +315,23 @@ impl Server {
                         }
                     }
 
-                    // Check thread-based worker health.
-                    Self::check_thread_health(&mut workers, &mut next_worker_id);
+                    // Reap exited threads and free their resources, then
+                    // grow any pools that still have work + budget.
+                    // Worker-exit notifications usually beat us to this,
+                    // but the periodic tick is the safety net for any
+                    // worker that died without sending a notification
+                    // (e.g. a panic that didn't unwind through `Drop`).
+                    Self::check_thread_health(&mut workers, &mut allocator);
+                    Self::rebalance_workers(
+                        &self.host,
+                        self.port,
+                        tasks,
+                        &scheduler,
+                        &mut allocator,
+                        &mut workers,
+                        &mut next_worker_id,
+                        &worker_exit_tx,
+                    );
 
                     self.recruit_workers(&scheduler, worker_pools)?;
 
@@ -198,6 +339,7 @@ impl Server {
                         self.retry_pending(
                             &mut scheduler, &mut bookkeeper,
                             &mut pending, worker_pools,
+                            &mut task_block_durations,
                         )?;
                     }
                 }
@@ -233,15 +375,39 @@ impl Server {
                 let _ = handle.join();
             }
         }
+        // Drain any worker-exit notifications still in flight.
+        while let Ok(s) = worker_exit_rx.try_recv() {
+            collected_worker_stats.push(s);
+        }
 
-        Ok(scheduler.task_states)
+        // Stop the sysinfo sampler and pull its final snapshot.
+        let _ = sampler_stop_tx.send(());
+        let _ = sampler_handle.await;
+        let process = process_stats.lock().unwrap().clone();
+
+        let run_stats = crate::run_stats::build_run_stats(
+            stats_started,
+            collected_worker_stats,
+            task_block_durations,
+            process,
+        );
+        Ok((scheduler.task_states, run_stats))
     }
 
     /// Spawn a worker thread for a task. For 1-arg process functions, the
     /// thread creates a TCP client, loops acquiring blocks, and calls the
     /// function. For 0-arg spawn functions, the thread calls the function
     /// directly (it manages its own Client/subprocess).
-    fn spawn_worker(spec: &WorkerSpec) -> JoinHandle<bool> {
+    ///
+    /// `exit_tx` is signalled (best-effort) right before the thread
+    /// returns, so the main loop can rebalance immediately on worker
+    /// exit without waiting for the next health-tick poll. A panicking
+    /// thread won't notify; the health tick is the safety net for that
+    /// case.
+    fn spawn_worker(
+        spec: &WorkerSpec,
+        exit_tx: mpsc::UnboundedSender<WorkerStats>,
+    ) -> JoinHandle<bool> {
         let task = spec.task.clone();
         let host = spec.host.clone();
         let port = spec.port;
@@ -249,6 +415,37 @@ impl Server {
         let worker_id = spec.worker_id;
 
         std::thread::spawn(move || -> bool {
+            // RAII: report stats and notify on every return path
+            // (including panics that unwind through this thread).
+            struct ExitNotifier {
+                tx: mpsc::UnboundedSender<WorkerStats>,
+                stats: WorkerStats,
+                started: Instant,
+                start_cpu: Option<std::time::Duration>,
+            }
+            impl Drop for ExitNotifier {
+                fn drop(&mut self) {
+                    self.stats.wall_time = self.started.elapsed();
+                    self.stats.cpu_time = match (thread_cpu_time(), self.start_cpu) {
+                        (Some(now), Some(then)) => Some(now.saturating_sub(then)),
+                        (Some(now), None) => Some(now),
+                        _ => None,
+                    };
+                    let _ = self.tx.send(std::mem::take(&mut self.stats));
+                }
+            }
+            #[allow(unused_mut)]
+            let mut notifier = ExitNotifier {
+                tx: exit_tx,
+                stats: WorkerStats {
+                    task_id: task_id.clone(),
+                    worker_id,
+                    ..Default::default()
+                },
+                started: Instant::now(),
+                start_cpu: thread_cpu_time(),
+            };
+
             if let Some(ref process_fn) = task.process_function {
                 // 1-arg block processor: connect via TCP, loop.
                 let rt = match tokio::runtime::Runtime::new() {
@@ -284,6 +481,7 @@ impl Server {
                                 error!(worker_id, error = %e, "failed to release block");
                                 return false;
                             }
+                            notifier.stats.blocks_processed += 1;
                         }
                         Ok(None) => {
                             debug!(worker_id, "no more blocks, exiting");
@@ -315,43 +513,108 @@ impl Server {
         })
     }
 
-    /// Check thread-based workers for crashes and respawn.
+    /// Reap exited worker threads and free their resource slots so the
+    /// next `rebalance_workers` call can re-allocate them. We do not
+    /// respawn here — `rebalance_workers` decides whether the task
+    /// still needs more workers.
     fn check_thread_health(
         workers: &mut Vec<(WorkerSpec, WorkerThread)>,
-        next_id: &mut u64,
+        allocator: &mut ResourceAllocator,
     ) {
-        let mut to_respawn: Vec<WorkerSpec> = Vec::new();
-
         for (spec, wt) in workers.iter_mut() {
             if let &mut WorkerThread::Running(ref handle) = wt {
                 if handle.is_finished() {
                     if let WorkerThread::Running(handle) =
                         std::mem::replace(wt, WorkerThread::Finished)
                     {
-                        let should_respawn = match handle.join() {
-                            Ok(true) => false,   // clean exit
-                            Ok(false) => true,   // function failed
-                            Err(_) => true,      // thread panicked
-                        };
-                        if should_respawn {
-                            warn!(worker_id = spec.worker_id, "worker failed, respawning");
-                            to_respawn.push(WorkerSpec {
-                                task_id: spec.task_id.clone(),
-                                task: spec.task.clone(),
-                                worker_id: *next_id,
-                                host: spec.host.clone(),
-                                port: spec.port,
-                            });
-                            *next_id += 1;
+                        match handle.join() {
+                            Ok(true) => {
+                                debug!(
+                                    worker_id = spec.worker_id,
+                                    task_id = %spec.task_id,
+                                    "worker exited cleanly",
+                                );
+                            }
+                            Ok(false) | Err(_) => {
+                                warn!(
+                                    worker_id = spec.worker_id,
+                                    task_id = %spec.task_id,
+                                    "worker exited with error — rebalance will decide whether to respawn",
+                                );
+                            }
                         }
+                        allocator.release(&spec.task);
                     }
                 }
             }
         }
+        // Drop the now-Finished entries so the workers vec doesn't grow
+        // unboundedly across long runs.
+        workers.retain(|(_, wt)| matches!(wt, WorkerThread::Running(_)));
+    }
 
-        for spec in to_respawn {
-            let handle = Self::spawn_worker(&spec);
-            workers.push((spec, WorkerThread::Running(handle)));
+    /// Spawn additional workers for tasks that have ready work, fewer
+    /// alive workers than their `num_workers` cap, and whose
+    /// per-worker `requires` fits in the remaining resource budget.
+    /// Idempotent — safe to call any time.
+    ///
+    /// Tasks with `ready_count == 0` are skipped here even if they
+    /// have pending blocks waiting on upstream completion. Spawning
+    /// workers for them now would consume budget that ready tasks
+    /// could be using (the new workers would just park at
+    /// `acquire_block` until upstream produces). They'll get workers
+    /// on the next rebalance after their first block becomes ready.
+    fn rebalance_workers(
+        host: &str,
+        port: u16,
+        tasks: &[Arc<Task>],
+        scheduler: &Scheduler,
+        allocator: &mut ResourceAllocator,
+        workers: &mut Vec<(WorkerSpec, WorkerThread)>,
+        next_id: &mut u64,
+        exit_tx: &mpsc::UnboundedSender<WorkerStats>,
+    ) {
+        // Round-robin grow: at each pass, give *one* more worker to
+        // every eligible task. Repeat until no task can grow. This
+        // keeps competing tasks sharing a resource roughly fair.
+        loop {
+            let mut grew_any = false;
+            for task in tasks {
+                if task.process_function.is_none() && task.spawn_function.is_none() {
+                    continue;
+                }
+                // Skip tasks with no ready work — don't waste budget on
+                // workers that would just park immediately.
+                let ready = scheduler
+                    .task_states
+                    .get(&task.task_id)
+                    .map(|s| s.ready_count)
+                    .unwrap_or(0);
+                if ready <= 0 {
+                    continue;
+                }
+                let alive = allocator.alive(&task.task_id);
+                if alive >= task.num_workers {
+                    continue;
+                }
+                if !allocator.try_allocate(task) {
+                    continue;
+                }
+                let spec = WorkerSpec {
+                    task_id: task.task_id.clone(),
+                    task: task.clone(),
+                    worker_id: *next_id,
+                    host: host.to_string(),
+                    port,
+                };
+                let handle = Self::spawn_worker(&spec, exit_tx.clone());
+                workers.push((spec, WorkerThread::Running(handle)));
+                *next_id += 1;
+                grew_any = true;
+            }
+            if !grew_any {
+                break;
+            }
         }
     }
 
@@ -361,16 +624,26 @@ impl Server {
         bookkeeper: &mut BlockBookkeeper,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
+        task_block_durations: &mut HashMap<String, Vec<f64>>,
     ) -> std::io::Result<()> {
         let count = pending.len();
         for _ in 0..count {
             if let Some(cm) = pending.pop_front() {
-                self.handle_message(cm, scheduler, bookkeeper, pending, worker_pools)?;
+                let _ = self.handle_message(
+                    cm, scheduler, bookkeeper, pending, worker_pools,
+                    task_block_durations,
+                )?;
             }
         }
         Ok(())
     }
 
+    /// Handle one client message. Returns the map of task states that
+    /// changed as a side effect (empty for non-state-changing messages
+    /// like AcquireBlock / Disconnect). The caller uses this to decide
+    /// whether a rebalance is warranted — specifically, whether a
+    /// release just made a previously-blocked downstream task eligible
+    /// for its first worker.
     fn handle_message(
         &self,
         cm: ClientMessage,
@@ -378,18 +651,28 @@ impl Server {
         bookkeeper: &mut BlockBookkeeper,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
-    ) -> std::io::Result<()> {
+        task_block_durations: &mut HashMap<String, Vec<f64>>,
+    ) -> std::io::Result<HashMap<String, TaskState>> {
+        let mut updated: HashMap<String, TaskState> = HashMap::new();
         match cm.message {
             Message::AcquireBlock { .. } => {
                 self.handle_acquire(cm, scheduler, bookkeeper, pending, worker_pools)?;
             }
             Message::ReleaseBlock { block } => {
                 if bookkeeper.is_valid_return(&block, cm.addr) {
-                    bookkeeper.notify_block_returned(&block, cm.addr);
-                    scheduler.release_block(block);
+                    if let Some(elapsed) = bookkeeper.notify_block_returned(&block, cm.addr) {
+                        task_block_durations
+                            .entry(block.block_id.task_id.clone())
+                            .or_default()
+                            .push(elapsed.as_secs_f64() * 1000.0);
+                    }
+                    updated = scheduler.release_block(block);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
-                        self.retry_pending(scheduler, bookkeeper, pending, worker_pools)?;
+                        self.retry_pending(
+                            scheduler, bookkeeper, pending, worker_pools,
+                            task_block_durations,
+                        )?;
                     }
                 } else {
                     debug!(block_id = %block.block_id, "invalid block return");
@@ -398,12 +681,17 @@ impl Server {
             Message::BlockFailed { mut block, error } => {
                 warn!(block_id = %block.block_id, %error, "block failed");
                 if bookkeeper.is_valid_return(&block, cm.addr) {
-                    bookkeeper.notify_block_returned(&block, cm.addr);
+                    // Failed blocks intentionally not added to the
+                    // duration trend — they're noisy outliers.
+                    let _ = bookkeeper.notify_block_returned(&block, cm.addr);
                     block.status = BlockStatus::Failed;
-                    scheduler.release_block(block);
+                    updated = scheduler.release_block(block);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
-                        self.retry_pending(scheduler, bookkeeper, pending, worker_pools)?;
+                        self.retry_pending(
+                            scheduler, bookkeeper, pending, worker_pools,
+                            task_block_durations,
+                        )?;
                     }
                 }
             }
@@ -415,7 +703,7 @@ impl Server {
                 warn!(msg = ?cm.message, "unexpected message");
             }
         }
-        Ok(())
+        Ok(updated)
     }
 
     fn handle_acquire(
