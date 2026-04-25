@@ -105,10 +105,10 @@ AFFINITIES = affs_bool.astype(np.float32) - 0.5
 print(f"affinities: {AFFINITIES.shape}, range "
       f"[{AFFINITIES.min():+.1f}, {AFFINITIES.max():+.1f}]")
 
-plt.imshow(AFFINITIES[0:3].transpose([1, 2, 0]) + 0.5, vmin=0, vmax=1)
+plt.figure(figsize=(5, 5))
+plt.imshow(AFFINITIES[:3].transpose([1, 2, 0]) + 0.5, vmin=0, vmax=1)
 plt.title("affinities (channels 0–2 as RGB)")
 plt.axis("off")
-plt.tight_layout()
 
 # %% [markdown]
 # ## Visualise the block tiling

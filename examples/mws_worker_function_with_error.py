@@ -19,6 +19,7 @@
 # - The failing tile's output region stays at its initial zero value.
 
 # %%
+import shutil
 import threading
 import time
 from pathlib import Path
@@ -28,6 +29,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
+import zarr
 
 import gerbera
 import gerbera.logging as gl
@@ -58,7 +60,10 @@ gl.set_log_level("WARNING")
 gl.set_traceback_style("rich", show_locals=True)
 
 # %% [markdown]
-# ## Build the same GT + affinities as the clean example
+# ## Build a dummy 2D segmentation
+#
+# 40 random discs painted onto a 512×512 label image. Label 0 is
+# background; each disc gets its own positive integer id.
 
 # %%
 H, W = 512, 512
@@ -66,6 +71,13 @@ N_DISCS = 40
 BLOCK = 128
 NUM_WORKERS = 4
 FAILING_TILE = (1, 2)  # (block_row, block_col) in the 4×4 grid
+TASK_ID = "mws_worker_with_error"
+MARKER_PATH = Path("gerbera-markers.zarr") / TASK_ID
+# Start from a clean marker so the example demonstrates the full
+# fail → fix → resume cycle from scratch. In real usage you would
+# *keep* the marker across runs.
+if MARKER_PATH.exists():
+    shutil.rmtree(MARKER_PATH)
 
 
 def label_to_rgb(seg, bg_colour=(0, 0, 0)):
@@ -93,30 +105,59 @@ def random_disc_segmentation(height, width, n_discs, seed=0):
 
 
 GT = random_disc_segmentation(H, W, N_DISCS)
-NEIGHBORHOOD = [[0, 1], [1, 0], [0, 3], [3, 0]]
+print(f"ground truth: {GT.shape}, {len(np.unique(GT)) - 1} foreground discs")
+
+plt.figure(figsize=(5, 5))
+plt.imshow(label_to_rgb(GT), interpolation="nearest")
+plt.title("ground truth segmentation")
+plt.axis("off")
+
+# %% [markdown]
+# ## Generate affinities
+#
+# Short- and long-range nearest-neighbour offsets `[dy, dx]`.
+# `dist='equality'` produces 1 where `gt[y, x] == gt[y+dy, x+dx]` and 0
+# otherwise — perfect boundary predictions derived from the GT.
+# Re-centred to `[-0.5, +0.5]` for mutex watershed (positive merges,
+# negative splits).
+
+# %%
+NEIGHBORHOOD = [
+    [0, 1],   # right (short-range, attractive)
+    [1, 0],   # down  (short-range, attractive)
+    [0, 3],   # right-3 (long-range, repulsive)
+    [3, 0],   # down-3  (long-range, repulsive)
+]
 AFFINITIES = lsd_lite.get_affs(GT, NEIGHBORHOOD, dist="equality").astype(np.float32) - 0.5
 OUTPUT = np.zeros((H, W), dtype=np.uint32)
 
+plt.figure(figsize=(5, 5))
+plt.imshow(AFFINITIES[:3].transpose([1, 2, 0]) + 0.5, vmin=0, vmax=1)
+plt.title("affinities (channels 0–2 as RGB)")
+plt.axis("off")
+
 # %% [markdown]
-# ## Visualise the setup
+# ## Visualise the block tiling
 #
-# GT with the block grid overlaid and the deliberately-failing tile
-# outlined in red.
+# Gerbera tiles the image into `BLOCK × BLOCK` non-overlapping tiles
+# with `read_roi == write_roi`. The tile we're about to deliberately
+# fail is outlined in red so you can see exactly which chunk we're
+# about to blow up.
 
 # %%
 fig, ax = plt.subplots(figsize=(5, 5))
 ax.imshow(label_to_rgb(GT), interpolation="nearest")
 for r in range(BLOCK, H, BLOCK):
-    ax.axhline(r - 0.5, color="yellow", linewidth=0.8)
+    ax.axhline(r - 0.5, color="yellow", linewidth=1.0)
 for c in range(BLOCK, W, BLOCK):
-    ax.axvline(c - 0.5, color="yellow", linewidth=0.8)
+    ax.axvline(c - 0.5, color="yellow", linewidth=1.0)
 fr, fc = FAILING_TILE
 ax.add_patch(mpatches.Rectangle(
     (fc * BLOCK - 0.5, fr * BLOCK - 0.5), BLOCK, BLOCK,
     fill=False, edgecolor="red", linewidth=2.5, label=f"failing tile {FAILING_TILE}",
 ))
 ax.legend(loc="upper right")
-ax.set_title(f"{H // BLOCK} × {W // BLOCK} block grid")
+ax.set_title(f"{H // BLOCK} × {W // BLOCK} block grid, {BLOCK}×{BLOCK} each")
 ax.axis("off")
 
 # %% [markdown]
@@ -201,26 +242,34 @@ def worker():
 
 
 # %% [markdown]
-# ## Run the task
+# ## Run 1 — buggy `worker`, one tile crashes
+#
+# `done_marker_path` points at a Zarr v3 array that gerbera maintains
+# for us — every block that completes successfully is persisted there.
+# The failing tile is *not* persisted, so on a later run gerbera will
+# know exactly which blocks still need to execute.
 
 # %%
-task = gerbera.Task(
-    task_id="mws_worker_with_error",
-    total_roi=gerbera.Roi([0, 0], [H, W]),
-    read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-    write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-    process_function=worker,
-    read_write_conflict=False,
-    num_workers=NUM_WORKERS,
-    max_retries=2,
-)
+def make_task(worker_fn):
+    return gerbera.Task(
+        task_id=TASK_ID,
+        total_roi=gerbera.Roi([0, 0], [H, W]),
+        read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+        write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+        process_function=worker_fn,
+        read_write_conflict=False,
+        num_workers=NUM_WORKERS,
+        max_retries=2,
+        done_marker_path=str(MARKER_PATH),
+    )
+
 
 OUTPUT.fill(0)
 ATTEMPTS.clear()
 _worker_slots.clear()
 _t0 = time.perf_counter()
 
-ok = gerbera.run_blockwise([task], multiprocessing=True)
+ok = gerbera.run_blockwise([make_task(worker)], multiprocessing=True)
 elapsed = time.perf_counter() - _t0
 print(f"\nrun_blockwise returned ok={ok}")
 print(f"elapsed={elapsed * 1e3:.1f} ms  |  attempts={len(ATTEMPTS)}  |  "
@@ -394,6 +443,99 @@ success_handle = plt.Line2D([], [], marker="o", color="#4caf50", linestyle="",
 ax.legend(handles=[success_handle, failure_handle], loc="upper right")
 fig.tight_layout()
 
-plt.show()
+# %% [markdown]
+# ## Inspect the persistent done-marker
+#
+# Every block that succeeded in run 1 was written to a Zarr v3 array at
+# `gerbera-markers.zarr/<task_id>/`. We can `zarr.open` it like any
+# other array — the cell at `(row, col)` is `1` if that tile is done.
+# After run 1 we expect 15/16 tiles done, with the failing tile at 0.
 
 # %%
+done_after_run1 = np.asarray(zarr.open(str(MARKER_PATH), mode="r")[:])
+print(f"marker after run 1: {int(done_after_run1.sum())} / "
+      f"{done_after_run1.size} tiles done")
+print(done_after_run1)
+
+# %% [markdown]
+# ## Fix the bug and rerun
+#
+# Pretend the traceback above pointed us at our bug, and we've patched
+# `worker`. The fixed version drops the `if tile_idx == FAILING_TILE:
+# raise` branch. When `run_blockwise` starts, gerbera consults the
+# marker for every block before dispatching: the 15 already-done tiles
+# are skipped — `acquire_block` returns the next *not-yet-done* block
+# directly — and only tile `(1, 2)` actually executes. This is the
+# production-grade resume-from-failure workflow: write your worker,
+# run, fix what failed, re-run, only pay for what's actually new.
+
+# %%
+def worker_fixed():
+    """Fixed version of the worker — no `if tile_idx == FAILING_TILE: raise`."""
+    slot = _worker_slot()
+    expensive_model_load()
+
+    client = gerbera.Client()
+    while True:
+        try:
+            with client.acquire_block() as block:
+                if block is None:
+                    break
+                off = block.write_roi.offset.to_list()
+                shape = block.write_roi.shape.to_list()
+                r0, c0 = off[0], off[1]
+                rs, cs = shape[0], shape[1]
+                tile_idx = (r0 // BLOCK, c0 // BLOCK)
+
+                tile = AFFINITIES[:, r0 : r0 + rs, c0 : c0 + cs].astype(np.float64)
+                local = mwatershed.agglom(tile, offsets=NEIGHBORHOOD).astype(np.uint32)
+                block_offset = block.block_id[1] * BLOCK * BLOCK
+                OUTPUT[r0 : r0 + rs, c0 : c0 + cs] = np.where(
+                    local > 0, local + block_offset, 0
+                )
+                _record(tile_idx, slot, ok=True)
+        except Exception:
+            continue
+
+
+_run2_attempts_before = len(ATTEMPTS)
+gerbera.run_blockwise([make_task(worker_fixed)], multiprocessing=True)
+run2_calls = len(ATTEMPTS) - _run2_attempts_before
+print(f"\nrun 2 process_block calls: {run2_calls}  "
+      f"(1 expected — only the previously-failing tile)")
+
+# %% [markdown]
+# ## Verify everything completed
+#
+# Marker is now 16/16. The output array has been filled in for the
+# previously-blank tile too — no zeros where there used to be a hole.
+
+# %%
+done_after_run2 = np.asarray(zarr.open(str(MARKER_PATH), mode="r")[:])
+print(f"marker after run 2: {int(done_after_run2.sum())} / "
+      f"{done_after_run2.size} tiles done")
+
+fig, axes = plt.subplots(1, 3, figsize=(14, 4.5))
+
+axes[0].imshow(label_to_rgb(GT), interpolation="nearest")
+axes[0].set_title("ground truth")
+axes[0].axis("off")
+
+axes[1].imshow(label_to_rgb(OUTPUT), interpolation="nearest")
+axes[1].set_title(f"output after run 2  (segments={len(np.unique(OUTPUT)) - 1})")
+axes[1].axis("off")
+
+panel = np.concatenate([done_after_run1, done_after_run2], axis=1)
+im = axes[2].imshow(panel, cmap="Greens", vmin=0, vmax=1, interpolation="nearest")
+axes[2].axvline(done_after_run1.shape[1] - 0.5, color="black", linewidth=1.0)
+axes[2].set_title("marker after run 1   |   after run 2")
+axes[2].set_xticks([
+    done_after_run1.shape[1] / 2 - 0.5,
+    done_after_run1.shape[1] + done_after_run2.shape[1] / 2 - 0.5,
+])
+axes[2].set_xticklabels(["run 1", "run 2"])
+axes[2].set_yticks(range(panel.shape[0]))
+fig.colorbar(im, ax=axes[2], fraction=0.046)
+fig.tight_layout()
+
+plt.show()

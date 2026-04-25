@@ -31,11 +31,10 @@ import numpy as np
 import gerbera
 
 # %% [markdown]
-# ## Build the same task the block-function example uses
+# ## Build a dummy 2D segmentation
 #
-# 40 random discs painted onto a 512×512 label image → nearest-neighbour
-# affinities (`dist='equality'`) re-centred to `[-0.5, +0.5]` so mutex
-# watershed's merge/split convention applies.
+# 40 random discs painted onto a 512×512 label image. Label 0 is
+# background; each disc gets its own positive integer id.
 
 # %%
 H, W = 512, 512
@@ -45,8 +44,6 @@ NUM_WORKERS = 4
 
 
 def label_to_rgb(seg, bg_colour=(0, 0, 0)):
-    """Hash each integer label to a distinct RGB colour, rendering 0 as
-    `bg_colour`. Identical helper to the block-function example."""
     seg = np.asarray(seg).astype(np.int64)
     ids, inverse = np.unique(seg, return_inverse=True)
     rng = np.random.default_rng(42)
@@ -71,21 +68,53 @@ def random_disc_segmentation(height, width, n_discs, seed=0):
 
 
 GT = random_disc_segmentation(H, W, N_DISCS)
+print(f"ground truth: {GT.shape}, {len(np.unique(GT)) - 1} foreground discs")
 
+plt.figure(figsize=(5, 5))
+plt.imshow(label_to_rgb(GT), interpolation="nearest")
+plt.title("ground truth segmentation")
+plt.axis("off")
+
+# %% [markdown]
+# ## Generate affinities
+#
+# Short- and long-range nearest-neighbour offsets `[dy, dx]`.
+# `dist='equality'` produces 1 where `gt[y, x] == gt[y+dy, x+dx]` and 0
+# otherwise — perfect boundary predictions derived from the GT.
+# Re-centred to `[-0.5, +0.5]` for mutex watershed (positive merges,
+# negative splits).
+
+# %%
 NEIGHBORHOOD = [
     [0, 1],   # right (short-range, attractive)
     [1, 0],   # down  (short-range, attractive)
     [0, 3],   # right-3 (long-range, repulsive)
     [3, 0],   # down-3  (long-range, repulsive)
 ]
-
 AFFINITIES = lsd_lite.get_affs(GT, NEIGHBORHOOD, dist="equality").astype(np.float32) - 0.5
 OUTPUT = np.zeros((H, W), dtype=np.uint32)
 
 plt.figure(figsize=(5, 5))
-plt.imshow(label_to_rgb(GT), interpolation="nearest")
-plt.title("ground truth segmentation")
+plt.imshow(AFFINITIES[:3].transpose([1, 2, 0]) + 0.5, vmin=0, vmax=1)
+plt.title("affinities (channels 0–2 as RGB)")
 plt.axis("off")
+
+# %% [markdown]
+# ## Visualise the block tiling
+#
+# Gerbera tiles the image into `BLOCK × BLOCK` non-overlapping tiles
+# with `read_roi == write_roi`. mutex watershed runs independently on
+# each tile.
+
+# %%
+fig, ax = plt.subplots(figsize=(5, 5))
+ax.imshow(label_to_rgb(GT), interpolation="nearest")
+for r in range(BLOCK, H, BLOCK):
+    ax.axhline(r - 0.5, color="yellow", linewidth=1.0)
+for c in range(BLOCK, W, BLOCK):
+    ax.axvline(c - 0.5, color="yellow", linewidth=1.0)
+ax.set_title(f"{H // BLOCK} × {W // BLOCK} block grid, {BLOCK}×{BLOCK} each")
+ax.axis("off")
 
 # %% [markdown]
 # ## Define the worker function
