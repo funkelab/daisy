@@ -1,4 +1,5 @@
 use crate::roi::Roi;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::block::Block;
@@ -77,6 +78,11 @@ pub struct Task {
     /// function directly. The function typically launches a subprocess
     /// that connects back via TCP.
     pub spawn_function: Option<Arc<dyn SpawnWorker>>,
+    /// If `Some`, the scheduler / runner persists per-block "done"
+    /// state under this directory as a single-chunk Zarr v2 array. On
+    /// the next run, blocks already marked done are skipped before the
+    /// process function is called. See `crate::done_marker`.
+    pub done_marker_path: Option<PathBuf>,
 }
 
 impl Task {
@@ -103,6 +109,7 @@ pub struct TaskBuilder {
     check_function: Option<Arc<dyn CheckBlock>>,
     process_function: Option<Arc<dyn ProcessBlock + Sync>>,
     spawn_function: Option<Arc<dyn SpawnWorker>>,
+    done_marker_path: Option<PathBuf>,
 }
 
 impl TaskBuilder {
@@ -121,6 +128,7 @@ impl TaskBuilder {
             check_function: None,
             process_function: None,
             spawn_function: None,
+            done_marker_path: None,
         }
     }
 
@@ -184,6 +192,11 @@ impl TaskBuilder {
         self
     }
 
+    pub fn done_marker_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.done_marker_path = Some(path.into());
+        self
+    }
+
     pub fn build(self) -> Task {
         let total_roi = self.total_roi.expect("total_roi is required");
         let read_roi = self.read_roi.expect("read_roi is required");
@@ -209,6 +222,7 @@ impl TaskBuilder {
             check_function: self.check_function,
             process_function: self.process_function,
             spawn_function: self.spawn_function,
+            done_marker_path: self.done_marker_path,
         }
     }
 }

@@ -10,11 +10,35 @@ import copy
 import inspect
 import logging
 import os
+from pathlib import Path
 
 import gerbera._gerbera as _rs
 from gerbera import logging as _worker_log
 
 logger = logging.getLogger(__name__)
+
+
+# Global default base directory for per-task done-marker arrays. When set,
+# any `Task(..., done_marker_path=None)` (the default) resolves to
+# `<basedir>/<task_id>`. Set to `None` to disable (no auto-marker).
+_DONE_MARKER_BASEDIR: Path | None = None
+
+
+def set_done_marker_basedir(path) -> None:
+    """Set the global base directory for per-task done-marker arrays.
+
+    When a `Task` is constructed with `done_marker_path=None` (the
+    default) and a basedir is set, the marker for that task lives at
+    `<basedir>/<task_id>`. Set to `None` to disable auto-resolution —
+    tasks without an explicit `done_marker_path` will then run without
+    a marker.
+    """
+    global _DONE_MARKER_BASEDIR
+    _DONE_MARKER_BASEDIR = Path(path) if path is not None else None
+
+
+def get_done_marker_basedir() -> Path | None:
+    return _DONE_MARKER_BASEDIR
 
 # Types with identical API — no wrapping needed.
 Roi = _rs.Roi
@@ -44,6 +68,7 @@ class Task:
         fit="valid",
         timeout=None,
         upstream_tasks=None,
+        done_marker_path=None,
     ):
         self.task_id = task_id
         self.total_roi = total_roi
@@ -58,6 +83,22 @@ class Task:
         self.fit = fit
         self.timeout = timeout
         self.upstream_tasks = upstream_tasks or []
+        # Three states for `done_marker_path`:
+        #   - explicit string/Path  → use it verbatim
+        #   - False                 → disabled for this task (override basedir)
+        #   - None (default)        → fall back to global basedir + task_id
+        self.done_marker_path = done_marker_path
+
+    def _resolve_done_marker_path(self) -> str | None:
+        """Resolve the effective marker path string (or None to disable)."""
+        if self.done_marker_path is False:
+            return None
+        if self.done_marker_path is not None:
+            return str(self.done_marker_path)
+        basedir = get_done_marker_basedir()
+        if basedir is None:
+            return None
+        return str(Path(basedir) / self.task_id)
 
     def _to_rs(self):
         upstream_rs = [t._to_rs() if isinstance(t, Task) else t for t in self.upstream_tasks]
@@ -73,6 +114,7 @@ class Task:
             num_workers=self.num_workers,
             max_retries=self.max_retries,
             upstream_tasks=upstream_rs if upstream_rs else None,
+            done_marker_path=self._resolve_done_marker_path(),
         )
 
     def requires(self):

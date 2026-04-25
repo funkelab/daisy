@@ -21,6 +21,8 @@ pub struct PyTask {
     pub process_function: Option<Py<PyAny>>,
     /// Stored as Py references so they survive without Clone.
     pub upstream_tasks: Vec<Py<PyTask>>,
+    /// Path to the persistent done-marker directory; `None` disables.
+    pub done_marker_path: Option<String>,
 }
 
 #[pymethods]
@@ -38,6 +40,7 @@ impl PyTask {
         num_workers=1,
         max_retries=2,
         upstream_tasks=None,
+        done_marker_path=None,
     ))]
     fn new(
         task_id: String,
@@ -51,6 +54,7 @@ impl PyTask {
         num_workers: usize,
         max_retries: u32,
         upstream_tasks: Option<Bound<'_, PyList>>,
+        done_marker_path: Option<String>,
     ) -> PyResult<Self> {
         let ups = if let Some(list) = upstream_tasks {
             let mut v = Vec::new();
@@ -74,6 +78,7 @@ impl PyTask {
             check_function,
             process_function,
             upstream_tasks: ups,
+            done_marker_path,
         })
     }
 
@@ -127,6 +132,7 @@ impl PyTask {
             check_function: None,
             process_function: None,
             upstream_tasks: Vec::new(),
+            done_marker_path: None,
         }
     }
 
@@ -163,6 +169,10 @@ impl PyTask {
             .fit(Fit::from_str(&borrow.fit))
             .num_workers(borrow.num_workers)
             .max_retries(borrow.max_retries);
+
+        if let Some(ref path) = borrow.done_marker_path {
+            builder = builder.done_marker_path(path);
+        }
 
         for up in upstream_arc {
             builder = builder.upstream(up);

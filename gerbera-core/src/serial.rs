@@ -17,6 +17,7 @@ impl SerialRunner {
     /// must be set (via the builder) since this runner calls it directly.
     pub fn run(tasks: &[Arc<Task>]) -> Result<HashMap<String, TaskState>, GerberaError> {
         let mut scheduler = Scheduler::new(tasks, true);
+        scheduler.init_done_markers()?;
 
         let mut started_tasks = HashSet::new();
         let mut finished_tasks: HashSet<String> = HashSet::new();

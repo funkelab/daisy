@@ -4,7 +4,9 @@
       "Bash(uv run *)",
       "Bash(uv pip *)",
       "Bash(uv sync *)",
-      "Bash(uv add *)"
+      "Bash(uv add *)",
+      "Bash(cargo test *)",
+      "Bash(cargo build *)"
     ]
   }
 }

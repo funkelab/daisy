@@ -12,7 +12,9 @@ from gerbera._compat import (
     Server,
     Task,
     TaskState,
+    get_done_marker_basedir,
     run_blockwise,
+    set_done_marker_basedir,
 )
 
 __all__ = [
@@ -29,5 +31,7 @@ __all__ = [
     "Server",
     "Task",
     "TaskState",
+    "get_done_marker_basedir",
     "run_blockwise",
+    "set_done_marker_basedir",
 ]

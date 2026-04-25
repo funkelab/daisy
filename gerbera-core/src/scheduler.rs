@@ -1,12 +1,14 @@
 use crate::block::{Block, BlockStatus};
 use crate::dependency_graph::DependencyGraph;
+use crate::done_marker::DoneMarker;
+use crate::error::GerberaError;
 use crate::processing_queue::ProcessingQueue;
 use crate::ready_surface::ReadySurface;
 use crate::task::Task;
 use crate::task_state::TaskState;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::debug;
+use tracing::{debug, warn};
 
 /// Core scheduler: tracks task states, dispatches blocks to workers, and
 /// updates the dependency graph as blocks complete.
@@ -24,6 +26,9 @@ pub struct Scheduler {
     pub task_states: HashMap<String, TaskState>,
     task_queues: HashMap<String, ProcessingQueue>,
     count_all_orphans: bool,
+    /// Per-task persistent done-markers, keyed by task_id. Created on
+    /// `Scheduler::new` if `task.done_marker_path` is set.
+    done_markers: HashMap<String, DoneMarker>,
 }
 
 impl Scheduler {
@@ -73,7 +78,41 @@ impl Scheduler {
             task_states,
             task_queues,
             count_all_orphans,
+            done_markers: HashMap::new(),
         }
+    }
+
+    /// Open the done-markers configured on tasks. Must be called after
+    /// `new` and before any blocks are processed. On failure (layout
+    /// mismatch / IO error) returns the error and leaves the scheduler
+    /// without any markers — the caller should treat this as fatal.
+    pub fn init_done_markers(&mut self) -> Result<(), GerberaError> {
+        for (task_id, task) in &self.task_map {
+            let Some(ref dir) = task.done_marker_path else { continue };
+            match DoneMarker::open_or_create(
+                dir,
+                &task.total_roi,
+                &task.read_roi,
+                &task.write_roi,
+                &task.fit,
+            ) {
+                Ok(marker) => {
+                    debug!(
+                        task_id = %task_id,
+                        path = %dir.display(),
+                        capacity = marker.capacity(),
+                        already_done = marker.count_done(),
+                        "done-marker opened",
+                    );
+                    self.done_markers.insert(task_id.clone(), marker);
+                }
+                Err(e) => {
+                    warn!(task_id = %task_id, error = %e, "failed to open done-marker");
+                    return Err(GerberaError::InvalidConfig(format!("{e}")));
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Access the dependency graph for upstream/downstream queries.
@@ -141,6 +180,9 @@ impl Scheduler {
                     .get_mut(&task_id)
                     .unwrap()
                     .completed_count += 1;
+                if let Some(marker) = self.done_markers.get_mut(&task_id) {
+                    marker.mark_success(&block);
+                }
                 self.update_ready_queue(new_blocks)
             }
             BlockStatus::Failed => {
@@ -181,6 +223,12 @@ impl Scheduler {
     }
 
     fn precheck(&self, task_id: &str, block: &Block) -> bool {
+        // The done-marker is the cheapest check (single byte), do it first.
+        if let Some(marker) = self.done_markers.get(task_id) {
+            if marker.is_done(block) {
+                return true;
+            }
+        }
         if let Some(task) = self.task_map.get(task_id) {
             if let Some(ref check_fn) = task.check_function {
                 match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

@@ -21,4 +21,5 @@ examples = [
     "mwatershed>=0.5.2",
     "numpy>=2.2.6",
     "rich>=15.0.0",
+    "zarr>=3.1.6",
 ]

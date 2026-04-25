@@ -74,6 +74,9 @@ impl Server {
         worker_pools: &mut HashMap<String, WorkerPool>,
     ) -> std::io::Result<HashMap<String, TaskState>> {
         let mut scheduler = Scheduler::new(tasks, true);
+        if let Err(e) = scheduler.init_done_markers() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
+        }
         let mut bookkeeper = BlockBookkeeper::new(None);
 
         let (msg_tx, mut msg_rx) = mpsc::channel::<ClientMessage>(256);
