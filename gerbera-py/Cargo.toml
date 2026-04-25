@@ -1,0 +1,13 @@
+[package]
+name = "gerbera-py"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "_gerbera"
+crate-type = ["cdylib"]
+
+[dependencies]
+gerbera-core = { path = "../gerbera-core" }
+pyo3 = { version = "0.28", features = ["extension-module"] }
+tokio = { version = "1", features = ["full"] }

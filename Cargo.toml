@@ -1,0 +1,3 @@
+[workspace]
+members = ["gerbera-core", "gerbera-py"]
+resolver = "2"

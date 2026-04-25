@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run *)",
+      "Bash(uv pip *)",
+      "Bash(uv sync *)",
+      "Bash(uv add *)"
+    ]
+  }
+}

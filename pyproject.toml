@@ -1,0 +1,24 @@
+[project]
+name = "gerbera"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+manifest-path = "gerbera-py/Cargo.toml"
+python-source = "gerbera-py/python"
+module-name = "gerbera._gerbera"
+features = ["pyo3/extension-module"]
+
+[dependency-groups]
+examples = [
+    "ipykernel>=7.2.0",
+    "lsd-lite>=1.0.0",
+    "matplotlib>=3.10.9",
+    "mwatershed>=0.5.2",
+    "numpy>=2.2.6",
+    "rich>=15.0.0",
+]

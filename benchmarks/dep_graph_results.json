@@ -1,0 +1,74 @@
+[
+  {
+    "label": "1M blocks, no conflict",
+    "daisy": {
+      "blocks": 1000000,
+      "levels": 1,
+      "build_s": 5.204195622354746e-05,
+      "iter_s": 15.157888500019908,
+      "total_s": 15.157940541976131
+    },
+    "gerbera": {
+      "blocks": 1000000,
+      "levels": 1,
+      "build_s": 2.4667009711265564e-05,
+      "iter_s": 1.9454872501082718,
+      "total_s": 1.945511917117983
+    },
+    "speedup": 7.791235000210435
+  },
+  {
+    "label": "1M blocks, with conflict",
+    "daisy": {
+      "blocks": 970299,
+      "levels": 8,
+      "build_s": 9.954196866601706e-05,
+      "iter_s": 46.36703304096591,
+      "total_s": 46.36713258293457
+    },
+    "gerbera": {
+      "blocks": 970299,
+      "levels": 8,
+      "build_s": 0.00010258296970278025,
+      "iter_s": 7.480119124986231,
+      "total_s": 7.480221707955934
+    },
+    "speedup": 6.198630788392097
+  },
+  {
+    "label": "125K blocks, small chunks",
+    "daisy": {
+      "blocks": 125000,
+      "levels": 1,
+      "build_s": 5.787494592368603e-05,
+      "iter_s": 1.8948406249983236,
+      "total_s": 1.8948984999442473
+    },
+    "gerbera": {
+      "blocks": 125000,
+      "levels": 1,
+      "build_s": 2.4832901544868946e-05,
+      "iter_s": 0.2462699159514159,
+      "total_s": 0.24629474885296077
+    },
+    "speedup": 7.693621194804732
+  },
+  {
+    "label": "1M blocks, small context",
+    "daisy": {
+      "blocks": 970299,
+      "levels": 8,
+      "build_s": 0.00011933303903788328,
+      "iter_s": 46.309351874981076,
+      "total_s": 46.30947120802011
+    },
+    "gerbera": {
+      "blocks": 970299,
+      "levels": 8,
+      "build_s": 6.062502507120371e-05,
+      "iter_s": 7.734152541030198,
+      "total_s": 7.7342131660552695
+    },
+    "speedup": 5.987612471203665
+  }
+]
