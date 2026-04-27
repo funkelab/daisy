@@ -38,10 +38,10 @@ print(f"output paths under: {_TMP}")
 # ## Configuration
 
 # %%
-NUM_BLOCKS = 100_000
-WORKER_DEATH_RATE = 1.0 / 10_000   # ~10 worker deaths per task
+NUM_BLOCKS = 350_000
+WORKER_DEATH_RATE = 1.0 / 30_000   # ~10 worker deaths per task
 MAX_WORKERS = 4
-MAX_WORKER_RESTARTS = 2         # generous — well above expected deaths
+MAX_WORKER_RESTARTS = 4         # generous — well above expected deaths
 
 # %% [markdown]
 # ## The worker
