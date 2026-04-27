@@ -457,6 +457,14 @@ def test_chained_tasks(chained_task):
     assert scheduler.task_states[second_task.task_id].is_done()
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "The `overlapping_tasks` fixture uses Task(num_workers=1), "
+        "renamed to Task(max_workers=1) in v2. See "
+        "test_overlapping_tasks_migrated."
+    ),
+)
 def test_overlapping_tasks(overlapping_tasks):
     first, second = overlapping_tasks
     scheduler = Scheduler([second])
@@ -477,6 +485,57 @@ def test_overlapping_tasks(overlapping_tasks):
     )
     assert scheduler.task_states[second.task_id].completed_count == 12, (
         scheduler.task_states[second.task_id]
+    )
+
+
+def test_overlapping_tasks_migrated():
+    """v2 equivalent: rename `num_workers` to `max_workers` in the
+    overlapping-task fixtures."""
+    task_1 = Task(
+        "task1",
+        total_roi=Roi((0,), (100,)),
+        read_roi=Roi((0,), (10,)),
+        write_roi=Roi((1,), (8,)),
+        process_function=process_block,
+        check_function=None,
+        read_write_conflict=True,
+        fit="valid",
+        max_workers=1,
+        max_retries=2,
+        timeout=None,
+    )
+    task_2 = Task(
+        "task2",
+        total_roi=Roi((0,), (100,)),
+        read_roi=Roi((0,), (10,)),
+        write_roi=Roi((1,), (8,)),
+        process_function=process_block,
+        check_function=None,
+        read_write_conflict=True,
+        fit="valid",
+        max_workers=1,
+        max_retries=2,
+        timeout=None,
+        upstream_tasks=[task_1],
+    )
+    scheduler = Scheduler([task_2])
+
+    for _ in range(24):
+        block = scheduler.acquire_block(task_1.task_id)
+        if block is None:
+            block = scheduler.acquire_block(task_2.task_id)
+        assert block is not None, (
+            f"{scheduler.task_states[task_1.task_id]}, "
+            f"{scheduler.task_states[task_2.task_id]}"
+        )
+        block.status = BlockStatus.SUCCESS
+        scheduler.release_block(block)
+
+    assert scheduler.task_states[task_1.task_id].completed_count == 12, (
+        scheduler.task_states[task_1.task_id]
+    )
+    assert scheduler.task_states[task_2.task_id].completed_count == 12, (
+        scheduler.task_states[task_2.task_id]
     )
 
 
