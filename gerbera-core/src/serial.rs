@@ -99,7 +99,7 @@ mod tests {
 
         let states = SerialRunner::run(&[task.clone()]).unwrap();
         let state = &states["test"];
-        assert!(state.is_done());
+        assert!(state.balanced());
         assert_eq!(state.total_block_count, 4);
         assert_eq!(state.completed_count, 4);
     }

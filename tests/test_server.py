@@ -17,7 +17,7 @@ def test_serial_server():
         process_function=process_block,
         read_write_conflict=True,
         fit="valid",
-        num_workers=1,
+        max_workers=1,
         max_retries=2,
     )
 

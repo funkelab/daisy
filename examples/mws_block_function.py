@@ -205,7 +205,7 @@ mws_task = gerbera.Task(
         write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
         process_function=process_block,
         read_write_conflict=False,
-        num_workers=4,
+        max_workers=4,
     )
 
 

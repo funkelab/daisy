@@ -200,7 +200,7 @@ def worker():
 # ## Run the task
 #
 # Because `worker` takes zero positional arguments, gerbera registers it
-# as a `spawn_function` instead of a per-block callback. `num_workers=4`
+# as a `spawn_function` instead of a per-block callback. `max_workers=4`
 # means gerbera spawns four worker threads, each of which calls `worker()`
 # exactly once and loops internally.
 
@@ -212,7 +212,7 @@ task = gerbera.Task(
     write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
     process_function=worker,
     read_write_conflict=False,
-    num_workers=NUM_WORKERS,
+    max_workers=NUM_WORKERS,
 )
 
 t0 = time.perf_counter()

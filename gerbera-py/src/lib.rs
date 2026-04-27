@@ -42,7 +42,7 @@ fn run_blockwise(py: Python<'_>, tasks: Bound<'_, PyList>, multiprocessing: bool
     let states = gerbera_core::SerialRunner::run(&arc_tasks)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
-    Ok(states.values().all(|s| s.is_done()))
+    Ok(states.values().all(|s| s.balanced()))
 }
 
 #[pymodule]

@@ -260,7 +260,7 @@ def make_task(worker_fn):
         write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
         process_function=worker_fn,
         read_write_conflict=False,
-        num_workers=NUM_WORKERS,
+        max_workers=NUM_WORKERS,
         max_retries=2,
         done_marker_path=str(MARKER_PATH),
     )

@@ -194,18 +194,18 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
     )
 
 
-def test_num_workers_emits_deprecation_warning():
-    """Old `num_workers=` keyword still works but raises DeprecationWarning."""
-    with pytest.warns(DeprecationWarning, match="num_workers"):
-        task = gerbera.Task(
+def test_num_workers_keyword_is_rejected():
+    """`num_workers=` was the daisy-style keyword; gerbera now only
+    accepts `max_workers=`. Passing `num_workers=` should be a
+    `TypeError` from the constructor signature."""
+    with pytest.raises(TypeError):
+        gerbera.Task(
             task_id="legacy",
             total_roi=gerbera.Roi([0], [20]),
             read_roi=gerbera.Roi([0], [10]),
             write_roi=gerbera.Roi([0], [10]),
             process_function=lambda b: None,
             read_write_conflict=False,
-            num_workers=2,  # legacy
+            num_workers=2,
             max_retries=0,
         )
-    assert task.max_workers == 2
-    assert task.num_workers == 2  # legacy alias still readable

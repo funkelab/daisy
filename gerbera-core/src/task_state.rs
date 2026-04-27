@@ -132,16 +132,15 @@ impl TaskCounters {
     /// when the snapshot was taken from a Running task; always true
     /// for snapshots taken from a Done or Abandoned task (we set
     /// the counters at the transition).
+    ///
+    /// `TaskState::is_done()` (on the enum) is the appropriate
+    /// "is this task finished" predicate at the lifecycle level —
+    /// it folds in the terminal variant. `balanced()` is the
+    /// counter-only check; if you have a `TaskCounters` (a frozen
+    /// snapshot), counter balance is all there is to know.
     pub fn balanced(&self) -> bool {
         self.completed_count + self.failed_count + self.orphaned_count
             == self.total_block_count
-    }
-
-    /// Alias for `balanced()`. The post-run snapshot is "done" iff
-    /// counters balance — matches the previous `TaskState::is_done()`
-    /// semantics so existing callers don't need to learn a new name.
-    pub fn is_done(&self) -> bool {
-        self.balanced()
     }
 }
 

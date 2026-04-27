@@ -1,8 +1,7 @@
 use crate::block::BlockStatus;
 use crate::block_bookkeeper::BlockBookkeeper;
 use crate::client::Client;
-use crate::framing::{read_message, write_message};
-use crate::protocol::Message;
+use crate::protocol::{read_message, write_message, Message};
 use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
 use crate::run_stats::{thread_cpu_time, WorkerStats};
 use crate::scheduler::Scheduler;
@@ -307,9 +306,11 @@ impl Server {
                     // up new blocks via its existing workers) don't
                     // trigger rebalance here; the 500ms health tick
                     // covers any drift.
-                    let needs_rebalance = updated.iter().any(|(tid, state)| {
-                        state.counters().ready_count > 0 && allocator.alive(tid) == 0
-                    });
+                    // The release just turned `ready_count` from 0 → >0
+                    // for these task ids. If any of them currently has
+                    // no alive workers, that's a freshly-unblocked task
+                    // that needs a worker spawned.
+                    let needs_rebalance = updated.iter().any(|tid| allocator.alive(tid) == 0);
                     if needs_rebalance {
                         Self::rebalance_workers(
                             &self.host,
@@ -884,8 +885,8 @@ impl Server {
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
         task_block_durations: &mut HashMap<String, Vec<f64>>,
-    ) -> std::io::Result<HashMap<String, TaskState>> {
-        let mut updated: HashMap<String, TaskState> = HashMap::new();
+    ) -> std::io::Result<Vec<String>> {
+        let mut updated: Vec<String> = Vec::new();
         match cm.message {
             Message::AcquireBlock { .. } => {
                 self.handle_acquire(cm, scheduler, bookkeeper, pending, worker_pools)?;

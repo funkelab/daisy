@@ -1,7 +1,6 @@
 use gerbera_core::block::BlockStatus;
 use gerbera_core::client::Client;
-use gerbera_core::framing::{read_message, write_message};
-use gerbera_core::protocol::Message;
+use gerbera_core::protocol::{read_message, write_message, Message};
 use gerbera_core::resource_allocator::ResourceBudget;
 use gerbera_core::roi::Roi;
 use gerbera_core::server::Server;
@@ -104,7 +103,7 @@ async fn test_server_client_no_conflict() {
     .unwrap();
 
     let state = &states["test_tcp"];
-    assert!(state.is_done(), "task should be done: {state}");
+    assert!(state.balanced(), "task should be done: {state}");
     assert_eq!(state.total_block_count, 4);
     assert_eq!(state.completed_count, 4);
 
@@ -158,7 +157,7 @@ async fn test_server_client_with_conflict() {
     .unwrap();
 
     let state = &states["conflict_tcp"];
-    assert!(state.is_done(), "task should be done: {state}");
+    assert!(state.balanced(), "task should be done: {state}");
     assert_eq!(state.completed_count, 5);
 
     tokio::time::timeout(std::time::Duration::from_secs(2), w1)
@@ -233,7 +232,7 @@ async fn test_server_block_failure_and_retry() {
     .unwrap();
 
     let state = &states["retry_test"];
-    assert!(state.is_done(), "task should be done: {state}");
+    assert!(state.balanced(), "task should be done: {state}");
     assert!(ATTEMPTS.load(Ordering::SeqCst) >= 3);
 
     tokio::time::timeout(std::time::Duration::from_secs(2), w)

@@ -14,6 +14,7 @@ import tempfile
 from pathlib import Path
 
 import gerbera
+from gerbera._compat import _run_serial
 
 
 def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
@@ -29,7 +30,7 @@ def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
         write_roi=gerbera.Roi([0, 0], [block, block]),
         process_function=process,
         read_write_conflict=rw_conflict,
-        num_workers=2,
+        max_workers=2,
         max_retries=0,
         done_marker_path=str(marker_path),
     )
@@ -40,7 +41,7 @@ def test_resume_skips_already_done_blocks(tmp_path):
     marker_path = tmp_path / "done"
 
     task1, calls1 = make_task("t", marker_path)
-    states1 = gerbera.SerialServer().run_blockwise([task1])
+    states1 = _run_serial([task1])
     assert states1["t"].is_done()
     assert states1["t"].completed_count == 16
     assert states1["t"].skipped_count == 0
@@ -48,7 +49,7 @@ def test_resume_skips_already_done_blocks(tmp_path):
 
     # Same task, same layout, fresh process function — nothing should run.
     task2, calls2 = make_task("t", marker_path)
-    states2 = gerbera.SerialServer().run_blockwise([task2])
+    states2 = _run_serial([task2])
     assert states2["t"].is_done()
     # All 16 blocks should be skipped via the marker on the second run.
     # Skipped blocks count toward `skipped_count` AND `completed_count`
@@ -75,13 +76,13 @@ def test_layout_mismatch_errors_with_rm_instructions(tmp_path):
     marker_path = tmp_path / "done_mismatch"
 
     task1, _ = make_task("layout", marker_path, block=100)
-    gerbera.SerialServer().run_blockwise([task1])
+    _run_serial([task1])
 
     # Re-open with a different block size → different task hash.
     task2, _ = make_task("layout", marker_path, block=50)
     raised = None
     try:
-        gerbera.SerialServer().run_blockwise([task2])
+        _run_serial([task2])
     except Exception as e:
         raised = e
     assert raised is not None, "expected a layout-mismatch error"
@@ -92,7 +93,7 @@ def test_layout_mismatch_errors_with_rm_instructions(tmp_path):
     # And after deleting the marker, it should run cleanly.
     shutil.rmtree(marker_path)
     task3, calls3 = make_task("layout", marker_path, block=50)
-    states3 = gerbera.SerialServer().run_blockwise([task3])
+    states3 = _run_serial([task3])
     assert states3["layout"].is_done()
     assert len(calls3) > 0
 
@@ -111,11 +112,11 @@ def test_global_basedir_resolves_per_task(tmp_path):
             write_roi=gerbera.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls1.append(b.block_id),
             read_write_conflict=False,
-            num_workers=2,
+            max_workers=2,
             max_retries=0,
             # no done_marker_path → uses basedir/task_id
         )
-        gerbera.SerialServer().run_blockwise([task1])
+        _run_serial([task1])
         assert len(calls1) == 16
         # The directory should exist now.
         assert (tmp_path / "auto" / "auto_task").is_dir()
@@ -129,10 +130,10 @@ def test_global_basedir_resolves_per_task(tmp_path):
             write_roi=gerbera.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls2.append(b.block_id),
             read_write_conflict=False,
-            num_workers=2,
+            max_workers=2,
             max_retries=0,
         )
-        gerbera.SerialServer().run_blockwise([task2])
+        _run_serial([task2])
         assert len(calls2) == 0
     finally:
         gerbera.set_done_marker_basedir(None)
@@ -151,11 +152,11 @@ def test_per_task_disable_overrides_basedir(tmp_path):
             write_roi=gerbera.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls1.append(b.block_id),
             read_write_conflict=False,
-            num_workers=1,
+            max_workers=1,
             max_retries=0,
             done_marker_path=False,
         )
-        gerbera.SerialServer().run_blockwise([task1])
+        _run_serial([task1])
         assert len(calls1) == 4
         # No marker dir created for this task.
         assert not (tmp_path / "auto2" / "off").exists()
@@ -169,11 +170,11 @@ def test_per_task_disable_overrides_basedir(tmp_path):
             write_roi=gerbera.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls2.append(b.block_id),
             read_write_conflict=False,
-            num_workers=1,
+            max_workers=1,
             max_retries=0,
             done_marker_path=False,
         )
-        gerbera.SerialServer().run_blockwise([task2])
+        _run_serial([task2])
         assert len(calls2) == 4
     finally:
         gerbera.set_done_marker_basedir(None)

@@ -5,7 +5,6 @@ pub mod coordinate;
 pub mod dependency_graph;
 pub mod done_marker;
 pub mod error;
-pub mod framing;
 pub mod processing_queue;
 pub mod protocol;
 pub mod ready_surface;

@@ -13,11 +13,11 @@ use tracing::{debug, warn};
 /// Core scheduler: tracks task states, dispatches blocks to workers, and
 /// updates the dependency graph as blocks complete.
 pub struct Scheduler {
-    #[allow(dead_code)]
-    dependency_graph: DependencyGraph,
-    // ReadySurface stores closures that capture an Arc to the DependencyGraph's
-    // internals. We use a raw pointer approach instead: the ReadySurface is
-    // generic over closures, so we store the functions directly.
+    /// The task DAG. `Arc` because the closures inside `ready_surface`
+    /// also need to call `downstream`/`upstream` on it — sharing one
+    /// allocation between the field and the closures, instead of
+    /// rebuilding the graph just so we can have an owned copy here.
+    dependency_graph: Arc<DependencyGraph>,
     ready_surface: ReadySurface<
         Box<dyn Fn(&Block) -> Vec<Block>>,
         Box<dyn Fn(&Block) -> Vec<Block>>,
@@ -33,19 +33,14 @@ pub struct Scheduler {
 
 impl Scheduler {
     pub fn new(tasks: &[Arc<Task>], count_all_orphans: bool) -> Self {
-        let dependency_graph = DependencyGraph::new(tasks);
+        let dependency_graph = Arc::new(DependencyGraph::new(tasks));
 
-        // We need the dependency_graph to live as long as the closures, but
-        // the scheduler owns both. Use a shared pointer.
-        let dg = Arc::new(dependency_graph);
-        let dg_down = Arc::clone(&dg);
-        let dg_up = Arc::clone(&dg);
-
+        let dg_down = Arc::clone(&dependency_graph);
+        let dg_up = Arc::clone(&dependency_graph);
         let downstream_fn: Box<dyn Fn(&Block) -> Vec<Block>> =
             Box::new(move |block| dg_down.downstream(block));
         let upstream_fn: Box<dyn Fn(&Block) -> Vec<Block>> =
             Box::new(move |block| dg_up.upstream(block));
-
         let ready_surface = ReadySurface::new(downstream_fn, upstream_fn);
 
         let mut task_map = HashMap::new();
@@ -55,7 +50,7 @@ impl Scheduler {
         // Initialize root tasks with their generators. All tasks start
         // as `Running` — terminal variants only appear after the
         // matching transition.
-        let roots = dg.roots();
+        let roots = dependency_graph.roots();
         for (task_id, (num_roots, root_blocks)) in roots {
             let entry = task_states
                 .entry(task_id.clone())
@@ -68,14 +63,8 @@ impl Scheduler {
         }
 
         for task in tasks {
-            init_task(task, &dg, &mut task_map, &mut task_states, &mut task_queues);
+            init_task(task, &dependency_graph, &mut task_map, &mut task_states, &mut task_queues);
         }
-
-        // Extract the inner DependencyGraph back from the Arc. Since we only
-        // have the original Arc left (the closures hold clones), we can't
-        // unwrap it. Instead, store a fresh DependencyGraph. The closures in
-        // ready_surface hold their own Arc clones.
-        let dependency_graph = DependencyGraph::new(tasks);
 
         Self {
             dependency_graph,
@@ -188,8 +177,11 @@ impl Scheduler {
     }
 
     /// Update the dependency graph with a completed or failed block.
-    /// Returns task_ids whose state changed.
-    pub fn release_block(&mut self, block: Block) -> HashMap<String, TaskState> {
+    /// Returns the set of task ids that just transitioned from
+    /// `ready_count == 0` to having ready work — the only signal the
+    /// run loop uses for opportunistic rebalancing. The caller still
+    /// inspects `task_states` directly when it needs more.
+    pub fn release_block(&mut self, block: Block) -> Vec<String> {
         let task_id = block.task_id().to_string();
 
         // Strip from in-flight tracking unconditionally — even for
@@ -207,7 +199,7 @@ impl Scheduler {
                 block_id = %block.block_id,
                 "dropping release for non-running task",
             );
-            return HashMap::new();
+            return Vec::new();
         }
 
         match block.status {
@@ -219,9 +211,9 @@ impl Scheduler {
                 if let Some(marker) = self.done_markers.get_mut(&task_id) {
                     marker.mark_success(&block);
                 }
-                let updated = self.update_ready_queue(new_blocks);
+                let newly_ready = self.update_ready_queue(new_blocks);
                 self.maybe_finalize(&task_id);
-                updated
+                newly_ready
             }
             BlockStatus::Failed => {
                 let task = self.task_map.get(&task_id).unwrap().clone();
@@ -250,7 +242,7 @@ impl Scheduler {
                     for orphan in &orphans {
                         self.maybe_finalize(orphan.task_id());
                     }
-                    HashMap::new()
+                    Vec::new()
                 } else {
                     debug!(block_id = %block.block_id, retries = *retries, "temporarily failed, re-queuing");
                     *retries += 1;
@@ -259,8 +251,12 @@ impl Scheduler {
                     if let Some(rt) = self.running_mut(&task_id) {
                         rt.note_failed_for_retry();
                     }
-                    let state = self.task_states[&task_id].clone();
-                    HashMap::from([(task_id, state)])
+                    // Re-queuing a single retry is a transition from
+                    // 0 → 1 ready only if the task had no other
+                    // ready work; the run loop re-checks before
+                    // spawning so reporting it unconditionally is
+                    // fine and slightly cheaper.
+                    vec![task_id]
                 }
             }
             other => panic!("unexpected status for released block: {other:?}"),
@@ -331,21 +327,29 @@ impl Scheduler {
         queue.ready_queue.push_back(block);
     }
 
-    fn update_ready_queue(&mut self, ready_blocks: Vec<Block>) -> HashMap<String, TaskState> {
-        let mut updated = HashMap::new();
+    /// Push each new ready block into its task's queue, returning
+    /// the deduped set of task ids whose queue actually grew (a
+    /// block dropped by the typestate gate doesn't count).
+    fn update_ready_queue(&mut self, ready_blocks: Vec<Block>) -> Vec<String> {
+        let mut newly_ready = Vec::new();
         for block in ready_blocks {
             let task_id = block.task_id().to_string();
+            let pre = self
+                .task_states
+                .get(&task_id)
+                .map(|s| s.counters().ready_count)
+                .unwrap_or(0);
             self.queue_ready_block(block);
-            // Only report the update if it actually landed (task was
-            // Running). A dropped ready-block shouldn't show in the
-            // observer output.
-            if let Some(state) = self.task_states.get(&task_id) {
-                if state.is_running() {
-                    updated.insert(task_id, state.clone());
-                }
+            let post = self
+                .task_states
+                .get(&task_id)
+                .map(|s| s.counters().ready_count)
+                .unwrap_or(0);
+            if post > pre && !newly_ready.contains(&task_id) {
+                newly_ready.push(task_id);
             }
         }
-        updated
+        newly_ready
     }
 
     /// Transition the task to `Done` if its counters are balanced.

@@ -103,7 +103,7 @@ def overlapping_tasks():
         process_function=process_block,
         read_write_conflict=True,
         fit="valid",
-        num_workers=1,
+        max_workers=1,
         max_retries=2,
     )
     task_2 = Task(
@@ -114,7 +114,7 @@ def overlapping_tasks():
         process_function=process_block,
         read_write_conflict=True,
         fit="valid",
-        num_workers=1,
+        max_workers=1,
         max_retries=2,
         upstream_tasks=[task_1],
     )

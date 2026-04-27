@@ -66,7 +66,7 @@ def test_multiple_workers_complete():
         process_function=process,
         read_write_conflict=True,
         fit="valid",
-        num_workers=5,
+        max_workers=5,
         max_retries=2,
     )
 
@@ -157,7 +157,7 @@ def test_worker_normal_exit_no_respawn():
         write_roi=Roi([0], [10]),
         process_function=counting_process,
         read_write_conflict=False,
-        num_workers=2,
+        max_workers=2,
         max_retries=2,
     )
 

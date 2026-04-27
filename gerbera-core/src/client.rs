@@ -1,6 +1,5 @@
 use crate::block::{Block, BlockStatus};
-use crate::framing::{read_message, write_message};
-use crate::protocol::Message;
+use crate::protocol::{read_message, write_message, Message};
 use std::io;
 use tokio::net::TcpStream;
 use tracing::debug;
