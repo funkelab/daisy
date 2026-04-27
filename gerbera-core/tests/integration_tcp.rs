@@ -2,6 +2,7 @@ use gerbera_core::block::BlockStatus;
 use gerbera_core::client::Client;
 use gerbera_core::framing::{read_message, write_message};
 use gerbera_core::protocol::Message;
+use gerbera_core::resource_allocator::ResourceBudget;
 use gerbera_core::roi::Roi;
 use gerbera_core::server::Server;
 use gerbera_core::task::Task;
@@ -87,9 +88,16 @@ async fn test_server_client_no_conflict() {
     let w1 = tokio::spawn(run_worker(h.clone(), port, "test_tcp".to_string()));
     let w2 = tokio::spawn(run_worker(h, port, "test_tcp".to_string()));
 
-    let states = tokio::time::timeout(
+    let (states, _) = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        server.run_blockwise(listener, &[task], &mut worker_pools),
+        server.run_blockwise(
+            listener,
+            &[task],
+            &mut worker_pools,
+            ResourceBudget::empty(),
+            None,
+            None,
+        ),
     )
     .await
     .expect("server timed out")
@@ -134,9 +142,16 @@ async fn test_server_client_with_conflict() {
     let w1 = tokio::spawn(run_worker(h.clone(), port, "conflict_tcp".to_string()));
     let w2 = tokio::spawn(run_worker(h, port, "conflict_tcp".to_string()));
 
-    let states = tokio::time::timeout(
+    let (states, _) = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        server.run_blockwise(listener, &[task], &mut worker_pools),
+        server.run_blockwise(
+            listener,
+            &[task],
+            &mut worker_pools,
+            ResourceBudget::empty(),
+            None,
+            None,
+        ),
     )
     .await
     .expect("server timed out")
@@ -202,9 +217,16 @@ async fn test_server_block_failure_and_retry() {
         let _ = client.disconnect().await;
     });
 
-    let states = tokio::time::timeout(
+    let (states, _) = tokio::time::timeout(
         std::time::Duration::from_secs(10),
-        server.run_blockwise(listener, &[task], &mut worker_pools),
+        server.run_blockwise(
+            listener,
+            &[task],
+            &mut worker_pools,
+            ResourceBudget::empty(),
+            None,
+            None,
+        ),
     )
     .await
     .expect("server timed out")

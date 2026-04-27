@@ -156,6 +156,7 @@ name = "gerbera-py"
 version = "0.1.0"
 dependencies = [
  "gerbera-core",
+ "libc",
  "pyo3",
  "tokio",
 ]

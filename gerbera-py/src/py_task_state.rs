@@ -1,10 +1,15 @@
-use gerbera_core::task_state::TaskState;
+use gerbera_core::task_state::TaskCounters;
 use pyo3::prelude::*;
 
+/// Python-facing wrapper around a `TaskCounters` snapshot. The Rust
+/// scheduler internally tracks tasks as a typestate enum
+/// (`Running`/`Done`/`Abandoned`), but observers and post-run
+/// consumers only care about the counter values, so we hand them a
+/// frozen snapshot at the FFI boundary.
 #[pyclass(name = "TaskState", skip_from_py_object)]
 #[derive(Clone)]
 pub struct PyTaskState {
-    pub inner: TaskState,
+    pub inner: TaskCounters,
 }
 
 #[pymethods]
@@ -54,8 +59,22 @@ impl PyTaskState {
         self.inner.pending_count()
     }
 
+    #[getter]
+    fn worker_failure_count(&self) -> u32 {
+        self.inner.worker_failure_count
+    }
+
+    #[getter]
+    fn worker_restart_count(&self) -> u32 {
+        self.inner.worker_restart_count
+    }
+
     fn is_done(&self) -> bool {
-        self.inner.is_done()
+        // For a counter snapshot, "done" means the counters balance.
+        // Frozen snapshots from terminal variants (Done/Abandoned)
+        // always balance because the abandon transition orphans the
+        // remainder before snapshotting.
+        self.inner.balanced()
     }
 
     fn __repr__(&self) -> String {

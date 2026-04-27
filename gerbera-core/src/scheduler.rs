@@ -5,7 +5,7 @@ use crate::error::GerberaError;
 use crate::processing_queue::ProcessingQueue;
 use crate::ready_surface::ReadySurface;
 use crate::task::Task;
-use crate::task_state::TaskState;
+use crate::task_state::{RunningTask, TaskState};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -52,11 +52,17 @@ impl Scheduler {
         let mut task_states: HashMap<String, TaskState> = HashMap::new();
         let mut task_queues: HashMap<String, ProcessingQueue> = HashMap::new();
 
-        // Initialize root tasks with their generators.
+        // Initialize root tasks with their generators. All tasks start
+        // as `Running` — terminal variants only appear after the
+        // matching transition.
         let roots = dg.roots();
         for (task_id, (num_roots, root_blocks)) in roots {
-            let state = task_states.entry(task_id.clone()).or_default();
-            state.ready_count += num_roots;
+            let entry = task_states
+                .entry(task_id.clone())
+                .or_insert_with(|| TaskState::Running(RunningTask::default()));
+            if let Some(rt) = entry.as_running_mut() {
+                rt.ready_count += num_roots;
+            }
             let root_iter = Box::new(root_blocks.into_iter()) as Box<dyn Iterator<Item = Block> + Send>;
             task_queues.insert(task_id, ProcessingQueue::new(num_roots, Some(root_iter)));
         }
@@ -124,21 +130,34 @@ impl Scheduler {
     pub fn get_ready_tasks(&self) -> Vec<Arc<Task>> {
         self.task_states
             .iter()
-            .filter(|(_, state)| state.ready_count > 0)
-            .filter_map(|(id, _)| self.task_map.get(id).cloned())
+            .filter_map(|(id, state)| match state {
+                TaskState::Running(rt) if rt.ready_count > 0 => self.task_map.get(id).cloned(),
+                _ => None,
+            })
             .collect()
     }
 
+    /// Helper: borrow the inner `RunningTask` mutably, or `None` if
+    /// the task has reached a terminal phase. Single gate for every
+    /// counter-mutating operation.
+    fn running_mut(&mut self, task_id: &str) -> Option<&mut RunningTask> {
+        self.task_states.get_mut(task_id)?.as_running_mut()
+    }
+
     /// Get the next ready block for a task. Runs the check function to skip
-    /// already-completed blocks.
+    /// already-completed blocks. Returns `None` if the task is in a
+    /// terminal phase or has no ready work.
     pub fn acquire_block(&mut self, task_id: &str) -> Option<Block> {
         loop {
+            // Don't hand out blocks for terminal tasks.
+            if !self.task_states.get(task_id)?.is_running() {
+                return None;
+            }
+
             let block = self.task_queues.get_mut(task_id)?.get_next()?;
 
-            {
-                let state = self.task_states.get_mut(task_id).unwrap();
-                state.ready_count -= 1;
-                state.processing_count += 1;
+            if let Some(rt) = self.running_mut(task_id) {
+                rt.note_acquired();
             }
 
             // Run the pre-check: skip if block is already done.
@@ -147,7 +166,9 @@ impl Scheduler {
                 debug!(block_id = %block.block_id, "skipping already-processed block");
                 let mut block = block;
                 block.status = BlockStatus::Success;
-                self.task_states.get_mut(task_id).unwrap().skipped_count += 1;
+                if let Some(rt) = self.running_mut(task_id) {
+                    rt.note_skip_inflight();
+                }
                 self.task_queues
                     .get_mut(task_id)
                     .unwrap()
@@ -157,7 +178,6 @@ impl Scheduler {
                 continue;
             }
 
-            self.task_states.get_mut(task_id).unwrap().started = true;
             self.task_queues
                 .get_mut(task_id)
                 .unwrap()
@@ -171,22 +191,40 @@ impl Scheduler {
     /// Returns task_ids whose state changed.
     pub fn release_block(&mut self, block: Block) -> HashMap<String, TaskState> {
         let task_id = block.task_id().to_string();
-        self.remove_from_processing(&block);
+
+        // Strip from in-flight tracking unconditionally — even for
+        // terminal tasks, the bookkeeper has already marked the block
+        // sent and we don't want stale entries in `processing_blocks`.
+        if let Some(queue) = self.task_queues.get_mut(&task_id) {
+            queue.processing_blocks.remove(&block.block_id);
+        }
+
+        // Counter mutations only proceed if the task is Running. This
+        // is the single guard that defangs every "late message lands
+        // after abandonment" race — see abandon.md.
+        if self.running_mut(&task_id).is_none() {
+            debug!(
+                block_id = %block.block_id,
+                "dropping release for non-running task",
+            );
+            return HashMap::new();
+        }
 
         match block.status {
             BlockStatus::Success => {
                 let new_blocks = self.ready_surface.mark_success(&block);
-                self.task_states
-                    .get_mut(&task_id)
-                    .unwrap()
-                    .completed_count += 1;
+                if let Some(rt) = self.running_mut(&task_id) {
+                    rt.note_completed();
+                }
                 if let Some(marker) = self.done_markers.get_mut(&task_id) {
                     marker.mark_success(&block);
                 }
-                self.update_ready_queue(new_blocks)
+                let updated = self.update_ready_queue(new_blocks);
+                self.maybe_finalize(&task_id);
+                updated
             }
             BlockStatus::Failed => {
-                let task = self.task_map.get(&task_id).unwrap();
+                let task = self.task_map.get(&task_id).unwrap().clone();
                 let max_retries = task.max_retries;
                 let queue = self.task_queues.get_mut(&task_id).unwrap();
                 let retries = queue
@@ -199,21 +237,28 @@ impl Scheduler {
                     let orphans = self
                         .ready_surface
                         .mark_failure(&block, self.count_all_orphans);
-                    let state = self.task_states.get_mut(&task_id).unwrap();
-                    state.failed_count += 1;
+                    if let Some(rt) = self.running_mut(&task_id) {
+                        rt.note_failed_permanently();
+                    }
                     for orphan in &orphans {
                         let orphan_task = orphan.task_id().to_string();
-                        self.task_states
-                            .get_mut(&orphan_task)
-                            .unwrap()
-                            .orphaned_count += 1;
+                        if let Some(rt) = self.running_mut(&orphan_task) {
+                            rt.note_orphaned();
+                        }
+                    }
+                    self.maybe_finalize(&task_id);
+                    for orphan in &orphans {
+                        self.maybe_finalize(orphan.task_id());
                     }
                     HashMap::new()
                 } else {
                     debug!(block_id = %block.block_id, retries = *retries, "temporarily failed, re-queuing");
                     *retries += 1;
                     let _ = queue;
-                    self.queue_ready_block(block.clone());
+                    self.push_to_ready_queue(block.clone());
+                    if let Some(rt) = self.running_mut(&task_id) {
+                        rt.note_failed_for_retry();
+                    }
                     let state = self.task_states[&task_id].clone();
                     HashMap::from([(task_id, state)])
                 }
@@ -245,18 +290,45 @@ impl Scheduler {
         }
     }
 
+    /// Push a block into a task's ready queue and bump its
+    /// ready_count. Silently drops the block if the destination task
+    /// is no longer Running — covers the race where an upstream
+    /// release generates a downstream block for a task that's just
+    /// been transitively abandoned.
+    ///
+    /// Used for *new* ready work (downstream blocks unlocked by
+    /// successful upstream releases). For the retry path see
+    /// `push_to_ready_queue` — a Failed-block re-queue moves the
+    /// block from Processing back to Ready, which is a different
+    /// counter mutation handled by `note_failed_for_retry`.
     fn queue_ready_block(&mut self, block: Block) {
         let task_id = block.task_id().to_string();
+        if self.running_mut(&task_id).is_none() {
+            debug!(
+                block_id = %block.block_id,
+                task_id = %task_id,
+                "dropping new ready block for non-running task",
+            );
+            return;
+        }
         let queue = self.task_queues.get_mut(&task_id).unwrap();
         queue.ready_queue.push_back(block);
-        self.task_states.get_mut(&task_id).unwrap().ready_count += 1;
+        if let Some(rt) = self.running_mut(&task_id) {
+            rt.note_ready();
+        }
     }
 
-    fn remove_from_processing(&mut self, block: &Block) {
+    /// Push a block into the ready queue for an existing retry.
+    /// Counter mutation is the caller's responsibility (typically
+    /// `note_failed_for_retry`, which moves a block from Processing
+    /// to Ready).
+    fn push_to_ready_queue(&mut self, block: Block) {
         let task_id = block.task_id().to_string();
+        if self.running_mut(&task_id).is_none() {
+            return;
+        }
         let queue = self.task_queues.get_mut(&task_id).unwrap();
-        queue.processing_blocks.remove(&block.block_id);
-        self.task_states.get_mut(&task_id).unwrap().processing_count -= 1;
+        queue.ready_queue.push_back(block);
     }
 
     fn update_ready_queue(&mut self, ready_blocks: Vec<Block>) -> HashMap<String, TaskState> {
@@ -264,10 +336,24 @@ impl Scheduler {
         for block in ready_blocks {
             let task_id = block.task_id().to_string();
             self.queue_ready_block(block);
-            let state = self.task_states[&task_id].clone();
-            updated.insert(task_id, state);
+            // Only report the update if it actually landed (task was
+            // Running). A dropped ready-block shouldn't show in the
+            // observer output.
+            if let Some(state) = self.task_states.get(&task_id) {
+                if state.is_running() {
+                    updated.insert(task_id, state.clone());
+                }
+            }
         }
         updated
+    }
+
+    /// Transition the task to `Done` if its counters are balanced.
+    /// Called after every counter change.
+    fn maybe_finalize(&mut self, task_id: &str) {
+        if let Some(state) = self.task_states.get_mut(task_id) {
+            state.try_finalize_done();
+        }
     }
 }
 
@@ -284,8 +370,12 @@ fn init_task(
     }
     task_map.insert(task_id.clone(), task.clone());
     let num_blocks = dg.num_blocks(task_id);
-    let state = task_states.entry(task_id.clone()).or_default();
-    state.total_block_count = num_blocks;
+    let entry = task_states
+        .entry(task_id.clone())
+        .or_insert_with(|| TaskState::Running(RunningTask::default()));
+    if let Some(rt) = entry.as_running_mut() {
+        rt.total_block_count = num_blocks;
+    }
 
     // Ensure a queue exists (roots are already initialized).
     task_queues

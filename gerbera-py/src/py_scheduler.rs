@@ -45,7 +45,7 @@ impl PyScheduler {
         self.inner
             .task_states
             .iter()
-            .map(|(k, v)| (k.clone(), PyTaskState { inner: v.clone() }))
+            .map(|(k, v)| (k.clone(), PyTaskState { inner: v.counters() }))
             .collect()
     }
 

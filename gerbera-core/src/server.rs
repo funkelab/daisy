@@ -7,7 +7,7 @@ use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
 use crate::run_stats::{thread_cpu_time, WorkerStats};
 use crate::scheduler::Scheduler;
 use crate::task::Task;
-use crate::task_state::TaskState;
+use crate::task_state::{AbandonReason, TaskCounters, TaskState};
 use crate::worker_pool::WorkerPool;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -18,6 +18,33 @@ use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
+
+/// Observer hook fired whenever per-task counts change (block release,
+/// failure, retry). Implementations should throttle expensive work
+/// themselves — this is called once per state-changing event, which can
+/// be tens-of-thousands of times per second on large runs.
+///
+/// Receives a `TaskCounters` snapshot (frozen at the time of the call)
+/// rather than the live `TaskState` enum — observers don't transition
+/// state, they just display it, so the read-only snapshot is the
+/// minimal API.
+pub trait ProgressObserver: Send + Sync {
+    fn on_progress(&self, states: &HashMap<String, TaskCounters>);
+    /// Called once at startup, before any blocks are dispatched, so
+    /// observers can size their displays / open progress bars from the
+    /// known total_block_count.
+    fn on_start(&self, _states: &HashMap<String, TaskCounters>) {}
+    /// Called once after the run loop exits. Observers should close
+    /// their progress bars / flush state here.
+    fn on_finish(&self, _states: &HashMap<String, TaskCounters>) {}
+}
+
+fn snapshot_counters(states: &HashMap<String, TaskState>) -> HashMap<String, TaskCounters> {
+    states
+        .iter()
+        .map(|(k, v)| (k.clone(), v.counters()))
+        .collect()
+}
 
 struct ClientMessage {
     message: Message,
@@ -84,7 +111,9 @@ impl Server {
         tasks: &[Arc<Task>],
         worker_pools: &mut HashMap<String, WorkerPool>,
         resources: ResourceBudget,
-    ) -> std::io::Result<(HashMap<String, TaskState>, crate::run_stats::RunStats)> {
+        progress: Option<Arc<dyn ProgressObserver>>,
+        abort_check: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    ) -> std::io::Result<(HashMap<String, TaskCounters>, crate::run_stats::RunStats)> {
         let mut scheduler = Scheduler::new(tasks, true);
         if let Err(e) = scheduler.init_done_markers() {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
@@ -225,6 +254,10 @@ impl Server {
             }
         });
 
+        if let Some(ref obs) = progress {
+            obs.on_start(&snapshot_counters(&scheduler.task_states));
+        }
+
         // Initial fill — only tasks that already have ready blocks
         // (i.e. roots) get workers up front. Downstream tasks get
         // workers spawned later, when upstream completion makes their
@@ -234,7 +267,7 @@ impl Server {
             &self.host,
             self.port,
             tasks,
-            &scheduler,
+            &mut scheduler,
             &mut allocator,
             &mut workers,
             &mut next_worker_id,
@@ -244,12 +277,23 @@ impl Server {
         self.recruit_workers(&scheduler, worker_pools)?;
 
         let mut all_done = false;
+        let mut aborted = false;
         let mut health_interval = tokio::time::interval(std::time::Duration::from_millis(500));
         let mut done_check_interval = tokio::time::interval(std::time::Duration::from_secs(1));
+        // Poll the abort callback at 100ms — fast enough that ctrl-C
+        // feels responsive, slow enough that the GIL re-acquire cost
+        // is negligible. Skip missed ticks so a busy main loop
+        // doesn't burn through a queue of stale ticks all at once.
+        let mut abort_interval = tokio::time::interval(std::time::Duration::from_millis(100));
+        abort_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        while !all_done {
+        while !all_done && !aborted {
             tokio::select! {
                 Some(cm) = msg_rx.recv() => {
+                    let was_state_change = matches!(
+                        cm.message,
+                        Message::ReleaseBlock { .. } | Message::BlockFailed { .. }
+                    );
                     let updated = self.handle_message(
                         cm, &mut scheduler, &mut bookkeeper,
                         &mut pending, worker_pools,
@@ -264,19 +308,29 @@ impl Server {
                     // trigger rebalance here; the 500ms health tick
                     // covers any drift.
                     let needs_rebalance = updated.iter().any(|(tid, state)| {
-                        state.ready_count > 0 && allocator.alive(tid) == 0
+                        state.counters().ready_count > 0 && allocator.alive(tid) == 0
                     });
                     if needs_rebalance {
                         Self::rebalance_workers(
                             &self.host,
                             self.port,
                             tasks,
-                            &scheduler,
+                            &mut scheduler,
                             &mut allocator,
                             &mut workers,
                             &mut next_worker_id,
                             &worker_exit_tx,
                         );
+                    }
+                    // Fire the progress observer on every state-mutating
+                    // message — `updated` only carries tasks with newly
+                    // ready blocks, but per-task counters change on
+                    // every release. The observer is responsible for
+                    // throttling its display work.
+                    if was_state_change {
+                        if let Some(ref obs) = progress {
+                            obs.on_progress(&snapshot_counters(&scheduler.task_states));
+                        }
                     }
                 }
 
@@ -284,20 +338,22 @@ impl Server {
                     // A worker thread just signalled it's exiting and
                     // handed back its utilisation stats. Stash them
                     // for the report, reap the thread (frees its
-                    // resource slot via the allocator), and rebalance
+                    // resource slot via the allocator and bumps
+                    // failure count if it exited dirty), and rebalance
                     // immediately so freed budget can grow other tasks.
                     collected_worker_stats.push(stats);
-                    Self::check_thread_health(&mut workers, &mut allocator);
+                    Self::check_thread_health(&mut workers, &mut scheduler, &mut allocator);
                     Self::rebalance_workers(
                         &self.host,
                         self.port,
                         tasks,
-                        &scheduler,
+                        &mut scheduler,
                         &mut allocator,
                         &mut workers,
                         &mut next_worker_id,
                         &worker_exit_tx,
                     );
+                    Self::abandon_exhausted_tasks(tasks, &mut scheduler, &allocator);
                 }
 
                 _ = health_interval.tick() => {
@@ -321,17 +377,18 @@ impl Server {
                     // but the periodic tick is the safety net for any
                     // worker that died without sending a notification
                     // (e.g. a panic that didn't unwind through `Drop`).
-                    Self::check_thread_health(&mut workers, &mut allocator);
+                    Self::check_thread_health(&mut workers, &mut scheduler, &mut allocator);
                     Self::rebalance_workers(
                         &self.host,
                         self.port,
                         tasks,
-                        &scheduler,
+                        &mut scheduler,
                         &mut allocator,
                         &mut workers,
                         &mut next_worker_id,
                         &worker_exit_tx,
                     );
+                    Self::abandon_exhausted_tasks(tasks, &mut scheduler, &allocator);
 
                     self.recruit_workers(&scheduler, worker_pools)?;
 
@@ -345,12 +402,25 @@ impl Server {
                 }
 
                 _ = done_check_interval.tick() => {}
+
+                _ = abort_interval.tick() => {
+                    if let Some(ref check) = abort_check {
+                        if check() {
+                            warn!("abort requested, exiting run loop");
+                            aborted = true;
+                        }
+                    }
+                }
             }
 
             all_done = self.check_all_done(&scheduler);
         }
 
-        info!("all tasks completed");
+        if aborted {
+            info!("run aborted, shutting down workers");
+        } else {
+            info!("all tasks completed");
+        }
 
         // Shutdown.
         for cm in pending.drain(..) {
@@ -391,7 +461,16 @@ impl Server {
             task_block_durations,
             process,
         );
-        Ok((scheduler.task_states, run_stats))
+        if let Some(ref obs) = progress {
+            obs.on_finish(&snapshot_counters(&scheduler.task_states));
+        }
+        if aborted {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "run aborted by abort_check callback",
+            ));
+        }
+        Ok((snapshot_counters(&scheduler.task_states), run_stats))
     }
 
     /// Spawn a worker thread for a task. For 1-arg process functions, the
@@ -514,11 +593,15 @@ impl Server {
     }
 
     /// Reap exited worker threads and free their resource slots so the
-    /// next `rebalance_workers` call can re-allocate them. We do not
-    /// respawn here — `rebalance_workers` decides whether the task
-    /// still needs more workers.
+    /// next `rebalance_workers` call can re-allocate them. Workers
+    /// that exit with an error or panic increment the per-task
+    /// `worker_failure_count` so the cap (`Task::max_worker_restarts`)
+    /// can stop unbounded respawning. We do not respawn here —
+    /// `rebalance_workers` decides whether the task still needs (and
+    /// is allowed) more workers.
     fn check_thread_health(
         workers: &mut Vec<(WorkerSpec, WorkerThread)>,
+        scheduler: &mut Scheduler,
         allocator: &mut ResourceAllocator,
     ) {
         for (spec, wt) in workers.iter_mut() {
@@ -539,8 +622,15 @@ impl Server {
                                 warn!(
                                     worker_id = spec.worker_id,
                                     task_id = %spec.task_id,
-                                    "worker exited with error — rebalance will decide whether to respawn",
+                                    "worker exited with error",
                                 );
+                                if let Some(state) =
+                                    scheduler.task_states.get_mut(&spec.task_id)
+                                {
+                                    if let Some(rt) = state.as_running_mut() {
+                                        rt.note_worker_died();
+                                    }
+                                }
                             }
                         }
                         allocator.release(&spec.task);
@@ -551,6 +641,110 @@ impl Server {
         // Drop the now-Finished entries so the workers vec doesn't grow
         // unboundedly across long runs.
         workers.retain(|(_, wt)| matches!(wt, WorkerThread::Running(_)));
+    }
+
+    /// For any task that has exhausted its restart budget AND has no
+    /// alive workers AND still has unprocessed blocks, transition it
+    /// to `TaskState::Abandoned`. Then BFS through the task DAG and
+    /// transition transitive downstream tasks to Abandoned as well —
+    /// their input will never arrive. Logs once per abandoned task.
+    ///
+    /// All counter mutation happens inside the typestate transition
+    /// (`TaskState::abandon`), which orphans the remaining blocks
+    /// and freezes the snapshot. Any further messages targeting an
+    /// Abandoned task are dropped at the `as_running_mut()` gate in
+    /// the scheduler.
+    fn abandon_exhausted_tasks(
+        tasks: &[Arc<Task>],
+        scheduler: &mut Scheduler,
+        allocator: &ResourceAllocator,
+    ) {
+        use std::collections::HashSet;
+
+        // 1. Identify directly-exhausted tasks: cap reached, no alive
+        // workers, still Running. Already-terminal tasks are skipped.
+        let mut directly_abandoned: HashSet<String> = HashSet::new();
+        for task in tasks {
+            if allocator.alive(&task.task_id) > 0 {
+                continue;
+            }
+            let Some(state) = scheduler.task_states.get(&task.task_id) else {
+                continue;
+            };
+            if !state.is_running() {
+                continue;
+            }
+            if state.worker_restart_count() < task.max_worker_restarts {
+                continue;
+            }
+            let counters = state.counters();
+            let remaining = counters.total_block_count
+                - counters.completed_count
+                - counters.failed_count
+                - counters.orphaned_count;
+            if remaining > 0 {
+                directly_abandoned.insert(task.task_id.clone());
+            }
+        }
+
+        if directly_abandoned.is_empty() {
+            return;
+        }
+
+        // 2. BFS the task DAG to collect transitive downstream tasks.
+        let dg = scheduler.dependency_graph();
+        let mut transitively_abandoned: HashSet<String> = HashSet::new();
+        let mut frontier: Vec<String> = directly_abandoned.iter().cloned().collect();
+        while let Some(t) = frontier.pop() {
+            if let Some(downs) = dg.downstream_tasks.get(&t) {
+                for d in downs {
+                    if !directly_abandoned.contains(d)
+                        && transitively_abandoned.insert(d.clone())
+                    {
+                        frontier.push(d.clone());
+                    }
+                }
+            }
+        }
+
+        // 3. Transition each task. The typestate `abandon` consumes
+        // the Running variant, accounts remaining blocks as
+        // orphaned, and replaces with the Abandoned variant.
+        for task in tasks {
+            let direct = directly_abandoned.contains(&task.task_id);
+            let transitive = transitively_abandoned.contains(&task.task_id);
+            if !direct && !transitive {
+                continue;
+            }
+            let Some(state) = scheduler.task_states.get_mut(&task.task_id) else {
+                continue;
+            };
+            let failures = state.worker_failure_count();
+            let restarts = state.worker_restart_count();
+            let reason = if direct {
+                AbandonReason::RestartCapExhausted
+            } else {
+                AbandonReason::UpstreamAbandoned
+            };
+            if let Some(orphaned) = state.abandon(reason) {
+                if direct {
+                    warn!(
+                        task_id = %task.task_id,
+                        failures,
+                        restarts,
+                        max_restarts = task.max_worker_restarts,
+                        orphaned,
+                        "task abandoned: worker restart cap reached, accounting remaining blocks as orphaned",
+                    );
+                } else {
+                    warn!(
+                        task_id = %task.task_id,
+                        orphaned,
+                        "downstream task abandoned: upstream input will never arrive, accounting remaining blocks as orphaned",
+                    );
+                }
+            }
+        }
     }
 
     /// Spawn additional workers for tasks that have ready work, fewer
@@ -568,7 +762,7 @@ impl Server {
         host: &str,
         port: u16,
         tasks: &[Arc<Task>],
-        scheduler: &Scheduler,
+        scheduler: &mut Scheduler,
         allocator: &mut ResourceAllocator,
         workers: &mut Vec<(WorkerSpec, WorkerThread)>,
         next_id: &mut u64,
@@ -585,16 +779,32 @@ impl Server {
                 }
                 // Skip tasks with no ready work — don't waste budget on
                 // workers that would just park immediately.
-                let ready = scheduler
-                    .task_states
-                    .get(&task.task_id)
-                    .map(|s| s.ready_count)
-                    .unwrap_or(0);
-                if ready <= 0 {
+                // Skip terminal tasks — workers can't help them and
+                // would just immediately exit.
+                let Some(state) = scheduler.task_states.get(&task.task_id) else {
+                    continue;
+                };
+                if !state.is_running() {
+                    continue;
+                }
+                let counters = state.counters();
+                if counters.ready_count <= 0 {
                     continue;
                 }
                 let alive = allocator.alive(&task.task_id);
                 if alive >= task.num_workers {
+                    continue;
+                }
+                // A spawn that *replaces* a previously-dead worker
+                // is a "restart"; one that fills an unfilled slot
+                // (initial fill, or growth after the resource budget
+                // loosens) is not. The differentiator: if the task
+                // has more dirty exits on the books than restarts
+                // performed, we're refilling a death.
+                let failures = counters.worker_failure_count;
+                let restarts = counters.worker_restart_count;
+                let is_restart = failures > restarts;
+                if is_restart && restarts >= task.max_worker_restarts {
                     continue;
                 }
                 if !allocator.try_allocate(task) {
@@ -610,6 +820,13 @@ impl Server {
                 let handle = Self::spawn_worker(&spec, exit_tx.clone());
                 workers.push((spec, WorkerThread::Running(handle)));
                 *next_id += 1;
+                if is_restart {
+                    if let Some(state) = scheduler.task_states.get_mut(&task.task_id) {
+                        if let Some(rt) = state.as_running_mut() {
+                            rt.note_worker_restarted();
+                        }
+                    }
+                }
                 grew_any = true;
             }
             if !grew_any {
@@ -726,8 +943,11 @@ impl Server {
                 let _ = cm.reply_tx.try_send(Message::SendBlock { block });
             }
             None => {
-                let state = &scheduler.task_states[&task_id];
-                if state.pending_count() <= 0 && state.processing_count <= 0 {
+                let counters = scheduler.task_states[&task_id].counters();
+                let terminal = !scheduler.task_states[&task_id].is_running();
+                if terminal
+                    || (counters.pending_count() <= 0 && counters.processing_count <= 0)
+                {
                     debug!(task_id = %task_id, "no more blocks");
                     let _ = cm.reply_tx.try_send(Message::RequestShutdown);
                     self.recruit_workers(scheduler, worker_pools)?;

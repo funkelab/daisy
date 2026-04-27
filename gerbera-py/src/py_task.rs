@@ -25,6 +25,8 @@ pub struct PyTask {
     pub done_marker_path: Option<String>,
     /// Per-worker resource cost; empty disables resource accounting.
     pub requires: HashMap<String, i64>,
+    /// Cap on worker restarts before the task is abandoned. Default 10.
+    pub max_worker_restarts: u32,
 }
 
 #[pymethods]
@@ -44,6 +46,7 @@ impl PyTask {
         upstream_tasks=None,
         done_marker_path=None,
         requires=None,
+        max_worker_restarts=10,
     ))]
     fn new(
         task_id: String,
@@ -59,6 +62,7 @@ impl PyTask {
         upstream_tasks: Option<Bound<'_, PyList>>,
         done_marker_path: Option<String>,
         requires: Option<Bound<'_, PyDict>>,
+        max_worker_restarts: u32,
     ) -> PyResult<Self> {
         let ups = if let Some(list) = upstream_tasks {
             let mut v = Vec::new();
@@ -95,6 +99,7 @@ impl PyTask {
             upstream_tasks: ups,
             done_marker_path,
             requires: reqs,
+            max_worker_restarts,
         })
     }
 
@@ -150,6 +155,7 @@ impl PyTask {
             upstream_tasks: Vec::new(),
             done_marker_path: None,
             requires: HashMap::new(),
+            max_worker_restarts: 10,
         }
     }
 
@@ -193,6 +199,7 @@ impl PyTask {
         if !borrow.requires.is_empty() {
             builder = builder.requires(borrow.requires.clone());
         }
+        builder = builder.max_worker_restarts(borrow.max_worker_restarts);
 
         for up in upstream_arc {
             builder = builder.upstream(up);

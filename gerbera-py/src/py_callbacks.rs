@@ -1,8 +1,13 @@
 use gerbera_core::block::Block;
 use gerbera_core::error::GerberaError;
+use gerbera_core::server::ProgressObserver;
 use gerbera_core::task::{CheckBlock, ProcessBlock, SpawnWorker};
+use gerbera_core::task_state::TaskCounters;
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
+use std::collections::HashMap;
 use crate::py_block::PyBlock;
+use crate::py_task_state::PyTaskState;
 
 /// Wraps a Python callable as a `CheckBlock` implementation.
 /// Acquires the GIL on each call to invoke the Python function.
@@ -73,6 +78,49 @@ impl PySpawnWorker {
 }
 
 unsafe impl Sync for PySpawnWorker {}
+
+/// Bridge between Rust's `ProgressObserver` and a Python observer that
+/// implements `on_start(states_dict)`, `on_progress(states_dict)`, and
+/// `on_finish(states_dict)`. Each callback acquires the GIL.
+pub struct PyProgressObserver {
+    py_obj: Py<PyAny>,
+}
+
+impl PyProgressObserver {
+    pub fn new(py_obj: Py<PyAny>) -> Self {
+        Self { py_obj }
+    }
+
+    fn call(&self, method: &str, states: &HashMap<String, TaskCounters>) {
+        // Best-effort: a busted observer must not break the run loop.
+        Python::attach(|py| -> PyResult<()> {
+            let d = PyDict::new(py);
+            for (k, v) in states {
+                d.set_item(
+                    k,
+                    Py::new(py, PyTaskState { inner: v.clone() })?,
+                )?;
+            }
+            self.py_obj.call_method1(py, method, (d,))?;
+            Ok(())
+        })
+        .ok();
+    }
+}
+
+unsafe impl Sync for PyProgressObserver {}
+
+impl ProgressObserver for PyProgressObserver {
+    fn on_progress(&self, states: &HashMap<String, TaskCounters>) {
+        self.call("on_progress", states);
+    }
+    fn on_start(&self, states: &HashMap<String, TaskCounters>) {
+        self.call("on_start", states);
+    }
+    fn on_finish(&self, states: &HashMap<String, TaskCounters>) {
+        self.call("on_finish", states);
+    }
+}
 
 impl SpawnWorker for PySpawnWorker {
     fn spawn(&self, env_context: &str) -> Result<(), GerberaError> {

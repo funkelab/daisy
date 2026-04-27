@@ -2,7 +2,7 @@ use crate::block::BlockStatus;
 use crate::error::GerberaError;
 use crate::scheduler::Scheduler;
 use crate::task::Task;
-use crate::task_state::TaskState;
+use crate::task_state::TaskCounters;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
@@ -15,7 +15,7 @@ pub struct SerialRunner;
 impl SerialRunner {
     /// Run tasks to completion serially. The `process_function` on each `Task`
     /// must be set (via the builder) since this runner calls it directly.
-    pub fn run(tasks: &[Arc<Task>]) -> Result<HashMap<String, TaskState>, GerberaError> {
+    pub fn run(tasks: &[Arc<Task>]) -> Result<HashMap<String, TaskCounters>, GerberaError> {
         let mut scheduler = Scheduler::new(tasks, true);
         scheduler.init_done_markers()?;
 
@@ -74,7 +74,11 @@ impl SerialRunner {
             }
         }
 
-        Ok(scheduler.task_states)
+        Ok(scheduler
+            .task_states
+            .into_iter()
+            .map(|(k, v)| (k, v.counters()))
+            .collect())
     }
 }
 

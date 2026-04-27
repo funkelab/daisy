@@ -73,6 +73,7 @@ class Task:
         done_marker_path=None,
         max_workers=None,
         requires=None,
+        max_worker_restarts=10,
     ):
         self.task_id = task_id
         self.total_roi = total_roi
@@ -112,6 +113,10 @@ class Task:
         # resource accounting for this task — the worker count is bounded
         # purely by `max_workers`.
         self.requires = dict(requires) if requires else {}
+        # Cap on the number of times a worker for this task may exit
+        # with an error before the runner stops respawning. Once
+        # reached, any unprocessed blocks are accounted as failed.
+        self.max_worker_restarts = int(max_worker_restarts)
 
     @property
     def num_workers(self):
@@ -149,6 +154,7 @@ class Task:
             upstream_tasks=upstream_rs if upstream_rs else None,
             done_marker_path=self._resolve_done_marker_path(),
             requires=self.requires if self.requires else None,
+            max_worker_restarts=self.max_worker_restarts,
         )
 
     def requires(self):
@@ -332,7 +338,66 @@ def _wrap_for_worker_logging(task):
     return clone
 
 
-def _print_execution_summary(states):
+def _topo_order(tasks):
+    """Topological order of `tasks` with alphabetical tiebreaker on
+    the *ready set*.
+
+    The rule: roots (no upstream) become candidates first, sorted
+    alphabetically. After printing a task, any of its children whose
+    upstream dependencies are now all printed become candidates.
+    From the candidate set, always pick the alphabetically smallest.
+
+    Example: `(A → B), (C → D), ((B, D) → E)` produces `[A, B, C, D, E]`
+    — B comes right after A because it has only A upstream and `B < C`,
+    then C is the next-smallest root, then D unlocks, then E unlocks
+    once both its parents are seen.
+    """
+    import heapq
+
+    # Walk the task graph (handles upstream tasks not in the input list).
+    all_tasks = {}
+    upstream_map = {}
+
+    def visit(t):
+        if t.task_id in all_tasks:
+            return
+        all_tasks[t.task_id] = t
+        ups = list(t.upstream_tasks or [])
+        upstream_map[t.task_id] = {u.task_id for u in ups}
+        for u in ups:
+            visit(u)
+
+    for t in tasks:
+        visit(t)
+
+    downstream_map = {tid: [] for tid in all_tasks}
+    for tid, ups in upstream_map.items():
+        for u in ups:
+            downstream_map[u].append(tid)
+
+    visited = set()
+    order = []
+    ready = []
+    for tid, ups in upstream_map.items():
+        if not ups:
+            heapq.heappush(ready, tid)
+
+    while ready:
+        tid = heapq.heappop(ready)
+        if tid in visited:
+            continue
+        visited.add(tid)
+        order.append(tid)
+        for child in downstream_map.get(tid, []):
+            if child in visited:
+                continue
+            if all(u in visited for u in upstream_map[child]):
+                heapq.heappush(ready, child)
+
+    return order
+
+
+def _print_execution_summary(states, task_order=None):
     """Daisy-style post-run report. Writes to the real stdout even if the
     per-worker log proxy is currently installed."""
     import sys
@@ -350,7 +415,16 @@ def _print_execution_summary(states):
 
     rows = []
     failed_tasks = []
-    for task_id in sorted(states.keys()):
+    # Honor caller-supplied topological order; fall back to
+    # alphabetical for unknown task ids.
+    if task_order is None:
+        ordered = sorted(states.keys())
+    else:
+        seen = set(task_order)
+        ordered = [t for t in task_order if t in states] + sorted(
+            tid for tid in states if tid not in seen
+        )
+    for task_id in ordered:
         state = states[task_id]
         total = state.total_block_count
         completed = state.completed_count
@@ -402,13 +476,127 @@ def _print_execution_summary(states):
                 p(f"      {log_basedir / tid}/")
 
 
+class _TqdmObserver:
+    """Default progress observer — one `tqdm.auto` bar per task.
+
+    Conforms to the protocol expected by `Server::ProgressObserver`:
+    `on_start`, `on_progress`, `on_finish` each receive a
+    `dict[str, TaskState]` snapshot.
+
+    The bar's description reads `f"{task_id} {symbol} ♻={restarts}"`
+    where `symbol` flips from `▶` (running) to `✔` / `✗` / `∅`
+    (success / failure / orphaned) at finish, and `restarts` is the
+    cumulative `worker_failure_count` for the task.
+    """
+
+    def __init__(self, task_order=None):
+        self._bars = {}
+        self._last_desc = {}
+        # Order in which to create / iterate bars. Set by the caller
+        # (typically `_resolve_progress`) from the task DAG. None
+        # falls back to dict insertion order.
+        self._task_order = list(task_order) if task_order else None
+
+    def _bar(self, task_id, total):
+        if task_id not in self._bars:
+            from tqdm.auto import tqdm
+            self._bars[task_id] = tqdm(
+                total=total, desc=self._desc(task_id, "▶", 0),
+                unit="block", leave=True, dynamic_ncols=True,
+            )
+        return self._bars[task_id]
+
+    @staticmethod
+    def _desc(task_id, symbol, restarts):
+        return f"{task_id} {symbol} ♻={restarts}"
+
+    def _maybe_update_desc(self, task_id, symbol, restarts, refresh=False):
+        desc = self._desc(task_id, symbol, restarts)
+        if self._last_desc.get(task_id) != desc:
+            self._bars[task_id].set_description(desc, refresh=refresh)
+            self._last_desc[task_id] = desc
+
+    def _ordered_items(self, states):
+        """Yield `(task_id, state)` in `self._task_order`, then any
+        leftovers in alphabetical order. This is what determines bar
+        creation order on the first `on_start` call — once a `tqdm`
+        bar is created its display position is fixed."""
+        if self._task_order is None:
+            yield from states.items()
+            return
+        seen = set()
+        for tid in self._task_order:
+            if tid in states:
+                seen.add(tid)
+                yield tid, states[tid]
+        for tid in sorted(states):
+            if tid not in seen:
+                yield tid, states[tid]
+
+    def on_start(self, states):
+        for task_id, state in self._ordered_items(states):
+            self._bar(task_id, int(state.total_block_count))
+            self._last_desc[task_id] = self._desc(task_id, "▶", 0)
+
+    def on_progress(self, states):
+        for task_id, state in self._ordered_items(states):
+            bar = self._bar(task_id, int(state.total_block_count))
+            done = int(state.completed_count)
+            delta = done - bar.n
+            if delta > 0:
+                bar.update(delta)
+            self._maybe_update_desc(
+                task_id, "▶", int(state.worker_restart_count),
+            )
+            bar.set_postfix({
+                "⧗": int(state.pending_count),
+                "▶": int(state.processing_count),
+                "✔": int(state.completed_count),
+                "✗": int(state.failed_count),
+                "∅": int(state.orphaned_count),
+            }, refresh=False)
+
+    def on_finish(self, states):
+        # Promote the trailing emoji to reflect final outcome and close.
+        for task_id, state in self._ordered_items(states):
+            bar = self._bar(task_id, int(state.total_block_count))
+            failed = int(state.failed_count)
+            orphaned = int(state.orphaned_count)
+            if failed > 0:
+                symbol = "✗"
+            elif orphaned > 0:
+                symbol = "∅"
+            else:
+                symbol = "✔"
+            self._maybe_update_desc(
+                task_id, symbol, int(state.worker_restart_count), refresh=True,
+            )
+            bar.close()
+
+
+def _resolve_progress(progress, task_order=None):
+    """Translate the user-facing `progress=` argument into a Rust-side
+    observer object, or `None` if disabled.
+
+    - `True` (default) → built-in `_TqdmObserver` seeded with
+      `task_order` (topological + alphabetical, see `_topo_order`).
+    - `False` / `None` → no observer (no progress bar).
+    - any object exposing `on_start`/`on_progress`/`on_finish` → used directly.
+    """
+    if progress is False or progress is None:
+        return None
+    if progress is True:
+        return _TqdmObserver(task_order=task_order)
+    return progress
+
+
 class SerialServer:
     """Maps daisy's SerialServer().run_blockwise(tasks) to Rust."""
 
-    def run_blockwise(self, tasks, resources=None):
-        # `resources` is accepted for API parity with `Server` but is
-        # ignored — the serial runner is single-threaded so resource
-        # accounting has no effect.
+    def run_blockwise(self, tasks, resources=None, progress=False):
+        # `resources` and `progress` are accepted for API parity with
+        # `Server` but ignored — the serial runner is single-threaded
+        # so neither has anywhere to attach.
         wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                    for t in tasks]
         try:
@@ -428,12 +616,15 @@ class Server:
         self.hostname = None
         self.port = None
 
-    def run_blockwise(self, tasks, resources=None):
+    def run_blockwise(self, tasks, resources=None, progress=True):
         wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                    for t in tasks]
+        order = _topo_order(tasks)
+        self.last_task_order = order
+        observer = _resolve_progress(progress, task_order=order)
         try:
             states, run_stats = _rs._run_distributed_server(
-                _convert_tasks(wrapped), resources,
+                _convert_tasks(wrapped), resources, observer,
             )
             self.last_run_stats = run_stats
             return states
@@ -450,7 +641,7 @@ def _format_bytes(n):
     return f"{n:.1f} PB"
 
 
-def _print_resource_utilization(stats):
+def _print_resource_utilization(stats, task_order=None):
     """Daisy-style post-run report of resource utilisation."""
     if stats is None:
         return
@@ -494,7 +685,14 @@ def _print_resource_utilization(stats):
       f"    {'mean ms ∠ slope':<22}{'cpu busy':>10}{'wall':>10}")
     p(f"    {'─' * 14}{'─' * 8}{'─' * 10}    "
       f"{'─' * 22}{'─' * 10}{'─' * 10}")
-    for task_id in sorted(per_task.keys()):
+    if task_order is None:
+        ordered = sorted(per_task.keys())
+    else:
+        seen = set(task_order)
+        ordered = [t for t in task_order if t in per_task] + sorted(
+            tid for tid in per_task if tid not in seen
+        )
+    for task_id in ordered:
         t = per_task[task_id]
         blocks = int(t.get("blocks_processed", 0))
         max_conc = int(t.get("max_concurrent_workers", 0))
@@ -511,7 +709,7 @@ def _print_resource_utilization(stats):
           f"    {trend:<22}{busy:>9.0f}%{wall_t:>9.2f}s")
 
 
-def run_blockwise(tasks, multiprocessing=True, resources=None):
+def run_blockwise(tasks, multiprocessing=True, resources=None, progress=True):
     """Run the given tasks to completion.
 
     `resources` is an optional `dict[str, int]` global budget consumed by
@@ -519,9 +717,21 @@ def run_blockwise(tasks, multiprocessing=True, resources=None):
     empty `requires` are bounded only by their own `max_workers` cap.
     Hard-errors at startup if any task's `requires` exceeds the budget.
     Ignored in serial mode.
+
+    `progress`:
+      - `True` (default in multiprocessing mode): show a `tqdm.auto`
+        progress bar per task, with live counts in the postfix.
+      - `False` / `None`: disable.
+      - object with `on_start`/`on_progress`/`on_finish` methods: a
+        custom observer (e.g. for logging into a file or pushing to a
+        dashboard).
+      Always disabled in serial mode.
     """
     server = Server() if multiprocessing else SerialServer()
-    states = server.run_blockwise(tasks, resources=resources)
-    _print_execution_summary(states)
-    _print_resource_utilization(getattr(server, "last_run_stats", None))
+    states = server.run_blockwise(tasks, resources=resources, progress=progress)
+    order = getattr(server, "last_task_order", None) or _topo_order(tasks)
+    _print_execution_summary(states, task_order=order)
+    _print_resource_utilization(
+        getattr(server, "last_run_stats", None), task_order=order,
+    )
     return all(s.is_done() for s in states.values())

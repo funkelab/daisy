@@ -28,5 +28,5 @@ pub use scheduler::Scheduler;
 pub use serial::SerialRunner;
 pub use server::Server;
 pub use task::Task;
-pub use task_state::TaskState;
+pub use task_state::{AbandonReason, AbandonedTask, DoneTask, RunningTask, TaskCounters, TaskState};
 pub use worker_pool::WorkerPool;

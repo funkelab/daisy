@@ -72,6 +72,13 @@ pub struct Task {
     pub timeout: Option<std::time::Duration>,
     pub upstream_tasks: Vec<Arc<Task>>,
     pub check_function: Option<Arc<dyn CheckBlock>>,
+    /// Cap on the number of times a worker for this task may exit with
+    /// an error before the runner stops respawning replacements. Once
+    /// reached, no new workers will be spawned for this task even if
+    /// the resource budget would allow it; if there are still
+    /// unprocessed blocks at that point, they are accounted as failed
+    /// so the run loop can exit. Default: 10.
+    pub max_worker_restarts: u32,
     /// 1-arg block processor. Server spawns worker threads that acquire
     /// blocks, call this function via GIL, and release blocks.
     pub process_function: Option<Arc<dyn ProcessBlock + Sync>>,
@@ -119,6 +126,7 @@ pub struct TaskBuilder {
     spawn_function: Option<Arc<dyn SpawnWorker>>,
     done_marker_path: Option<PathBuf>,
     requires: HashMap<String, i64>,
+    max_worker_restarts: u32,
 }
 
 impl TaskBuilder {
@@ -139,6 +147,7 @@ impl TaskBuilder {
             spawn_function: None,
             done_marker_path: None,
             requires: HashMap::new(),
+            max_worker_restarts: 10,
         }
     }
 
@@ -215,6 +224,12 @@ impl TaskBuilder {
         self
     }
 
+    /// Cap on worker restarts for this task. See `Task::max_worker_restarts`.
+    pub fn max_worker_restarts(mut self, n: u32) -> Self {
+        self.max_worker_restarts = n;
+        self
+    }
+
     pub fn build(self) -> Task {
         let total_roi = self.total_roi.expect("total_roi is required");
         let read_roi = self.read_roi.expect("read_roi is required");
@@ -242,6 +257,7 @@ impl TaskBuilder {
             spawn_function: self.spawn_function,
             done_marker_path: self.done_marker_path,
             requires: self.requires,
+            max_worker_restarts: self.max_worker_restarts,
         }
     }
 }

@@ -1,12 +1,38 @@
 use gerbera_core::resource_allocator::ResourceBudget;
 use gerbera_core::serial::SerialRunner;
-use gerbera_core::server::Server;
+use gerbera_core::server::{ProgressObserver, Server};
 use gerbera_core::task::Task;
 use gerbera_core::worker_pool::WorkerPool;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+
+/// Set by our raw SIGINT handler. Read by the abort-check callback
+/// the run loop polls every 100ms.
+///
+/// We bypass `PyErr_CheckSignals` because CPython only processes
+/// signals on the main thread, and tokio's multi-threaded runtime
+/// polls our abort arm on whichever worker thread is available —
+/// almost never the main thread. A raw POSIX handler sets this
+/// flag the moment SIGINT is delivered to the process, regardless
+/// of which thread the kernel routes it to, and the flag read is
+/// GIL-free.
+static SIGINT_FLAG: AtomicBool = AtomicBool::new(false);
+
+/// Stash of the SIGINT handler installed before we took over, so we
+/// can restore it after the run completes (even on panic / error).
+/// `0` means "no previous handler captured" — at process start the
+/// default is `SIG_DFL` (`0`), which is what Python overrides on
+/// import.
+static PREV_SIGINT_HANDLER: AtomicUsize = AtomicUsize::new(0);
+
+extern "C" fn handle_sigint(_signum: libc::c_int) {
+    SIGINT_FLAG.store(true, Ordering::SeqCst);
+}
+
+use crate::py_callbacks::PyProgressObserver;
 
 use crate::py_task::PyTask;
 use crate::py_task_state::PyTaskState;
@@ -43,12 +69,17 @@ pub fn _run_serial(
 ///
 /// Returns a 2-tuple `(task_states, run_stats)` where `run_stats` is a
 /// nested dict matching `gerbera_core::run_stats::RunStats`.
+///
+/// `progress_observer`, if provided, must be a Python object exposing
+/// `on_start(states)`, `on_progress(states)`, and `on_finish(states)`
+/// — see `gerbera/_compat.py:_TqdmObserver` for a tqdm-backed example.
 #[pyfunction]
-#[pyo3(signature = (tasks, resources=None, host="127.0.0.1"))]
+#[pyo3(signature = (tasks, resources=None, progress_observer=None, host="127.0.0.1"))]
 pub fn _run_distributed_server(
     py: Python<'_>,
     tasks: Bound<'_, PyList>,
     resources: Option<Bound<'_, PyDict>>,
+    progress_observer: Option<Py<PyAny>>,
     host: &str,
 ) -> PyResult<Py<pyo3::types::PyTuple>> {
     let mut cache: HashMap<String, Arc<Task>> = HashMap::new();
@@ -71,18 +102,59 @@ pub fn _run_distributed_server(
         ResourceBudget::empty()
     };
 
+    let progress: Option<Arc<dyn ProgressObserver>> = progress_observer
+        .map(|obj| Arc::new(PyProgressObserver::new(obj)) as Arc<dyn ProgressObserver>);
+
     let rt = tokio::runtime::Runtime::new().map_err(rt_err)?;
     let (server, listener) = rt.block_on(Server::bind(host)).map_err(rt_err)?;
+
+    // Install a raw SIGINT handler that sets `SIGINT_FLAG`. The run
+    // loop's abort callback reads the flag every 100ms and exits
+    // cleanly when set. We restore the previous handler after the
+    // run regardless of outcome, so Python's normal KeyboardInterrupt
+    // machinery resumes for any code that runs after `run_blockwise`.
+    SIGINT_FLAG.store(false, Ordering::SeqCst);
+    let prev = unsafe {
+        libc::signal(libc::SIGINT, handle_sigint as *const () as libc::sighandler_t)
+    };
+    PREV_SIGINT_HANDLER.store(prev as usize, Ordering::SeqCst);
+
+    let abort_check: Arc<dyn Fn() -> bool + Send + Sync> =
+        Arc::new(|| SIGINT_FLAG.load(Ordering::Relaxed));
 
     // Release GIL and run the event loop. Worker threads are spawned by
     // the Rust server and call back into Python via Python::attach when
     // they need to execute the process function.
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
     let tasks_clone = arc_tasks.clone();
-    let (states, run_stats) = py.detach(move || {
-        rt.block_on(server.run_blockwise(listener, &tasks_clone, &mut worker_pools, budget))
-    })
-    .map_err(rt_err)?;
+    let result = py.detach(move || {
+        rt.block_on(server.run_blockwise(
+            listener,
+            &tasks_clone,
+            &mut worker_pools,
+            budget,
+            progress,
+            Some(abort_check),
+        ))
+    });
+
+    // Always restore the previous handler before any early return,
+    // so a partial / failed run doesn't leave the process with a
+    // crippled SIGINT handler.
+    let prev = PREV_SIGINT_HANDLER.load(Ordering::SeqCst);
+    unsafe {
+        libc::signal(libc::SIGINT, prev as libc::sighandler_t);
+    }
+
+    let (states, run_stats) = match result {
+        Ok(v) => v,
+        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+            return Err(PyErr::new::<pyo3::exceptions::PyKeyboardInterrupt, _>(
+                "run aborted by SIGINT",
+            ));
+        }
+        Err(e) => return Err(rt_err(e)),
+    };
 
     let states_py: HashMap<String, PyTaskState> = states
         .into_iter()
