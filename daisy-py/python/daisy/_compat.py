@@ -1,9 +1,9 @@
 """Re-export shim. The implementation lives in `_task.py`,
 `_progress.py`, and `_runner.py`. This file exists so existing
-`from gerbera._compat import Task` imports keep working.
+`from daisy._compat import Task` imports keep working.
 """
 
-from gerbera._task import (
+from daisy._task import (
     Block,
     BlockStatus,
     BlockwiseDependencyGraph,
@@ -21,7 +21,8 @@ from gerbera._task import (
     set_done_marker_basedir,
 )
 
-from gerbera._progress import (
+from daisy._progress import (
+    JsonProgressObserver,
     _format_bytes,
     _ordered_states,
     _print_execution_summary,
@@ -31,7 +32,7 @@ from gerbera._progress import (
     _TqdmObserver,
 )
 
-from gerbera._runner import (
+from daisy._runner import (
     Server,
     _run_serial,
     run_blockwise,
@@ -45,6 +46,7 @@ __all__ = [
     "Context",
     "Coordinate",
     "DependencyGraph",
+    "JsonProgressObserver",
     "Roi",
     "Scheduler",
     "Server",

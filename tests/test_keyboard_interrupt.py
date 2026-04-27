@@ -18,7 +18,7 @@ import time
 
 import pytest
 
-import gerbera
+import daisy
 
 
 def _slow_block(block):
@@ -36,11 +36,11 @@ def _fire_sigint_after(seconds):
 
 def test_sigint_raises_keyboardinterrupt_block_function_mode():
     """Block-function mode (1-arg `process(block)`)."""
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="sigint_test",
-        total_roi=gerbera.Roi([0], [100_000]),
-        read_roi=gerbera.Roi([0], [1]),
-        write_roi=gerbera.Roi([0], [1]),
+        total_roi=daisy.Roi([0], [100_000]),
+        read_roi=daisy.Roi([0], [1]),
+        write_roi=daisy.Roi([0], [1]),
         process_function=_slow_block,
         read_write_conflict=False,
         max_workers=4,
@@ -49,7 +49,7 @@ def test_sigint_raises_keyboardinterrupt_block_function_mode():
 
     _fire_sigint_after(0.5)
 
-    server = gerbera.Server()
+    server = daisy.Server()
     t0 = time.perf_counter()
     with pytest.raises(KeyboardInterrupt):
         server.run_blockwise([task], progress=False)
@@ -65,7 +65,7 @@ def _looping_worker():
     threads grab the GIL inside `Client()` setup and around each
     `acquire_block` / `release_block`, so signal-flag observation
     needs to be GIL-free for ctrl-C to feel responsive here."""
-    client = gerbera.Client()
+    client = daisy.Client()
     while True:
         with client.acquire_block() as block:
             if block is None:
@@ -75,11 +75,11 @@ def _looping_worker():
 
 def test_sigint_raises_keyboardinterrupt_worker_function_mode():
     """Worker-function mode (0-arg, manages its own block loop)."""
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="sigint_worker_test",
-        total_roi=gerbera.Roi([0], [100_000]),
-        read_roi=gerbera.Roi([0], [1]),
-        write_roi=gerbera.Roi([0], [1]),
+        total_roi=daisy.Roi([0], [100_000]),
+        read_roi=daisy.Roi([0], [1]),
+        write_roi=daisy.Roi([0], [1]),
         process_function=_looping_worker,
         read_write_conflict=False,
         max_workers=4,
@@ -88,7 +88,7 @@ def test_sigint_raises_keyboardinterrupt_worker_function_mode():
 
     _fire_sigint_after(0.5)
 
-    server = gerbera.Server()
+    server = daisy.Server()
     t0 = time.perf_counter()
     with pytest.raises(KeyboardInterrupt):
         server.run_blockwise([task], progress=False)

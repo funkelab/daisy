@@ -5,8 +5,8 @@ error. Without dead worker detection, the server would hang forever waiting
 for messages from workers that no longer exist.
 """
 
-import gerbera as daisy
-from gerbera.logging import set_log_basedir
+import daisy as daisy
+from daisy.logging import set_log_basedir
 
 import logging
 import os

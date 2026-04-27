@@ -1,6 +1,6 @@
 # Scheduler, dependency graph, and ready surface
 
-How block-level dependencies become the dispatch order. The pieces in this doc are the algorithmic core of gerbera; everything else (TCP, worker threads, retries) is plumbing on top of these data structures.
+How block-level dependencies become the dispatch order. The pieces in this doc are the algorithmic core of daisy; everything else (TCP, worker threads, retries) is plumbing on top of these data structures.
 
 ## Three components
 
@@ -19,7 +19,7 @@ structure)              boundary                receives results
 
 ## Dependency graph construction
 
-Per task, `BlockwiseDependencyGraph` (gerbera-core/src/dependency_graph.rs:11) computes:
+Per task, `BlockwiseDependencyGraph` (daisy-core/src/dependency_graph.rs:11) computes:
 
 - **level_stride** — per-dimension stride between blocks in the same level. When `read_write_conflict = true`, the stride accounts for the read/write context overlap so blocks in the same level can't conflict.
 - **level_offsets** — offsets within `level_stride` for the start of each level.
@@ -29,15 +29,13 @@ A *level* is a set of mutually-independent blocks: every block in level N can ru
 
 The construction is identical to daisy's algorithm. The Rust version is just faster — same level-stride formula, same cantor-pairing for block IDs (we use the funlib pyramid-volume generalization to match daisy's IDs exactly).
 
-### Iteration is lazy in principle, eager in practice
+### Iteration is lazy
 
-`BlockwiseDependencyGraph::level_blocks(level)` returns `impl Iterator<Item = Block>`. It's a chain of `cartesian_product → filter_map → fit_block` operations. Each step is O(1) per block.
+`BlockwiseDependencyGraph::level_blocks(level)` returns a borrowing iterator chain; for the hot per-block dispatch path used by `Scheduler::new`, `level_blocks_owned` returns a `LazyBlockIter` that holds clones of the per-block data and is `Send + 'static` — it goes straight into `ProcessingQueue` as a `Box<dyn Iterator>`.
 
-But the inner `cartesian_product` (line 578) materializes a `Vec<Vec<i64>>` for the cartesian product of per-dimension ranges. For 1D BLOCK=1 with 1M blocks, that's 1M `Vec<i64>` allocations upfront. For multi-dim the total is the same but spread across dimensions.
+The inner cartesian product over per-dimension ranges is also lazy (`LazyCartesian`, a multi-radix counter) so a 1M-block 1D task allocates ~zero blocks upfront. Output order matches the eager `cartesian_product` helper exactly (rightmost dimension varies fastest), preserving block IDs for done-marker compatibility.
 
-`Scheduler::new` then `collect()`s all root blocks into a `Vec<Block>` (line 66) so it can store an owned iterator on the `ProcessingQueue` (which doesn't borrow the graph). That's another 1M allocations.
-
-This is the cost the stress-test startup pays. See REFACTOR 2.8 for the proposed fix (the prerequisite Arc cleanup has already landed).
+The eager `cartesian_product` function is still used for the small per-call sites (level offsets, sub-graph blocks); only the per-block hot path went lazy.
 
 ### Inter-task dependencies
 
@@ -47,7 +45,7 @@ This is the cost the stress-test startup pays. See REFACTOR 2.8 for the proposed
 
 ## Ready surface
 
-`ReadySurface<F, G>` (gerbera-core/src/ready_surface.rs) tracks two sets:
+`ReadySurface<F, G>` (daisy-core/src/ready_surface.rs) tracks two sets:
 
 - **surface**: blocks that have completed successfully and have unscheduled downstream blocks. They're "exposed to the air" — anything depending on them is now free to run.
 - **boundary**: blocks that have failed permanently and have unscheduled downstream blocks. The boundary defines the orphan frontier.
@@ -120,7 +118,7 @@ A block can be in the ready surface (its deps are met) but not yet in the queue 
 
 You could imagine a simpler scheduler that, on startup, computes the full block dispatch order via a topological sort and just hands them out FIFO. That works for static dependency graphs.
 
-It doesn't work for gerbera because of:
+It doesn't work for daisy because of:
 
 - **Streaming dependencies**. As soon as upstream block A finishes, downstream block A' becomes available — workers shouldn't wait for *all* of A to finish before starting *any* of A'. The ready surface gives this for free; a static topological sort doesn't.
 - **Retries**. A failed block goes back to the ready queue and may be picked up by any worker, in any order relative to other ready blocks. The ProcessingQueue handles this; a static order doesn't.

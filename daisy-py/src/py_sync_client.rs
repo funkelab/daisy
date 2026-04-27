@@ -1,5 +1,5 @@
-use gerbera_core::block::BlockStatus;
-use gerbera_core::client::Client;
+use daisy_core::block::BlockStatus;
+use daisy_core::client::Client;
 use pyo3::prelude::*;
 
 use crate::py_block::PyBlock;

@@ -1,7 +1,7 @@
-from gerbera import Scheduler
-from gerbera import Task
-from gerbera import Block, BlockStatus
-from gerbera import Roi
+from daisy import Scheduler
+from daisy import Task
+from daisy import Block, BlockStatus
+from daisy import Roi
 
 import pytest
 

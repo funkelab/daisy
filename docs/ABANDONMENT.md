@@ -1,6 +1,6 @@
 # Task abandonment and the typestate lifecycle
 
-How gerbera ensures the run loop terminates even when workers die in pathological ways, and why the per-task counters are protected by a Rust enum rather than runtime guards.
+How daisy ensures the run loop terminates even when workers die in pathological ways, and why the per-task counters are protected by a Rust enum rather than runtime guards.
 
 ## The two terminal outcomes
 
@@ -13,7 +13,7 @@ The whole abandonment subsystem exists to guarantee that `is_done()` becomes tru
 
 ## Counters
 
-Each `RunningTask` (gerbera-core/src/task_state.rs) has:
+Each `RunningTask` (daisy-core/src/task_state.rs) has:
 
 | field                  | meaning                                                            |
 | ---------------------- | ------------------------------------------------------------------ |

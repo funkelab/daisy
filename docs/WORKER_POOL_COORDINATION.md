@@ -17,7 +17,7 @@ All 30 workers are spawned upfront. But if the machine only has 15 cores, or the
 A global worker budget shared across tasks, with dynamic reallocation based on where the work actually is.
 
 ```python
-pipeline = gerbera.Pipeline(
+pipeline = daisy.Pipeline(
     tasks=[task_a, task_b, task_c],
     total_workers=15,
 )
@@ -195,7 +195,7 @@ class MyAllocator:
         # Custom logic
         return task_id
 
-pipeline = gerbera.Pipeline(tasks, total_workers=15, allocator=MyAllocator())
+pipeline = daisy.Pipeline(tasks, total_workers=15, allocator=MyAllocator())
 ```
 
 ## Implementation Steps

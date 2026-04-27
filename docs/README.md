@@ -1,6 +1,6 @@
-# gerbera architecture docs
+# daisy architecture docs
 
-Design documentation for the gerbera library. This directory holds the *why* and the *how* — for *what* and *how-to-use*, see the README and the `examples/` directory.
+Design documentation for the daisy library. This directory holds the *why* and the *how* — for *what* and *how-to-use*, see the README and the `examples/` directory.
 
 ## Reading order
 
@@ -20,16 +20,16 @@ If you're new, start with the architecture overview and then dip into whichever 
 
 7. **[WORKER_POOL_COORDINATION.md](WORKER_POOL_COORDINATION.md)** — The resource-budget design (`requires` per task, global `resources` budget). How concurrent worker counts compose across tasks competing for the same resource.
 
-8. **[WORKER_SHUTDOWN_FLOWS.md](WORKER_SHUTDOWN_FLOWS.md)** — Sequence diagrams for the three shutdown scenarios (normal exit, KeyboardInterrupt, dirty crash) compared between daisy and gerbera.
+8. **[WORKER_SHUTDOWN_FLOWS.md](WORKER_SHUTDOWN_FLOWS.md)** — Sequence diagrams for the three shutdown scenarios (normal exit, KeyboardInterrupt, dirty crash) compared between daisy and daisy.
 
 ## Pointers to other docs
 
 - **[../REFACTOR.md](../REFACTOR.md)** — Inventory of simplification opportunities and proposed features. Use this when planning what to work on next.
 - **[../INTERNAL_DIFFERENCES.md](../INTERNAL_DIFFERENCES.md)** — Subsystem-by-subsystem comparison vs daisy. Useful for users migrating from daisy.
-- **[../MIGRATION_REPORT.md](../MIGRATION_REPORT.md)** — Notes on the migration from daisy's API to gerbera's.
+- **[../MIGRATION_REPORT.md](../MIGRATION_REPORT.md)** — Notes on the migration from daisy's API to daisy's.
 
 ## Conventions
 
-- Code references use `path:line` format (e.g. `gerbera-core/src/scheduler.rs:172`) so they're navigable in any editor that follows the convention.
-- "daisy" without qualification means the upstream Python library that gerbera ports.
+- Code references use `path:line` format (e.g. `daisy-core/src/scheduler.rs:172`) so they're navigable in any editor that follows the convention.
+- "daisy" without qualification means the upstream Python library that daisy ports.
 - Box-drawing characters (`└─`, `→`) appear in some diagrams. They render in any monospace font.

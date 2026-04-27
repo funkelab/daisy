@@ -4,7 +4,7 @@ Block IDs and ordering match daisy exactly, using the same funlib-compatible
 generalized Cantor pairing function.
 """
 
-from gerbera import Scheduler, Task, Block, BlockStatus, Roi
+from daisy import Scheduler, Task, Block, BlockStatus, Roi
 import pytest
 
 

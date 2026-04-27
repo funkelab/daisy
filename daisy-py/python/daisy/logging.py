@@ -4,15 +4,15 @@ While a worker's `process_function` runs, its stdout and stderr go
 through a proxy whose destination is controlled by three knobs:
 
 - `set_log_basedir(path)` — where per-worker log files live. Pass `None`
-  to disable file logging entirely. Default: `./gerbera_logs`.
+  to disable file logging entirely. Default: `./daisy_logs`.
 - `set_log_mode(mode)` — where worker writes are routed while a block
   is being processed:
     - `"console"` — only the terminal (never touches a file).
     - `"file"`    — only the worker's `.out` / `.err` file.
     - `"both"`    — tee to both.
   Default: `"file"`, matching daisy's behaviour.
-- `set_log_level(level)` — minimum level for the `"gerbera"` logger,
-  which gerbera's own wrappers use to emit block-failure warnings. Takes
+- `set_log_level(level)` — minimum level for the `"daisy"` logger,
+  which daisy's own wrappers use to emit block-failure warnings. Takes
   the usual `logging.DEBUG` / `INFO` / `WARNING` / `ERROR` constants or
   the equivalent strings.
 
@@ -32,7 +32,7 @@ from pathlib import Path
 
 # --- Public knobs ------------------------------------------------------------
 
-LOG_BASEDIR: Path | None = Path("./gerbera_logs")
+LOG_BASEDIR: Path | None = Path("./daisy_logs")
 
 # "console" | "file" | "both". `get_log_mode()` resolves "file"/"both" to
 # "console" when `LOG_BASEDIR is None`.
@@ -53,7 +53,7 @@ class _DynamicStderrHandler(_py_logging.Handler):
             self.handleError(record)
 
 
-logger = _py_logging.getLogger("gerbera")
+logger = _py_logging.getLogger("daisy")
 # A default handler so our warnings have somewhere to go even if the host
 # application hasn't configured logging. Users can replace or remove it.
 if not logger.handlers:
@@ -103,7 +103,7 @@ def get_log_mode() -> str:
 
 
 def set_log_level(level) -> None:
-    """Set the minimum level for the `"gerbera"` logger. Accepts the
+    """Set the minimum level for the `"daisy"` logger. Accepts the
     usual `logging.DEBUG` / `INFO` / `WARNING` / `ERROR` constants or
     the equivalent strings."""
     logger.setLevel(level)
@@ -263,21 +263,21 @@ class _WorkerLogContext:
 
 _IPYTHON_CELL_RE = re.compile(r'<ipython-input-(\d+)-[a-f0-9]+>')
 
-# Path of this package, used to strip gerbera-internal frames from
+# Path of this package, used to strip daisy-internal frames from
 # tracebacks before rendering.
 import os as _os
-_GERBERA_PKG_DIR = _os.path.abspath(_os.path.dirname(__file__))
+_DAISY_PKG_DIR = _os.path.abspath(_os.path.dirname(__file__))
 
 
-def _strip_gerbera_frames(tb):
-    """Walk the traceback chain past leading gerbera-internal frames so
+def _strip_daisy_frames(tb):
+    """Walk the traceback chain past leading daisy-internal frames so
     the rendered traceback starts at the user's code. Frames in between
     user frames (e.g. the `yield` inside `Client.acquire_block`) are
     left alone — they're informative-ish and removing them would break
     the call-path narrative."""
     while tb is not None:
         fname = _os.path.abspath(tb.tb_frame.f_code.co_filename)
-        if not fname.startswith(_GERBERA_PKG_DIR):
+        if not fname.startswith(_DAISY_PKG_DIR):
             return tb
         tb = tb.tb_next
     return tb
@@ -359,7 +359,7 @@ def _format_plain(exc_type, exc, tb) -> str:
 def format_traceback(exc_type, exc, tb) -> str:
     """Render an exception's traceback for logging according to the
     current `set_traceback_style` configuration. Leading
-    gerbera-internal frames are stripped so the trace starts at the
+    daisy-internal frames are stripped so the trace starts at the
     user's code, and IPython cell pseudo-filenames are rewritten to
     `[notebook cell N]`. Guaranteed not to raise — falls back to a
     bare repr of the exception if every formatter fails. Calls are
@@ -369,7 +369,7 @@ def format_traceback(exc_type, exc, tb) -> str:
     with _TRACEBACK_LOCK:
         try:
             try:
-                user_tb = _strip_gerbera_frames(tb)
+                user_tb = _strip_daisy_frames(tb)
             except Exception:
                 user_tb = tb  # frame walk failed; just use the original
 
@@ -413,7 +413,7 @@ def format_traceback(exc_type, exc, tb) -> str:
         except Exception as e:
             return (
                 f"{exc_type.__name__ if exc_type else 'Exception'}: {exc!r}\n"
-                f"(gerbera failed to format the traceback: {e!r})\n"
+                f"(daisy failed to format the traceback: {e!r})\n"
             )
 
 

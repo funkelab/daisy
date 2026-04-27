@@ -1,6 +1,6 @@
-use gerbera_core::dependency_graph::{BlockwiseDependencyGraph, DependencyGraph};
-use gerbera_core::scheduler::Scheduler;
-use gerbera_core::task::Fit;
+use daisy_core::dependency_graph::{BlockwiseDependencyGraph, DependencyGraph};
+use daisy_core::scheduler::Scheduler;
+use daisy_core::task::Fit;
 use pyo3::prelude::*;
 use std::sync::Arc;
 
@@ -103,7 +103,7 @@ pub struct PyDependencyGraph {
 
 impl PyDependencyGraph {
     pub fn from_scheduler(scheduler: &Scheduler) -> Self {
-        let tasks: Vec<Arc<gerbera_core::Task>> =
+        let tasks: Vec<Arc<daisy_core::Task>> =
             scheduler.task_map.values().cloned().collect();
         Self {
             inner: DependencyGraph::new(&tasks),

@@ -1,6 +1,6 @@
 """Port of daisy's test_dependency_graph.py — 3 tests (6 parameterized variants)."""
 
-from gerbera import BlockwiseDependencyGraph, Task, Block, Roi
+from daisy import BlockwiseDependencyGraph, Task, Block, Roi
 import pytest
 
 total_roi = Roi([0], [12])

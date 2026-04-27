@@ -8,16 +8,16 @@ is always above its descendants, but independent chains aren't
 interleaved gratuitously.
 """
 
-import gerbera
-from gerbera._compat import _topo_order
+import daisy
+from daisy._compat import _topo_order
 
 
 def _task(task_id, upstream=None):
-    return gerbera.Task(
+    return daisy.Task(
         task_id=task_id,
-        total_roi=gerbera.Roi([0], [10]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [10]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         read_write_conflict=False,
         upstream_tasks=upstream,
     )

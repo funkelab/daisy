@@ -1,7 +1,7 @@
 """Tests for core types: Roi, Coordinate, Block — covering the API surface
 used by daisy's test_tcp.py, test_client.py, and general type operations."""
 
-from gerbera import Roi, Coordinate, Block, BlockStatus
+from daisy import Roi, Coordinate, Block, BlockStatus
 
 
 def test_roi_basic():

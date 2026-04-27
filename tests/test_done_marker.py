@@ -13,8 +13,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
-import gerbera
-from gerbera._compat import _run_serial
+import daisy
+from daisy._compat import _run_serial
 
 
 def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
@@ -23,11 +23,11 @@ def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
     def process(block):
         calls.append(block.block_id)
 
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id=task_id,
-        total_roi=gerbera.Roi([0, 0], [total, total]),
-        read_roi=gerbera.Roi([0, 0], [block, block]),
-        write_roi=gerbera.Roi([0, 0], [block, block]),
+        total_roi=daisy.Roi([0, 0], [total, total]),
+        read_roi=daisy.Roi([0, 0], [block, block]),
+        write_roi=daisy.Roi([0, 0], [block, block]),
         process_function=process,
         read_write_conflict=rw_conflict,
         max_workers=2,
@@ -63,11 +63,11 @@ def test_resume_with_multiprocessing_server(tmp_path):
     marker_path = tmp_path / "done_mp"
 
     task1, calls1 = make_task("tmp", marker_path)
-    gerbera.Server().run_blockwise([task1])
+    daisy.Server().run_blockwise([task1])
     assert len(calls1) == 16
 
     task2, calls2 = make_task("tmp", marker_path)
-    gerbera.Server().run_blockwise([task2])
+    daisy.Server().run_blockwise([task2])
     # Marker did its job; the multiprocessing path should also skip.
     assert len(calls2) == 0
 
@@ -101,15 +101,15 @@ def test_layout_mismatch_errors_with_rm_instructions(tmp_path):
 def test_global_basedir_resolves_per_task(tmp_path):
     """Setting `set_done_marker_basedir(...)` should auto-resolve markers
     for tasks that don't pass an explicit `done_marker_path`."""
-    gerbera.set_done_marker_basedir(tmp_path / "auto")
+    daisy.set_done_marker_basedir(tmp_path / "auto")
     try:
         task1, calls1 = make_task("auto_task", marker_path=None)
         # Override: omit done_marker_path so it falls back to basedir.
-        task1 = gerbera.Task(
+        task1 = daisy.Task(
             task_id="auto_task",
-            total_roi=gerbera.Roi([0, 0], [400, 400]),
-            read_roi=gerbera.Roi([0, 0], [100, 100]),
-            write_roi=gerbera.Roi([0, 0], [100, 100]),
+            total_roi=daisy.Roi([0, 0], [400, 400]),
+            read_roi=daisy.Roi([0, 0], [100, 100]),
+            write_roi=daisy.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls1.append(b.block_id),
             read_write_conflict=False,
             max_workers=2,
@@ -123,11 +123,11 @@ def test_global_basedir_resolves_per_task(tmp_path):
 
         # Second run: nothing called.
         calls2 = []
-        task2 = gerbera.Task(
+        task2 = daisy.Task(
             task_id="auto_task",
-            total_roi=gerbera.Roi([0, 0], [400, 400]),
-            read_roi=gerbera.Roi([0, 0], [100, 100]),
-            write_roi=gerbera.Roi([0, 0], [100, 100]),
+            total_roi=daisy.Roi([0, 0], [400, 400]),
+            read_roi=daisy.Roi([0, 0], [100, 100]),
+            write_roi=daisy.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls2.append(b.block_id),
             read_write_conflict=False,
             max_workers=2,
@@ -136,20 +136,20 @@ def test_global_basedir_resolves_per_task(tmp_path):
         _run_serial([task2])
         assert len(calls2) == 0
     finally:
-        gerbera.set_done_marker_basedir(None)
+        daisy.set_done_marker_basedir(None)
 
 
 def test_per_task_disable_overrides_basedir(tmp_path):
     """`done_marker_path=False` should turn the marker OFF for that task
     even when the global basedir is set."""
-    gerbera.set_done_marker_basedir(tmp_path / "auto2")
+    daisy.set_done_marker_basedir(tmp_path / "auto2")
     try:
         calls1 = []
-        task1 = gerbera.Task(
+        task1 = daisy.Task(
             task_id="off",
-            total_roi=gerbera.Roi([0, 0], [200, 200]),
-            read_roi=gerbera.Roi([0, 0], [100, 100]),
-            write_roi=gerbera.Roi([0, 0], [100, 100]),
+            total_roi=daisy.Roi([0, 0], [200, 200]),
+            read_roi=daisy.Roi([0, 0], [100, 100]),
+            write_roi=daisy.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls1.append(b.block_id),
             read_write_conflict=False,
             max_workers=1,
@@ -163,11 +163,11 @@ def test_per_task_disable_overrides_basedir(tmp_path):
 
         # Re-running re-runs every block.
         calls2 = []
-        task2 = gerbera.Task(
+        task2 = daisy.Task(
             task_id="off",
-            total_roi=gerbera.Roi([0, 0], [200, 200]),
-            read_roi=gerbera.Roi([0, 0], [100, 100]),
-            write_roi=gerbera.Roi([0, 0], [100, 100]),
+            total_roi=daisy.Roi([0, 0], [200, 200]),
+            read_roi=daisy.Roi([0, 0], [100, 100]),
+            write_roi=daisy.Roi([0, 0], [100, 100]),
             process_function=lambda b: calls2.append(b.block_id),
             read_write_conflict=False,
             max_workers=1,
@@ -177,4 +177,4 @@ def test_per_task_disable_overrides_basedir(tmp_path):
         _run_serial([task2])
         assert len(calls2) == 4
     finally:
-        gerbera.set_done_marker_basedir(None)
+        daisy.set_done_marker_basedir(None)

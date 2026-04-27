@@ -1,4 +1,4 @@
-# Worker Shutdown Flows: daisy vs gerbera
+# Worker Shutdown Flows: daisy vs daisy
 
 Three scenarios, traced through both codebases.
 
@@ -42,7 +42,7 @@ Worker Process                          Server
 
 **Key detail**: daisy has a graceful TCP disconnect handshake (`NotifyClientDisconnect` / `AckClientDisconnect`). The worker process then exits normally (code 0).
 
-### Gerbera
+### Daisy
 
 ```
 Worker Thread                           Server (tokio event loop)
@@ -69,7 +69,7 @@ Worker Thread                           Server (tokio event loop)
                                            ▼
 ```
 
-**Key detail**: gerbera uses a simple `Disconnect` message (no handshake). The worker thread returns `true` to signal clean exit. `check_thread_health` sees `Ok(true)` and does not respawn.
+**Key detail**: daisy uses a simple `Disconnect` message (no handshake). The worker thread returns `true` to signal clean exit. `check_thread_health` sees `Ok(true)` and does not respawn.
 
 ---
 
@@ -123,7 +123,7 @@ Worker Process (receives SIGTERM):
 
 **Gap**: blocks that were being processed when SIGTERM hit are lost. The bookkeeper doesn't mark them as failed — the server has already exited the event loop. The task_states returned show them as still "processing."
 
-### Gerbera
+### Daisy
 
 ```
 User hits Ctrl-C
@@ -143,7 +143,7 @@ Python signal handling is deferred until GIL reacquisition.
   the process is killed by a second signal.
 ```
 
-**Gap**: gerbera has no `stop_event` mechanism. The `py.detach` call releases the GIL and runs the tokio event loop synchronously. Python's signal handler for SIGINT can't run until `py.detach` returns, which only happens when all tasks complete. A second Ctrl-C (SIGINT) will kill the process outright.
+**Gap**: daisy has no `stop_event` mechanism. The `py.detach` call releases the GIL and runs the tokio event loop synchronously. Python's signal handler for SIGINT can't run until `py.detach` returns, which only happens when all tasks complete. A second Ctrl-C (SIGINT) will kill the process outright.
 
 **What would need to change**: install a tokio signal handler that sets a shutdown flag, causing the event loop to exit early:
 
@@ -208,7 +208,7 @@ Worker Process                          Server
 
 **Recovery**: the block is marked FAILED and re-queued for retry. A new worker is spawned. If retries are exhausted, the block is permanently failed and downstream blocks are orphaned.
 
-### Gerbera
+### Daisy
 
 ```
 Worker Thread (1-arg)                   Server (tokio event loop)
@@ -288,7 +288,7 @@ Worker Thread (0-arg spawn)             Server (tokio event loop)
 
 ## Summary
 
-| Scenario | Daisy | Gerbera |
+| Scenario | Daisy | Daisy |
 |---|---|---|
 | **Normal shutdown** | Graceful TCP handshake (NotifyDisconnect/Ack), process exits 0, reaper keeps in pool | RequestShutdown message, thread returns `true`, not respawned |
 | **Ctrl-C** | `stop_event.set()` exits loop, `finally` sends SIGTERM to all workers, joins | ⚠ **Not handled** — `py.detach` blocks, Python signal handler deferred. Needs `tokio::signal::ctrl_c()` in select loop |
@@ -299,8 +299,8 @@ Worker Thread (0-arg spawn)             Server (tokio event loop)
 
 ### Gaps to Address
 
-1. **Gerbera Ctrl-C handling**: add `tokio::signal::ctrl_c()` as a branch in the select loop. On trigger, break out of the event loop and run the existing shutdown code.
+1. **Daisy Ctrl-C handling**: add `tokio::signal::ctrl_c()` as a branch in the select loop. On trigger, break out of the event loop and run the existing shutdown code.
 
-2. **Processing timeout**: wire `Task.timeout` through to `BlockBookkeeper::new(Some(duration))` in both daisy and gerbera. This is the only reliable backstop for hung workers, network partitions, and edge cases where the TCP socket doesn't close.
+2. **Processing timeout**: wire `Task.timeout` through to `BlockBookkeeper::new(Some(duration))` in both daisy and daisy. This is the only reliable backstop for hung workers, network partitions, and edge cases where the TCP socket doesn't close.
 
-3. **Detection latency**: gerbera's 500ms health tick is 5x slower than daisy's 0.1s loop. For most workloads this doesn't matter (blocks take seconds to minutes), but it could be made configurable.
+3. **Detection latency**: daisy's 500ms health tick is 5x slower than daisy's 0.1s loop. For most workloads this doesn't matter (blocks take seconds to minutes), but it could be made configurable.

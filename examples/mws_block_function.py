@@ -8,12 +8,12 @@
 #    (in the real pipeline these would be the output of a UNet — we
 #    derive them directly from the GT so the example is self-contained);
 # 2. run `mwatershed.agglom` (mutex watershed) independently on each
-#    tile of the affinity volume, driven by gerbera in block-function
+#    tile of the affinity volume, driven by daisy in block-function
 #    mode.
 #
 # In **block-function mode** the Python function receives a single
-# `Block` argument and gerbera drives the loop — for every block the
-# scheduler hands out, gerbera calls `process_block(block)`. We run the
+# `Block` argument and daisy drives the loop — for every block the
+# scheduler hands out, daisy calls `process_block(block)`. We run the
 # task twice — once on the single-threaded `SerialServer`
 # (`multiprocessing=False`) and once on the multi-worker `Server`
 # (`multiprocessing=True`) — so you can see both code paths converge on
@@ -30,12 +30,12 @@ import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
 
-import gerbera
-import gerbera.logging as gl
+import daisy
+import daisy.logging as gl
 
 # Write per-worker logs to a fresh temp dir so the example doesn't
-# accumulate `gerbera_logs/` in the working directory across runs.
-_TMP = Path(tempfile.mkdtemp(prefix="gerbera_block_function_"))
+# accumulate `daisy_logs/` in the working directory across runs.
+_TMP = Path(tempfile.mkdtemp(prefix="daisy_block_function_"))
 gl.set_log_basedir(_TMP / "logs")
 print(f"output paths under: {_TMP}")
 
@@ -122,7 +122,7 @@ plt.axis("off")
 # %% [markdown]
 # ## Visualise the block tiling
 #
-# Gerbera tiles the image into `BLOCK × BLOCK` non-overlapping tiles
+# Daisy tiles the image into `BLOCK × BLOCK` non-overlapping tiles
 # with `read_roi == write_roi`. mutex watershed runs independently on
 # each tile.
 
@@ -198,11 +198,11 @@ def reset_buffers():
     _worker_ids.clear()
 
 
-mws_task = gerbera.Task(
+mws_task = daisy.Task(
         task_id="mws",
-        total_roi=gerbera.Roi([0, 0], [H, W]),
-        read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-        write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+        total_roi=daisy.Roi([0, 0], [H, W]),
+        read_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
+        write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
         process_function=process_block,
         read_write_conflict=False,
         max_workers=4,
@@ -211,7 +211,7 @@ mws_task = gerbera.Task(
 
 reset_buffers()
 t0 = time.perf_counter()
-ok_serial = gerbera.run_blockwise([mws_task], multiprocessing=False)
+ok_serial = daisy.run_blockwise([mws_task], multiprocessing=False)
 serial_elapsed = time.perf_counter() - t0
 serial_output = OUTPUT.copy()
 serial_workers = WORKER_MAP.copy()
@@ -222,7 +222,7 @@ print(f"serial: ok={ok_serial}, elapsed={serial_elapsed * 1e3:.1f} ms, "
 # %% [markdown]
 # ## Run on the multiprocessing server
 #
-# `multiprocessing=True` dispatches to the distributed `Server`: gerbera
+# `multiprocessing=True` dispatches to the distributed `Server`: daisy
 # binds a TCP listener, spawns `num_workers` worker threads in Rust, and
 # each worker pulls blocks from the scheduler over TCP. Worker threads
 # take the GIL only for the `process_block` callback — the TCP round-trip
@@ -232,7 +232,7 @@ print(f"serial: ok={ok_serial}, elapsed={serial_elapsed * 1e3:.1f} ms, "
 # %%
 reset_buffers()
 t0 = time.perf_counter()
-ok_mp = gerbera.run_blockwise([mws_task], multiprocessing=True)
+ok_mp = daisy.run_blockwise([mws_task], multiprocessing=True)
 mp_elapsed = time.perf_counter() - t0
 mp_output = OUTPUT.copy()
 mp_workers = WORKER_MAP.copy()

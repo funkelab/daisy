@@ -32,10 +32,10 @@ from skimage.data import astronaut
 from skimage.filters import sobel
 from skimage.segmentation import watershed
 
-import gerbera
-import gerbera.logging as gl
+import daisy
+import daisy.logging as gl
 
-_TMP = Path(tempfile.mkdtemp(prefix="gerbera_astronaut_pipeline_"))
+_TMP = Path(tempfile.mkdtemp(prefix="daisy_astronaut_pipeline_"))
 gl.set_log_basedir(_TMP / "logs")
 print(f"output paths under: {_TMP}")
 
@@ -182,11 +182,11 @@ def step_recolor(block):
 # stage gated by a single "GPU" slot.
 
 # %%
-edges_task = gerbera.Task(
+edges_task = daisy.Task(
     task_id="edges",
-    total_roi=gerbera.Roi([0, 0], [H, W]),
-    read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-    write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+    total_roi=daisy.Roi([0, 0], [H, W]),
+    read_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
+    write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
     process_function=step_edges,
     read_write_conflict=False,
     max_workers=3,
@@ -194,11 +194,11 @@ edges_task = gerbera.Task(
     requires={"cpu": 1},
 )
 
-segment_task = gerbera.Task(
+segment_task = daisy.Task(
     task_id="segment",
-    total_roi=gerbera.Roi([0, 0], [H, W]),
-    read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-    write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+    total_roi=daisy.Roi([0, 0], [H, W]),
+    read_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
+    write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
     process_function=step_segment,
     read_write_conflict=False,
     max_workers=4,        # cap is 4, but global budget caps at 1
@@ -207,11 +207,11 @@ segment_task = gerbera.Task(
     upstream_tasks=[edges_task],
 )
 
-recolor_task = gerbera.Task(
+recolor_task = daisy.Task(
     task_id="recolor",
-    total_roi=gerbera.Roi([0, 0], [H, W]),
-    read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-    write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+    total_roi=daisy.Roi([0, 0], [H, W]),
+    read_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
+    write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
     process_function=step_recolor,
     read_write_conflict=False,
     max_workers=4,
@@ -230,7 +230,7 @@ recolor_task = gerbera.Task(
 
 # %%
 t_start = time.perf_counter()
-ok = gerbera.run_blockwise(
+ok = daisy.run_blockwise(
     [edges_task, segment_task, recolor_task],
     resources={"cpu": 4, "gpu": 1},
 )

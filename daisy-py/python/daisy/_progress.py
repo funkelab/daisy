@@ -1,13 +1,16 @@
-"""Progress display: tqdm bars, post-run summary, resource report,
-and the topological ordering that drives them.
+"""Progress display: tqdm bars, JSON observer, post-run summary,
+resource report, and the topological ordering that drives them.
 
 Imports nothing from `_runner.py`; both `_runner.py` and the public
 `__init__.py` import from here.
 """
 
 import heapq
+import json
+import sys
+import time
 
-from gerbera import logging as _worker_log
+from daisy import logging as _worker_log
 
 
 def _topo_order(tasks):
@@ -240,6 +243,101 @@ class _TqdmObserver:
                 task_id, symbol, int(state.worker_restart_count), refresh=True,
             )
             bar.close()
+
+
+class JsonProgressObserver:
+    """Streaming JSON observer for monitoring/dashboards.
+
+    Emits one JSON object per task per state-changing event, with a
+    monotonic timestamp and the full counter snapshot. Pipes cleanly
+    into log aggregators (`fluentd`, `journald`), JSON-line tools
+    (`jq -c`), or anything that reads line-delimited JSON.
+
+    Usage::
+
+        # to a file
+        obs = JsonProgressObserver(path="/tmp/progress.jsonl")
+        daisy.run_blockwise(tasks, progress=obs)
+
+        # to stdout
+        daisy.run_blockwise(tasks, progress=JsonProgressObserver())
+
+        # to an existing file-like object
+        with open("progress.jsonl", "w") as f:
+            daisy.run_blockwise(tasks, progress=JsonProgressObserver(stream=f))
+
+    One line per task per call. With three tasks and an `on_progress`
+    rate of thousands per second, expect a high-volume sink — the
+    observer is the right level of granularity for dashboards but not
+    for `tail -f` on a slow run.
+
+    Output schema (one line, pretty-printed for readability)::
+
+        {
+          "t": 1745781234.123,        # time.time() at emit
+          "event": "progress",        # "start" | "progress" | "finish"
+          "task": "extract",
+          "total": 100000,
+          "ready": 99,
+          "processing": 4,
+          "completed": 4321,
+          "skipped": 0,
+          "failed": 2,
+          "orphaned": 0,
+          "restarts": 1,              # worker_restart_count
+          "failures": 1               # worker_failure_count (raw deaths)
+        }
+    """
+
+    def __init__(self, path=None, stream=None):
+        if path is not None and stream is not None:
+            raise ValueError("specify path OR stream, not both")
+        if path is not None:
+            self._sink = open(path, "w", buffering=1)  # line-buffered
+            self._owns_sink = True
+        elif stream is not None:
+            self._sink = stream
+            self._owns_sink = False
+        else:
+            self._sink = sys.stdout
+            self._owns_sink = False
+
+    def _emit(self, event, states):
+        t = time.time()
+        for task_id, state in states.items():
+            line = {
+                "t": t,
+                "event": event,
+                "task": task_id,
+                "total": int(state.total_block_count),
+                "ready": int(state.ready_count),
+                "processing": int(state.processing_count),
+                "completed": int(state.completed_count),
+                "skipped": int(state.skipped_count),
+                "failed": int(state.failed_count),
+                "orphaned": int(state.orphaned_count),
+                "restarts": int(state.worker_restart_count),
+                "failures": int(state.worker_failure_count),
+            }
+            self._sink.write(json.dumps(line) + "\n")
+        try:
+            self._sink.flush()
+        except Exception:
+            pass
+
+    def on_start(self, states):
+        self._emit("start", states)
+
+    def on_progress(self, states):
+        self._emit("progress", states)
+
+    def on_finish(self, states):
+        self._emit("finish", states)
+        if self._owns_sink:
+            try:
+                self._sink.close()
+            except Exception:
+                pass
 
 
 def _resolve_progress(progress, task_order=None):

@@ -1,4 +1,4 @@
-use gerbera_core::task_state::TaskCounters;
+use daisy_core::task_state::TaskCounters;
 use pyo3::prelude::*;
 
 /// Python-facing wrapper around a `TaskCounters` snapshot. The Rust

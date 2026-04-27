@@ -13,7 +13,7 @@
 //! many-thread readers is the worst-case access pattern, and a single
 //! `u8` store is naturally torn-free.
 //!
-//! On open, we verify a `gerbera_task_hash` entry in the array's
+//! On open, we verify a `daisy_task_hash` entry in the array's
 //! `attributes` matching the task's `(total_roi, read_roi, write_roi,
 //! fit)`. A mismatch means the stored marker was written for a
 //! *different* task layout and would produce wrong skip decisions; we
@@ -72,7 +72,7 @@ pub fn compute_task_hash(
     fit: &Fit,
 ) -> String {
     let mut h = Sha256::new();
-    h.update(b"gerbera-done-marker:v1\n");
+    h.update(b"daisy-done-marker:v1\n");
     for (label, roi) in [("total", total_roi), ("read", read_roi), ("write", write_roi)] {
         h.update(label.as_bytes());
         h.update(b":offset=");
@@ -216,7 +216,7 @@ impl DoneMarker {
             },
             "fill_value": 0,
             "codecs": [ { "name": "bytes" } ],
-            "attributes": { "gerbera_task_hash": task_hash },
+            "attributes": { "daisy_task_hash": task_hash },
             "storage_transformers": []
         });
 
@@ -372,12 +372,12 @@ fn verify_existing(
     // message ("rm -rf …") and almost always also catches shape changes.
     let stored_hash = metadata
         .get("attributes")
-        .and_then(|a| a.get("gerbera_task_hash"))
+        .and_then(|a| a.get("daisy_task_hash"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     let stored_hash = stored_hash.ok_or_else(|| DoneMarkerError::LayoutMismatch {
         path: root.to_path_buf(),
-        stored_hash: "<missing zarr.json/attributes.gerbera_task_hash>".to_string(),
+        stored_hash: "<missing zarr.json/attributes.daisy_task_hash>".to_string(),
         expected_hash: expected_hash.to_string(),
     })?;
     if stored_hash != expected_hash {
@@ -519,7 +519,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let p = std::env::temp_dir().join(format!("gerbera-done-marker-test-{n}"));
+        let p = std::env::temp_dir().join(format!("daisy-done-marker-test-{n}"));
         let _ = std::fs::remove_dir_all(&p);
         p
     }

@@ -6,9 +6,9 @@
 # blockwise-agglomerate with `mwatershed.agglom` — but dispatched in
 # **worker-function mode**.
 #
-# A worker function takes **zero arguments**. Gerbera spawns one copy per
-# worker slot; each copy creates a `gerbera.Client` (configured via the
-# `GERBERA_CONTEXT` environment variable the server injects) and loops
+# A worker function takes **zero arguments**. Daisy spawns one copy per
+# worker slot; each copy creates a `daisy.Client` (configured via the
+# `DAISY_CONTEXT` environment variable the server injects) and loops
 # over `client.acquire_block()` until it returns `None`.
 #
 # Use this mode when a worker needs **per-worker setup** you want to
@@ -30,12 +30,12 @@ import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
 
-import gerbera
-import gerbera.logging as gl
+import daisy
+import daisy.logging as gl
 
 # Write per-worker logs to a fresh temp dir so the example doesn't
-# accumulate `gerbera_logs/` in the working directory across runs.
-_TMP = Path(tempfile.mkdtemp(prefix="gerbera_worker_function_"))
+# accumulate `daisy_logs/` in the working directory across runs.
+_TMP = Path(tempfile.mkdtemp(prefix="daisy_worker_function_"))
 gl.set_log_basedir(_TMP / "logs")
 print(f"output paths under: {_TMP}")
 
@@ -111,7 +111,7 @@ plt.axis("off")
 # %% [markdown]
 # ## Visualise the block tiling
 #
-# Gerbera tiles the image into `BLOCK × BLOCK` non-overlapping tiles
+# Daisy tiles the image into `BLOCK × BLOCK` non-overlapping tiles
 # with `read_roi == write_roi`. mutex watershed runs independently on
 # each tile.
 
@@ -128,13 +128,13 @@ ax.axis("off")
 # %% [markdown]
 # ## Define the worker function
 #
-# The worker function takes **zero arguments**. That arity is how gerbera
+# The worker function takes **zero arguments**. That arity is how daisy
 # distinguishes it from a block-function: `inspect.getfullargspec` is
 # called on your callable at task-build time.
 #
 # Inside the worker we:
 # 1. run any one-time setup (here, stand-in `expensive_model_load`),
-# 2. build a `Client()` — it reads `GERBERA_CONTEXT` from the env to
+# 2. build a `Client()` — it reads `DAISY_CONTEXT` from the env to
 #    find the server's host/port/task_id/worker_id,
 # 3. loop on `client.acquire_block()` until it returns `None`, running
 #    `mwatershed.agglom` on each block's affinity tile.
@@ -167,7 +167,7 @@ def worker():
     expensive_model_load()
     log({"tid": tid, "event": "ready", "t": time.perf_counter() - t_start})
 
-    client = gerbera.Client()
+    client = daisy.Client()
     n_blocks = 0
     while True:
         with client.acquire_block() as block:
@@ -199,24 +199,24 @@ def worker():
 # %% [markdown]
 # ## Run the task
 #
-# Because `worker` takes zero positional arguments, gerbera registers it
+# Because `worker` takes zero positional arguments, daisy registers it
 # as a `spawn_function` instead of a per-block callback. `max_workers=4`
-# means gerbera spawns four worker threads, each of which calls `worker()`
+# means daisy spawns four worker threads, each of which calls `worker()`
 # exactly once and loops internally.
 
 # %%
-task = gerbera.Task(
+task = daisy.Task(
     task_id="mws_worker",
-    total_roi=gerbera.Roi([0, 0], [H, W]),
-    read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-    write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+    total_roi=daisy.Roi([0, 0], [H, W]),
+    read_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
+    write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
     process_function=worker,
     read_write_conflict=False,
     max_workers=NUM_WORKERS,
 )
 
 t0 = time.perf_counter()
-ok = gerbera.run_blockwise([task], multiprocessing=True)
+ok = daisy.run_blockwise([task], multiprocessing=True)
 elapsed = time.perf_counter() - t0
 
 assert ok, "some blocks failed"
@@ -281,7 +281,7 @@ fig.tight_layout()
 #
 # ### Performance note
 #
-# `gerbera.Client` is synchronous and wraps `tokio::runtime::block_on`.
+# `daisy.Client` is synchronous and wraps `tokio::runtime::block_on`.
 # The GIL is released around every blocking call (`py.detach` in
 # `py_sync_client.rs`) so the four workers really do overlap their TCP
 # round-trips and `mwatershed.agglom` work — the timeline should show

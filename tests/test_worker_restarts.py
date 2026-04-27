@@ -15,7 +15,7 @@ import time
 
 import pytest
 
-import gerbera
+import daisy
 
 
 def _always_crashing_worker():
@@ -27,11 +27,11 @@ def _always_crashing_worker():
 def test_restart_cap_terminates_task_and_marks_remaining_failed():
     """A worker-function task whose worker always crashes should stop
     respawning after `max_worker_restarts` and abandon the rest."""
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="crashy",
-        total_roi=gerbera.Roi([0], [80]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=_always_crashing_worker,
         read_write_conflict=False,
         max_workers=1,
@@ -39,7 +39,7 @@ def test_restart_cap_terminates_task_and_marks_remaining_failed():
         max_worker_restarts=3,  # tight cap so the test stays fast
     )
 
-    server = gerbera.Server()
+    server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
 
     state = states["crashy"]
@@ -68,11 +68,11 @@ def test_task_abandonment_does_not_block_other_tasks():
     def good_worker(block):
         time.sleep(0.001)
 
-    bad = gerbera.Task(
+    bad = daisy.Task(
         task_id="bad",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=_always_crashing_worker,
         read_write_conflict=False,
         max_workers=1,
@@ -80,18 +80,18 @@ def test_task_abandonment_does_not_block_other_tasks():
         max_worker_restarts=0,  # zero — first failure abandons
     )
 
-    good = gerbera.Task(
+    good = daisy.Task(
         task_id="good",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=good_worker,
         read_write_conflict=False,
         max_workers=2,
         max_retries=0,
     )
 
-    server = gerbera.Server()
+    server = daisy.Server()
     states = server.run_blockwise([bad, good], progress=False)
 
     # Abandoned task's remaining blocks are accounted as orphaned,
@@ -110,11 +110,11 @@ def test_abandoned_upstream_unblocks_downstream():
     forever for any downstream task whose input was never produced.
     The runner must propagate the abandonment so downstream tasks'
     remaining blocks count as orphaned and `is_done()` returns true."""
-    upstream = gerbera.Task(
+    upstream = daisy.Task(
         task_id="dead_upstream",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=_always_crashing_worker,
         read_write_conflict=False,
         max_workers=1,
@@ -125,11 +125,11 @@ def test_abandoned_upstream_unblocks_downstream():
     def good_worker(block):
         pass
 
-    downstream = gerbera.Task(
+    downstream = daisy.Task(
         task_id="downstream",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=good_worker,
         read_write_conflict=False,
         max_workers=2,
@@ -137,7 +137,7 @@ def test_abandoned_upstream_unblocks_downstream():
         upstream_tasks=[upstream],
     )
 
-    server = gerbera.Server()
+    server = daisy.Server()
     # Hard timeout via signal would be cleaner but pytest-timeout
     # isn't installed. The bug surfaces as the run hanging until
     # SIGINT, so a long runtime here would still flag a regression
@@ -163,7 +163,7 @@ def _block_holding_worker():
     """0-arg worker that acquires blocks one at a time and crashes
     while holding one. Reproduces the race between the in-flight
     block's release message and the worker-thread exit signal."""
-    import gerbera as g
+    import daisy as g
     import time
     client = g.Client()
     while True:
@@ -185,11 +185,11 @@ def test_abandonment_handles_in_flight_block_release_race():
     Run several iterations to flush out the timing-dependent race.
     """
     for _ in range(5):
-        task = gerbera.Task(
+        task = daisy.Task(
             task_id="race_test",
-            total_roi=gerbera.Roi([0], [200]),
-            read_roi=gerbera.Roi([0], [10]),
-            write_roi=gerbera.Roi([0], [10]),
+            total_roi=daisy.Roi([0], [200]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
             process_function=_block_holding_worker,
             read_write_conflict=False,
             max_workers=4,
@@ -197,7 +197,7 @@ def test_abandonment_handles_in_flight_block_release_race():
             max_worker_restarts=2,
         )
 
-        server = gerbera.Server()
+        server = daisy.Server()
         states = server.run_blockwise([task], progress=False)
         state = states["race_test"]
         assert state.is_done(), \
@@ -221,11 +221,11 @@ def test_block_function_failure_kills_worker_and_drives_abandonment():
     stuck at zero. The user wouldn't see the abandonment they
     expected; the run would just slog through all blocks.
     """
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="buggy_block_fn",
-        total_roi=gerbera.Roi([0], [80]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=_always_failing_block,
         read_write_conflict=False,
         max_workers=1,
@@ -233,7 +233,7 @@ def test_block_function_failure_kills_worker_and_drives_abandonment():
         max_worker_restarts=3,
     )
 
-    server = gerbera.Server()
+    server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
 
     state = states["buggy_block_fn"]
@@ -257,18 +257,18 @@ def test_block_function_success_does_not_kill_worker():
     def fine(block):
         pass
 
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="clean_block_fn",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=fine,
         read_write_conflict=False,
         max_workers=2,
         max_retries=0,
     )
 
-    server = gerbera.Server()
+    server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
     state = states["clean_block_fn"]
     assert state.is_done()
@@ -300,22 +300,22 @@ def test_healthy_upstream_does_not_repopulate_abandoned_downstream():
     def healthy(block):
         pass
 
-    upstream = gerbera.Task(
+    upstream = daisy.Task(
         task_id="healthy_upstream",
-        total_roi=gerbera.Roi([0], [80]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=healthy,
         read_write_conflict=False,
         max_workers=2,
         max_retries=0,
     )
 
-    downstream = gerbera.Task(
+    downstream = daisy.Task(
         task_id="crashy_downstream",
-        total_roi=gerbera.Roi([0], [80]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=_instantly_crashing_worker,
         read_write_conflict=False,
         max_workers=1,
@@ -324,7 +324,7 @@ def test_healthy_upstream_does_not_repopulate_abandoned_downstream():
         upstream_tasks=[upstream],
     )
 
-    server = gerbera.Server()
+    server = daisy.Server()
     states = server.run_blockwise([upstream, downstream], progress=False)
 
     assert states["healthy_upstream"].is_done()
@@ -341,17 +341,17 @@ def test_clean_run_does_not_count_failures():
     def fine(b):
         pass
 
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="clean",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=fine,
         read_write_conflict=False,
         max_workers=4,
         max_retries=0,
     )
-    server = gerbera.Server()
+    server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
     assert states["clean"].is_done()
     assert states["clean"].completed_count == 4

@@ -100,6 +100,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "daisy-core"
+version = "2.0.0"
+dependencies = [
+ "bincode",
+ "libc",
+ "memmap2",
+ "serde",
+ "serde_json",
+ "sha2",
+ "sysinfo",
+ "thiserror",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "daisy-py"
+version = "2.0.0"
+dependencies = [
+ "daisy-core",
+ "libc",
+ "pyo3",
+ "tokio",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -133,32 +159,6 @@ checksum = "85649ca51fd72272d7821adaf274ad91c288277713d9c18820d8499a7ff69e9a"
 dependencies = [
  "typenum",
  "version_check",
-]
-
-[[package]]
-name = "gerbera-core"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "libc",
- "memmap2",
- "serde",
- "serde_json",
- "sha2",
- "sysinfo",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "gerbera-py"
-version = "0.1.0"
-dependencies = [
- "gerbera-core",
- "libc",
- "pyo3",
- "tokio",
 ]
 
 [[package]]

@@ -4,7 +4,7 @@ Per-worker, per-task, and process-wide statistics collected during a run. Surfac
 
 ## What gets collected
 
-Three nested layers, defined in gerbera-core/src/run_stats.rs:
+Three nested layers, defined in daisy-core/src/run_stats.rs:
 
 ```rust
 pub struct RunStats {
@@ -64,7 +64,7 @@ The slope is reported as ms-per-block as the run progresses, so a slope of `+0.0
 
 ## Output format
 
-Printed as part of `gerbera.run_blockwise(...)`:
+Printed as part of `daisy.run_blockwise(...)`:
 
 ```
 Resource Utilization
@@ -96,6 +96,6 @@ REFACTOR 2.4 has a proposal for emitting per-block timings as a JSON stream, whi
 
 ## Where to look
 
-- `gerbera-core/src/run_stats.rs` — types and `linear_trend`.
-- `gerbera-core/src/server.rs::run_blockwise` — the `process_stats` sampler and the `task_block_durations` collection.
-- `gerbera-py/python/gerbera/_progress.py::_print_resource_utilization` — formatting.
+- `daisy-core/src/run_stats.rs` — types and `linear_trend`.
+- `daisy-core/src/server.rs::run_blockwise` — the `process_stats` sampler and the `task_block_durations` collection.
+- `daisy-py/python/daisy/_progress.py::_print_resource_utilization` — formatting.

@@ -1,7 +1,7 @@
 """User-facing Task / Scheduler / Client / Context classes.
 
 These are the constructors users hold; they wrap (or pass-through)
-the Rust-defined types in `gerbera._gerbera` and `_rs.SyncClient`.
+the Rust-defined types in `daisy._daisy` and `_rs.SyncClient`.
 
 This module has no scheduling logic, no progress-display code, and
 no run-loop entry points. Those live in `_progress.py` and
@@ -15,8 +15,8 @@ import logging
 import os
 from pathlib import Path
 
-import gerbera._gerbera as _rs
-from gerbera import logging as _worker_log
+import daisy._daisy as _rs
+from daisy import logging as _worker_log
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,14 @@ class Task:
 
     def _to_rs(self):
         upstream_rs = [t._to_rs() if isinstance(t, Task) else t for t in self.upstream_tasks]
+        # `timeout` may be a float seconds, an int, a `datetime.timedelta`,
+        # or None. Normalize to float seconds for the FFI boundary.
+        timeout_secs = None
+        if self.timeout is not None:
+            if hasattr(self.timeout, "total_seconds"):
+                timeout_secs = float(self.timeout.total_seconds())
+            else:
+                timeout_secs = float(self.timeout)
         return _rs.Task(
             task_id=self.task_id,
             total_roi=self.total_roi,
@@ -131,6 +139,7 @@ class Task:
             done_marker_path=self._resolve_done_marker_path(),
             requires=self.requires if self.requires else None,
             max_worker_restarts=self.max_worker_restarts,
+            timeout_secs=timeout_secs,
         )
 
     def requires(self):
@@ -165,7 +174,7 @@ class Scheduler:
 class Context:
     """Env-var encoding for passing server address to worker processes."""
 
-    ENV_VARIABLE = "GERBERA_CONTEXT"
+    ENV_VARIABLE = "DAISY_CONTEXT"
 
     def __init__(self, **kwargs):
         self._dict = dict(**kwargs)
@@ -260,7 +269,7 @@ class Client:
 def _wrap_for_worker_logging(task):
     """Return a shallow copy of `task` whose `process_function` is wrapped
     so that stdout/stderr emitted during the call go to the worker's log
-    files (see `gerbera.logging`)."""
+    files (see `daisy.logging`)."""
     if task.process_function is None:
         return task
 

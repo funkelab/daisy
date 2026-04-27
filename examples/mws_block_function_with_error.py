@@ -7,12 +7,12 @@
 #
 # What this example demonstrates:
 #
-# - `gerbera.run_blockwise` catches the exception in the Python wrapper
+# - `daisy.run_blockwise` catches the exception in the Python wrapper
 #   and still returns — the overall task is marked failed via the post-run
 #   **Execution Summary** report, not via a raised exception from
 #   `run_blockwise`.
 # - The full traceback for each failing attempt is written to that
-#   worker's `.err` file under `gerbera_logs/<task_id>/`.
+#   worker's `.err` file under `daisy_logs/<task_id>/`.
 # - Default `max_retries=2` means the scheduler retries the block twice
 #   more before giving up, so you'll see three tracebacks per failing
 #   block (possibly on different workers).
@@ -35,22 +35,22 @@ import mwatershed
 import numpy as np
 import zarr
 
-import gerbera
-import gerbera.logging as gl
+import daisy
+import daisy.logging as gl
 
 # Write per-worker logs and the persistent done-marker to a fresh temp
-# dir so the example doesn't accumulate `gerbera_logs/` and
-# `gerbera-markers.zarr/` in the working directory across runs.
-_TMP = Path(tempfile.mkdtemp(prefix="gerbera_block_function_with_error_"))
+# dir so the example doesn't accumulate `daisy_logs/` and
+# `daisy-markers.zarr/` in the working directory across runs.
+_TMP = Path(tempfile.mkdtemp(prefix="daisy_block_function_with_error_"))
 gl.set_log_basedir(_TMP / "logs")
 print(f"output paths under: {_TMP}")
 
 # %% [markdown]
 # ## Debug configuration: tee worker output to terminal + file
 #
-# Gerbera's default log mode is `"file"` — worker-thread stdout and
+# Daisy's default log mode is `"file"` — worker-thread stdout and
 # stderr during `process_block` land **only** in
-# `gerbera_logs/<task_id>/worker_<slot>.{out,err}` and never reach the
+# `daisy_logs/<task_id>/worker_<slot>.{out,err}` and never reach the
 # terminal. That matches daisy's behaviour and keeps a clean console on
 # happy-path runs, but it's a bad fit when you're iterating on broken
 # code.
@@ -62,7 +62,7 @@ print(f"output paths under: {_TMP}")
 
 # %%
 gl.set_log_mode("both")
-# Structured warnings from gerbera's own logger — one per failed
+# Structured warnings from daisy's own logger — one per failed
 # attempt — show up at WARNING. Raise to ERROR to silence them.
 gl.set_log_level("WARNING")
 # Render tracebacks with `rich`: source context per frame, ANSI colour,
@@ -143,7 +143,7 @@ plt.axis("off")
 # %% [markdown]
 # ## Visualise the block tiling
 #
-# Gerbera tiles the image into `BLOCK × BLOCK` non-overlapping tiles
+# Daisy tiles the image into `BLOCK × BLOCK` non-overlapping tiles
 # with `read_roi == write_roi`. The tile we're about to deliberately
 # fail is outlined in red so you can see exactly which chunk we're
 # about to blow up.
@@ -169,7 +169,7 @@ ax.axis("off")
 #
 # Before doing any real work, check whether this block is the designated
 # bad tile. If so, raise — simulating a corrupted chunk, a missing input
-# file, a CUDA OOM, whatever. Gerbera's Python wrapper routes the
+# file, a CUDA OOM, whatever. Daisy's Python wrapper routes the
 # traceback to stderr (which is redirected to this worker's `.err`) and
 # re-raises so the Rust side marks the block failed.
 #
@@ -230,18 +230,18 @@ def process_block(block):
 # %% [markdown]
 # ## Run 1 — buggy `process_block`, one tile crashes
 #
-# `done_marker_path` points at a Zarr v3 array that gerbera maintains
+# `done_marker_path` points at a Zarr v3 array that daisy maintains
 # for us — every block that completes successfully is persisted there.
-# The failing tile is *not* persisted, so on a later run gerbera will
+# The failing tile is *not* persisted, so on a later run daisy will
 # know exactly which blocks still need to execute.
 
 # %%
 def make_task(process_function):
-    return gerbera.Task(
+    return daisy.Task(
         task_id=TASK_ID,
-        total_roi=gerbera.Roi([0, 0], [H, W]),
-        read_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
-        write_roi=gerbera.Roi([0, 0], [BLOCK, BLOCK]),
+        total_roi=daisy.Roi([0, 0], [H, W]),
+        read_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
+        write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
         process_function=process_function,
         read_write_conflict=False,
         max_workers=4,
@@ -255,7 +255,7 @@ ATTEMPTS.clear()
 _worker_ids.clear()
 _t0 = time.perf_counter()
 
-ok = gerbera.run_blockwise([make_task(process_block)], multiprocessing=True)
+ok = daisy.run_blockwise([make_task(process_block)], multiprocessing=True)
 elapsed = time.perf_counter() - _t0
 print(f"\nrun_blockwise returned ok={ok}")
 print(f"elapsed={elapsed * 1e3:.1f} ms  |  attempts={len(ATTEMPTS)}  |  "
@@ -265,7 +265,7 @@ print(f"elapsed={elapsed * 1e3:.1f} ms  |  attempts={len(ATTEMPTS)}  |  "
 # ## Debug from the worker log file
 #
 # Each worker's stdout/stderr during `process_block` is routed to
-# `gerbera_logs/<task_id>/worker_<slot>.{out,err}`. The failing tile's
+# `daisy_logs/<task_id>/worker_<slot>.{out,err}`. The failing tile's
 # traceback lands in whichever workers picked it up — across the three
 # attempts that may be more than one.
 #
@@ -390,7 +390,7 @@ fig.tight_layout()
 # ## Inspect the persistent done-marker
 #
 # Every block that succeeded in run 1 was written to a Zarr v3 array at
-# `gerbera-markers.zarr/<task_id>/`. We can `zarr.open` it like any
+# `daisy-markers.zarr/<task_id>/`. We can `zarr.open` it like any
 # other array — the cell at `(row, col)` is `1` if that tile is done.
 # After run 1 we expect 15/16 tiles done, with the failing tile at 0.
 
@@ -404,7 +404,7 @@ print(done_after_run1)
 # ## Fix the bug and rerun
 #
 # Pretend the traceback above pointed us at our bug, and we've patched
-# `process_block`. Now we rerun the *same task* — gerbera consults the
+# `process_block`. Now we rerun the *same task* — daisy consults the
 # marker for every block before dispatching, so the 15 already-done
 # tiles get skipped instantly and only the previously-failing tile
 # actually executes. This is the production-grade resume-from-failure
@@ -430,7 +430,7 @@ def process_block_fixed(block):
 
 
 _run2_attempts_before = len(ATTEMPTS)
-gerbera.run_blockwise([make_task(process_block_fixed)], multiprocessing=True)
+daisy.run_blockwise([make_task(process_block_fixed)], multiprocessing=True)
 run2_calls = len(ATTEMPTS) - _run2_attempts_before
 print(f"\nrun 2 process_block calls: {run2_calls}  "
       f"(1 expected — only the previously-failing tile)")

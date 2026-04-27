@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum GerberaError {
+pub enum DaisyError {
     #[error("block processing failed: {0}")]
     ProcessFailed(String),
 

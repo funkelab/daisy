@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::block::Block;
-use crate::error::GerberaError;
+use crate::error::DaisyError;
 
 /// Called server-side during `acquire_block` to skip already-completed blocks.
 /// Runs in the coordinator process and must be fast.
@@ -15,14 +15,14 @@ pub trait CheckBlock: Send + Sync {
 /// Called worker-side (or in serial mode, in-process) to do the actual work on
 /// a block. This is for 1-arg process functions.
 pub trait ProcessBlock: Send {
-    fn process(&self, block: &mut Block) -> Result<(), GerberaError>;
+    fn process(&self, block: &mut Block) -> Result<(), DaisyError>;
 }
 
 /// Called to spawn a worker. This is for 0-arg spawn functions (e.g.,
 /// functions that call subprocess.run). The function blocks until the
 /// worker is done.
 pub trait SpawnWorker: Send + Sync {
-    fn spawn(&self, env_context: &str) -> Result<(), GerberaError>;
+    fn spawn(&self, env_context: &str) -> Result<(), DaisyError>;
 }
 
 /// No-op checker for tasks without a check function.

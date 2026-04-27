@@ -1,23 +1,23 @@
-# Migration Report: daisy → gerbera
+# Migration Report: daisy → daisy
 
 ## Test Coverage Mapping
 
-### Daisy Tests → Gerbera Equivalents
+### Daisy Tests → Daisy Equivalents
 
-| Daisy Test | Gerbera Test | Status | Notes |
+| Daisy Test | Daisy Test | Status | Notes |
 |------------|-------------|--------|-------|
 | **test_scheduler.py** (13 tests) | **test_scheduler.py** (13 tests) | Exact match | All block IDs, ordering, and state transitions match byte-for-byte |
 | **test_dependency_graph.py** (3 tests, 6 parameterized) | **test_dependency_graph.py** (3 tests, 6 parameterized) | Exact match | Block counts, subgraph extraction, upstream/downstream symmetry |
-| **test_server.py** (1 test, 2 variants) | **test_server.py** (4 tests) | Expanded | Daisy tests both `Server` and `SerialServer` via parametrize. Gerbera tests serial mode with additional cases: 2D tasks, check functions, chained tasks |
-| **test_tcp.py** (1 test) | Rust `test_framing_roundtrip` + **test_tcp_client.py::test_no_message_after_shutdown** | Equivalent | Daisy tests raw TCP message exchange. Gerbera tests the same via Rust integration test (bincode framing) and Python-side scheduler behavior |
-| **test_client.py** (1 test) | **test_tcp_client.py::test_client_acquire_release** + Rust `test_server_client_no_conflict` | Equivalent | Daisy uses a mock server subprocess. Gerbera tests both through the Scheduler API and through real TCP in Rust |
-| **test_clients_close.py** (1 test) | **test_tcp_client.py::test_multiple_workers_complete** | Equivalent | Daisy spawns 5 subprocess workers with file locks. Gerbera verifies all blocks are processed (subprocess workers require parallel mode, not yet wired through Python) |
-| **test_dead_workers.py** (1 test) | **test_tcp_client.py::test_block_failure_recovery** + Rust `test_server_block_failure_and_retry` | Equivalent | Daisy crashes a worker via SystemExit. Gerbera tests retry logic through both Python (exception in process function) and Rust (explicit failure message) |
-| **test_worker_spawning.py** (1 test) | **test_tcp_client.py::test_worker_normal_exit_no_respawn** | Equivalent | Daisy verifies normal-exit workers aren't replaced. Gerbera verifies exact block count (no extra processing from respawn cycles) |
+| **test_server.py** (1 test, 2 variants) | **test_server.py** (4 tests) | Expanded | Daisy tests both `Server` and `SerialServer` via parametrize. Daisy tests serial mode with additional cases: 2D tasks, check functions, chained tasks |
+| **test_tcp.py** (1 test) | Rust `test_framing_roundtrip` + **test_tcp_client.py::test_no_message_after_shutdown** | Equivalent | Daisy tests raw TCP message exchange. Daisy tests the same via Rust integration test (bincode framing) and Python-side scheduler behavior |
+| **test_client.py** (1 test) | **test_tcp_client.py::test_client_acquire_release** + Rust `test_server_client_no_conflict` | Equivalent | Daisy uses a mock server subprocess. Daisy tests both through the Scheduler API and through real TCP in Rust |
+| **test_clients_close.py** (1 test) | **test_tcp_client.py::test_multiple_workers_complete** | Equivalent | Daisy spawns 5 subprocess workers with file locks. Daisy verifies all blocks are processed (subprocess workers require parallel mode, not yet wired through Python) |
+| **test_dead_workers.py** (1 test) | **test_tcp_client.py::test_block_failure_recovery** + Rust `test_server_block_failure_and_retry` | Equivalent | Daisy crashes a worker via SystemExit. Daisy tests retry logic through both Python (exception in process function) and Rust (explicit failure message) |
+| **test_worker_spawning.py** (1 test) | **test_tcp_client.py::test_worker_normal_exit_no_respawn** | Equivalent | Daisy verifies normal-exit workers aren't replaced. Daisy verifies exact block count (no extra processing from respawn cycles) |
 
 ### Total Test Counts
 
-| Suite | Daisy | Gerbera (Python) | Gerbera (Rust) |
+| Suite | Daisy | Daisy (Python) | Daisy (Rust) |
 |-------|-------|-------------------|----------------|
 | Scheduler | 13 | 13 | 1 |
 | Dependency Graph | 3 (+6 param) | 3 (+6 param) | 4 |
@@ -81,7 +81,7 @@ The standard fold-left approach (`cantor(cantor(a,b), c)`) produces different ID
 
 **Change**: Exceptions in `process_function` are caught by the serial runner and the block is marked `FAILED`, triggering retry logic.
 
-**Why**: Daisy's `SerialServer` calls `process_funcs[block.task_id](block)` without a try/except — exceptions propagate and crash the server. Gerbera's `SerialRunner` wraps the call and catches errors, matching the behavior of daisy's *distributed* server (where `_spawn_wrapper` catches `Exception`).
+**Why**: Daisy's `SerialServer` calls `process_funcs[block.task_id](block)` without a try/except — exceptions propagate and crash the server. Daisy's `SerialRunner` wraps the call and catches errors, matching the behavior of daisy's *distributed* server (where `_spawn_wrapper` catches `Exception`).
 
 **Impact**: More robust — serial mode now handles process function crashes instead of terminating.
 

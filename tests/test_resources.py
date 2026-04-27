@@ -16,7 +16,7 @@ import time
 
 import pytest
 
-import gerbera
+import daisy
 
 
 def _make_task(task_id, *, max_workers, requires=None, blocks=8, hold_ms=20,
@@ -36,11 +36,11 @@ def _make_task(task_id, *, max_workers, requires=None, blocks=8, hold_ms=20,
         if concurrency_observer is not None:
             concurrency_observer(task_id, counts["peak"])
 
-    return gerbera.Task(
+    return daisy.Task(
         task_id=task_id,
-        total_roi=gerbera.Roi([0], [total]),
-        read_roi=gerbera.Roi([0], [block]),
-        write_roi=gerbera.Roi([0], [block]),
+        total_roi=daisy.Roi([0], [total]),
+        read_roi=daisy.Roi([0], [block]),
+        write_roi=daisy.Roi([0], [block]),
         process_function=process,
         read_write_conflict=False,
         max_workers=max_workers,
@@ -53,7 +53,7 @@ def test_max_workers_caps_concurrency_without_requires(tmp_path):
     """No `requires` → resource budget irrelevant, `max_workers` is the
     only cap. Even with a huge budget, peak alive workers ≤ max_workers."""
     task, counts = _make_task("a", max_workers=3, blocks=8)
-    states = gerbera.Server().run_blockwise(
+    states = daisy.Server().run_blockwise(
         [task],
         resources={"cpu": 100},  # plenty, but task doesn't require it
     )
@@ -65,7 +65,7 @@ def test_resource_budget_caps_one_task_below_max_workers(tmp_path):
     """`requires={"cpu": 1}` with budget {"cpu": 2} caps peak at 2 even
     when max_workers=8."""
     task, counts = _make_task("a", max_workers=8, requires={"cpu": 1})
-    states = gerbera.Server().run_blockwise([task], resources={"cpu": 2})
+    states = daisy.Server().run_blockwise([task], resources={"cpu": 2})
     assert states["a"].is_done()
     assert counts["peak"] <= 2, f"peak {counts['peak']} exceeded budget"
 
@@ -87,11 +87,11 @@ def test_two_tasks_share_a_resource(tmp_path):
                 with cross_lock:
                     cross_alive[task_id] -= 1
 
-        return gerbera.Task(
+        return daisy.Task(
             task_id=task_id,
-            total_roi=gerbera.Roi([0], [80]),
-            read_roi=gerbera.Roi([0], [10]),
-            write_roi=gerbera.Roi([0], [10]),
+            total_roi=daisy.Roi([0], [80]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
             process_function=process,
             read_write_conflict=False,
             max_workers=8,
@@ -100,7 +100,7 @@ def test_two_tasks_share_a_resource(tmp_path):
         )
 
     tasks = [make("a"), make("b")]
-    states = gerbera.Server().run_blockwise(tasks, resources={"cpu": 4})
+    states = daisy.Server().run_blockwise(tasks, resources={"cpu": 4})
     assert all(states[t].is_done() for t in ("a", "b"))
     assert cross_alive["combined_peak"] <= 4, (
         f"combined peak {cross_alive['combined_peak']} exceeded budget cpu=4"
@@ -118,7 +118,7 @@ def test_disjoint_resources_run_in_parallel(tmp_path):
         "gpu", max_workers=2, requires={"gpu": 1}, hold_ms=30
     )
 
-    states = gerbera.Server().run_blockwise(
+    states = daisy.Server().run_blockwise(
         [cpu_task, gpu_task],
         resources={"cpu": 4, "gpu": 2},
     )
@@ -132,11 +132,11 @@ def test_disjoint_resources_run_in_parallel(tmp_path):
 def test_requires_exceeds_budget_hard_errors():
     """A task whose per-worker `requires` exceeds the global budget must
     error at startup, not silently never spawn."""
-    bad_task = gerbera.Task(
+    bad_task = daisy.Task(
         task_id="greedy",
-        total_roi=gerbera.Roi([0], [10]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [10]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=lambda b: None,
         read_write_conflict=False,
         max_workers=1,
@@ -144,7 +144,7 @@ def test_requires_exceeds_budget_hard_errors():
         requires={"gpu": 8},
     )
     with pytest.raises(Exception) as exc_info:
-        gerbera.Server().run_blockwise([bad_task], resources={"gpu": 1})
+        daisy.Server().run_blockwise([bad_task], resources={"gpu": 1})
     msg = str(exc_info.value).lower()
     assert "greedy" in msg
     assert "gpu" in msg
@@ -170,11 +170,11 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
                 with cross_lock:
                     cross_alive[task_id] -= 1
 
-        return gerbera.Task(
+        return daisy.Task(
             task_id=task_id,
-            total_roi=gerbera.Roi([0], [40]),
-            read_roi=gerbera.Roi([0], [10]),
-            write_roi=gerbera.Roi([0], [10]),
+            total_roi=daisy.Roi([0], [40]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
             process_function=process,
             read_write_conflict=False,
             max_workers=4,
@@ -185,7 +185,7 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
 
     filt = make("filter")
     agg = make("agglom", upstream=filt)
-    states = gerbera.Server().run_blockwise([filt, agg], resources={"cpu": 4})
+    states = daisy.Server().run_blockwise([filt, agg], resources={"cpu": 4})
     assert states["filter"].is_done()
     assert states["agglom"].is_done()
     # Combined peak respects the budget.
@@ -195,15 +195,15 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
 
 
 def test_num_workers_keyword_is_rejected():
-    """`num_workers=` was the daisy-style keyword; gerbera now only
+    """`num_workers=` was the daisy-style keyword; daisy now only
     accepts `max_workers=`. Passing `num_workers=` should be a
     `TypeError` from the constructor signature."""
     with pytest.raises(TypeError):
-        gerbera.Task(
+        daisy.Task(
             task_id="legacy",
-            total_roi=gerbera.Roi([0], [20]),
-            read_roi=gerbera.Roi([0], [10]),
-            write_roi=gerbera.Roi([0], [10]),
+            total_roi=daisy.Roi([0], [20]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
             process_function=lambda b: None,
             read_write_conflict=False,
             num_workers=2,

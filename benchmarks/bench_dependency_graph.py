@@ -1,7 +1,7 @@
 """Benchmark: dependency graph block iteration speed.
 
 Measures time to iterate through all blocks in a dependency graph for a
-volume chunked into ~1M blocks. Compares daisy (Python) vs gerbera (Rust).
+volume chunked into ~1M blocks. Compares daisy (Python) vs daisy (Rust).
 """
 
 import time
@@ -11,9 +11,9 @@ import json
 from daisy import BlockwiseDependencyGraph as DaisyGraph
 from daisy import Roi as DaisyRoi
 
-# --- Gerbera ---
-from gerbera import BlockwiseDependencyGraph as GerberaGraph
-from gerbera import Roi as GerberaRoi
+# --- Daisy ---
+from daisy import BlockwiseDependencyGraph as DaisyGraph
+from daisy import Roi as DaisyRoi
 
 
 def bench_daisy(total_shape, block_shape, context, read_write_conflict):
@@ -44,14 +44,14 @@ def bench_daisy(total_shape, block_shape, context, read_write_conflict):
     }
 
 
-def bench_gerbera(total_shape, block_shape, context, read_write_conflict):
-    total_roi = GerberaRoi([0, 0, 0], list(total_shape))
-    write_roi = GerberaRoi([context, context, context], list(block_shape))
+def bench_daisy(total_shape, block_shape, context, read_write_conflict):
+    total_roi = DaisyRoi([0, 0, 0], list(total_shape))
+    write_roi = DaisyRoi([context, context, context], list(block_shape))
     read_shape = [b + 2 * context for b in block_shape]
-    read_roi = GerberaRoi([0, 0, 0], read_shape)
+    read_roi = DaisyRoi([0, 0, 0], read_shape)
 
     t0 = time.perf_counter()
-    graph = GerberaGraph(
+    graph = DaisyGraph(
         "bench", read_roi, write_roi, read_write_conflict, "valid",
         total_read_roi=total_roi,
     )
@@ -88,16 +88,16 @@ def run_benchmarks():
         print(f"{'='*60}")
 
         # Warmup
-        bench_gerbera(total_shape, block_shape, context, conflict)
+        bench_daisy(total_shape, block_shape, context, conflict)
 
         # Daisy
         d = bench_daisy(total_shape, block_shape, context, conflict)
         print(f"  daisy:   {d['blocks']:>8} blocks, {d['levels']:>3} levels, "
               f"build={d['build_s']:.4f}s  iter={d['iter_s']:.4f}s  total={d['total_s']:.4f}s")
 
-        # Gerbera
-        g = bench_gerbera(total_shape, block_shape, context, conflict)
-        print(f"  gerbera: {g['blocks']:>8} blocks, {g['levels']:>3} levels, "
+        # Daisy
+        g = bench_daisy(total_shape, block_shape, context, conflict)
+        print(f"  daisy: {g['blocks']:>8} blocks, {g['levels']:>3} levels, "
               f"build={g['build_s']:.4f}s  iter={g['iter_s']:.4f}s  total={g['total_s']:.4f}s")
 
         speedup = d['total_s'] / g['total_s'] if g['total_s'] > 0 else float('inf')
@@ -106,7 +106,7 @@ def run_benchmarks():
         results.append({
             "label": label,
             "daisy": d,
-            "gerbera": g,
+            "daisy": g,
             "speedup": speedup,
         })
 
@@ -122,19 +122,19 @@ def plot_results(results):
 
     labels = [r["label"] for r in results]
     daisy_times = [r["daisy"]["total_s"] for r in results]
-    gerbera_times = [r["gerbera"]["total_s"] for r in results]
+    daisy_times = [r["daisy"]["total_s"] for r in results]
 
     x = range(len(labels))
     width = 0.35
 
     fig, ax = plt.subplots(figsize=(12, 6))
     bars1 = ax.bar([i - width/2 for i in x], daisy_times, width, label="daisy (Python)", color="#4878CF")
-    bars2 = ax.bar([i + width/2 for i in x], gerbera_times, width, label="gerbera (Rust)", color="#D65F5F")
+    bars2 = ax.bar([i + width/2 for i in x], daisy_times, width, label="daisy (Rust)", color="#D65F5F")
 
     for bar, t in zip(bars1, daisy_times):
         ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.01,
                 f'{t:.3f}s', ha='center', va='bottom', fontsize=9)
-    for bar, t in zip(bars2, gerbera_times):
+    for bar, t in zip(bars2, daisy_times):
         ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.01,
                 f'{t:.3f}s', ha='center', va='bottom', fontsize=9)
 
@@ -145,7 +145,7 @@ def plot_results(results):
     ax.legend()
 
     for i, r in enumerate(results):
-        ax.text(i, max(daisy_times[i], gerbera_times[i]) * 1.15,
+        ax.text(i, max(daisy_times[i], daisy_times[i]) * 1.15,
                 f'{r["speedup"]:.1f}x', ha='center', fontsize=11, fontweight='bold')
 
     plt.tight_layout()

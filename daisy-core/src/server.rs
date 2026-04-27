@@ -117,7 +117,7 @@ impl Server {
         if let Err(e) = scheduler.init_done_markers() {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
         }
-        let mut bookkeeper = BlockBookkeeper::new(None);
+        let mut bookkeeper = BlockBookkeeper::new();
 
         let (msg_tx, mut msg_rx) = mpsc::channel::<ClientMessage>(256);
 
@@ -955,7 +955,11 @@ impl Server {
         match scheduler.acquire_block(&task_id) {
             Some(block) => {
                 debug!(block_id = %block.block_id, "sending block");
-                bookkeeper.notify_block_sent(block.clone(), cm.addr);
+                let timeout = scheduler
+                    .task_map
+                    .get(&task_id)
+                    .and_then(|t| t.timeout);
+                bookkeeper.notify_block_sent(block.clone(), cm.addr, timeout);
                 let _ = cm.reply_tx.try_send(Message::SendBlock { block });
             }
             None => {

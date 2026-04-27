@@ -1,5 +1,5 @@
-import gerbera as daisy
-from gerbera.logging import set_log_basedir
+import daisy as daisy
+from daisy.logging import set_log_basedir
 
 
 import logging

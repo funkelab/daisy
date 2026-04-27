@@ -204,6 +204,45 @@ wheels = [
 ]
 
 [[package]]
+name = "daisy"
+version = "2.0.0"
+source = { editable = "." }
+dependencies = [
+    { name = "tqdm" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "filelock" },
+]
+examples = [
+    { name = "ipykernel" },
+    { name = "lsd-lite" },
+    { name = "matplotlib" },
+    { name = "mwatershed" },
+    { name = "numpy" },
+    { name = "rich" },
+    { name = "scikit-image" },
+    { name = "zarr" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "tqdm", specifier = ">=4.65" }]
+
+[package.metadata.requires-dev]
+dev = [{ name = "filelock", specifier = ">=3.29.0" }]
+examples = [
+    { name = "ipykernel", specifier = ">=7.2.0" },
+    { name = "lsd-lite", specifier = ">=1.0.0" },
+    { name = "matplotlib", specifier = ">=3.10.9" },
+    { name = "mwatershed", specifier = ">=0.5.2" },
+    { name = "numpy", specifier = ">=2.2.6" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "scikit-image", specifier = ">=0.26.0" },
+    { name = "zarr", specifier = ">=3.1.6" },
+]
+
+[[package]]
 name = "debugpy"
 version = "1.8.20"
 source = { registry = "https://pypi.org/simple" }
@@ -323,45 +362,6 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/7f/16/0a4c051bbe8ae7459da349e274f5f0e7e5183f8c5dce82682067be014831/funlib.geometry-0.3.0.tar.gz", hash = "sha256:f96aea66b3f38b8bad5bb5c3f748350d5001093a774a13bf265923f8c51a010b", size = 9660, upload-time = "2024-01-03T05:19:55.164Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/59/f8/24495180ff0ab4cb3b7b7ce985ca5497897818145d0d35551f0a087fb4f0/funlib.geometry-0.3.0-py3-none-any.whl", hash = "sha256:f03ef8438674205b0faef1a780b2a346daa115ac2b83962f71a63288c269b6d0", size = 7978, upload-time = "2024-01-03T05:19:53.61Z" },
-]
-
-[[package]]
-name = "gerbera"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "tqdm" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "filelock" },
-]
-examples = [
-    { name = "ipykernel" },
-    { name = "lsd-lite" },
-    { name = "matplotlib" },
-    { name = "mwatershed" },
-    { name = "numpy" },
-    { name = "rich" },
-    { name = "scikit-image" },
-    { name = "zarr" },
-]
-
-[package.metadata]
-requires-dist = [{ name = "tqdm", specifier = ">=4.65" }]
-
-[package.metadata.requires-dev]
-dev = [{ name = "filelock", specifier = ">=3.29.0" }]
-examples = [
-    { name = "ipykernel", specifier = ">=7.2.0" },
-    { name = "lsd-lite", specifier = ">=1.0.0" },
-    { name = "matplotlib", specifier = ">=3.10.9" },
-    { name = "mwatershed", specifier = ">=0.5.2" },
-    { name = "numpy", specifier = ">=2.2.6" },
-    { name = "rich", specifier = ">=15.0.0" },
-    { name = "scikit-image", specifier = ">=0.26.0" },
-    { name = "zarr", specifier = ">=3.1.6" },
 ]
 
 [[package]]

@@ -1,11 +1,11 @@
-use gerbera_core::block::BlockStatus;
-use gerbera_core::client::Client;
-use gerbera_core::protocol::{read_message, write_message, Message};
-use gerbera_core::resource_allocator::ResourceBudget;
-use gerbera_core::roi::Roi;
-use gerbera_core::server::Server;
-use gerbera_core::task::Task;
-use gerbera_core::worker_pool::WorkerPool;
+use daisy_core::block::BlockStatus;
+use daisy_core::client::Client;
+use daisy_core::protocol::{read_message, write_message, Message};
+use daisy_core::resource_allocator::ResourceBudget;
+use daisy_core::roi::Roi;
+use daisy_core::server::Server;
+use daisy_core::task::Task;
+use daisy_core::worker_pool::WorkerPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 

@@ -1,4 +1,4 @@
-import gerbera as daisy
+import daisy as daisy
 
 import time
 import random

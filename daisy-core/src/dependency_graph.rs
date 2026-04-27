@@ -425,9 +425,46 @@ impl BlockwiseDependencyGraph {
         let global_offset =
             self.total_read_roi.offset() - self.block_read_roi.offset();
 
-        cartesian_product(&ranges)
-            .into_iter()
+        // Lazy cartesian product — avoids allocating a Vec<Vec<i64>> of
+        // length `num_blocks`, which on a 1M-block 1D task is a million
+        // small allocations of upfront cost. With this iterator, blocks
+        // are produced on demand as the scheduler hands them out.
+        LazyCartesian::new(ranges)
             .map(move |offsets| Coordinate::new(offsets) + &global_offset)
+    }
+
+    /// Owned iterator over the blocks of `level`. Holds clones of the
+    /// per-block data so it's `Send + 'static` and storable in a
+    /// `Box<dyn Iterator<Item = Block> + Send>` on a `ProcessingQueue`.
+    /// The hot path used by `Scheduler::new` for root-level dispatch.
+    pub fn level_blocks_owned(&self, level: usize) -> LazyBlockIter {
+        let level_offset = &self.level_offsets[level];
+        let ranges: Vec<Vec<i64>> = (0..level_offset.dims())
+            .map(|d| {
+                let lo = level_offset[d];
+                let hi = self.total_write_roi.shape()[d] + 1 - self.rounding_term[d];
+                let step = self.level_stride[d];
+                (lo..hi).step_by(step as usize).collect()
+            })
+            .collect();
+        let global_offset =
+            self.total_read_roi.offset() - self.block_read_roi.offset();
+        LazyBlockIter {
+            total_read_roi: self.total_read_roi.clone(),
+            total_write_roi: self.total_write_roi.clone(),
+            block_read_roi: self.block_read_roi.clone(),
+            block_write_roi: self.block_write_roi.clone(),
+            task_id: self.task_id.clone(),
+            fit: self.fit.clone(),
+            global_offset,
+            cart: LazyCartesian::new(ranges),
+        }
+    }
+
+    /// Owned root-level iterator (level 0). Same as `level_blocks_owned(0)`,
+    /// matching `root_gen` semantically.
+    pub fn root_iter_owned(&self) -> LazyBlockIter {
+        self.level_blocks_owned(0)
     }
 
     fn inclusion_criteria(&self, block: &Block) -> bool {
@@ -532,15 +569,17 @@ impl DependencyGraph {
         self.task_graphs[task_id].num_roots()
     }
 
-    /// Return a mapping of root task_id → (num_roots, root block iterator).
-    /// The iterator is boxed and sent so it can be stored in a ProcessingQueue.
-    pub fn roots(&self) -> HashMap<String, (i64, Vec<Block>)> {
+    /// Return a mapping of root task_id → (num_roots, lazy root iterator).
+    /// The iterator is owned (`Send + 'static`) and storable directly in a
+    /// `ProcessingQueue` — no upfront materialization of the full block set.
+    pub fn roots(&self) -> HashMap<String, (i64, Box<dyn Iterator<Item = Block> + Send>)> {
         self.root_tasks()
             .into_iter()
             .map(|task_id| {
                 let num = self.num_roots(&task_id);
-                let blocks: Vec<Block> = self.task_graphs[&task_id].root_gen().collect();
-                (task_id, (num, blocks))
+                let iter: Box<dyn Iterator<Item = Block> + Send> =
+                    Box::new(self.task_graphs[&task_id].root_iter_owned());
+                (task_id, (num, iter))
             })
             .collect()
     }
@@ -574,7 +613,10 @@ impl DependencyGraph {
 }
 
 /// Compute the Cartesian product of a list of per-dimension value lists.
-/// Returns a `Vec` of tuples represented as `Vec<i64>`.
+/// Returns a `Vec` of tuples represented as `Vec<i64>`. Eager — fine for
+/// the small per-call uses (level offsets, sub-graph blocks). The hot
+/// per-block iteration in `compute_level_block_offsets` uses the lazy
+/// `LazyCartesian` instead.
 fn cartesian_product(dim_values: &[Vec<i64>]) -> Vec<Vec<i64>> {
     if dim_values.is_empty() {
         return vec![vec![]];
@@ -592,6 +634,121 @@ fn cartesian_product(dim_values: &[Vec<i64>]) -> Vec<Vec<i64>> {
         result = next;
     }
     result
+}
+
+/// Owned, lazy iterator over the cartesian product of per-dimension value
+/// lists. Produces tuples in the same row-major order as
+/// `cartesian_product` (rightmost dimension varies fastest), so block
+/// IDs derived from positions stay identical.
+///
+/// `Send + 'static` (no borrows), suitable for storage inside a
+/// `Box<dyn Iterator + Send>` on a `ProcessingQueue`.
+pub struct LazyCartesian {
+    values: Vec<Vec<i64>>,
+    indices: Vec<usize>,
+    done: bool,
+}
+
+impl LazyCartesian {
+    pub fn new(values: Vec<Vec<i64>>) -> Self {
+        // Empty in any dimension → no products at all.
+        let any_empty = values.iter().any(|v| v.is_empty());
+        let dims = values.len();
+        Self {
+            values,
+            indices: vec![0; dims],
+            done: any_empty,
+        }
+    }
+}
+
+impl Iterator for LazyCartesian {
+    type Item = Vec<i64>;
+
+    fn next(&mut self) -> Option<Vec<i64>> {
+        if self.done {
+            return None;
+        }
+        // Snapshot the current tuple before advancing the counter.
+        let item: Vec<i64> = self
+            .indices
+            .iter()
+            .zip(self.values.iter())
+            .map(|(&i, v)| v[i])
+            .collect();
+        // Multi-radix counter advance: rightmost dimension varies fastest,
+        // matching `cartesian_product`'s output order.
+        if self.values.is_empty() {
+            self.done = true;
+            return Some(item);
+        }
+        for i in (0..self.values.len()).rev() {
+            self.indices[i] += 1;
+            if self.indices[i] < self.values[i].len() {
+                return Some(item);
+            }
+            self.indices[i] = 0;
+        }
+        // All dimensions wrapped — this is the last item.
+        self.done = true;
+        Some(item)
+    }
+}
+
+/// Owned iterator yielding the blocks of one level of a single task's
+/// dependency graph. Holds clones of the per-block data it needs so it
+/// can be `'static` (storable in `Box<dyn Iterator<Item = Block> + Send>`).
+pub struct LazyBlockIter {
+    total_read_roi: Roi,
+    total_write_roi: Roi,
+    block_read_roi: Roi,
+    block_write_roi: Roi,
+    task_id: String,
+    fit: Fit,
+    global_offset: Coordinate,
+    cart: LazyCartesian,
+}
+
+impl LazyBlockIter {
+    fn inclusion_criteria(&self, block: &Block) -> bool {
+        match self.fit {
+            Fit::Valid => self.total_write_roi.contains_roi(&block.write_roi),
+            Fit::Overhang | Fit::Shrink => {
+                self.total_write_roi.contains_point(block.write_roi.begin())
+            }
+        }
+    }
+
+    fn fit_block(&self, mut block: Block) -> Block {
+        match self.fit {
+            Fit::Valid | Fit::Overhang => block,
+            Fit::Shrink => {
+                block.write_roi = self.total_write_roi.intersect(&block.write_roi);
+                block.read_roi = self.total_read_roi.intersect(&block.read_roi);
+                block
+            }
+        }
+    }
+}
+
+impl Iterator for LazyBlockIter {
+    type Item = Block;
+
+    fn next(&mut self) -> Option<Block> {
+        loop {
+            let offsets = self.cart.next()?;
+            let block_offset = Coordinate::new(offsets) + &self.global_offset;
+            let block = Block::new(
+                &self.total_read_roi,
+                &self.block_read_roi + &block_offset,
+                &self.block_write_roi + &block_offset,
+                &self.task_id,
+            );
+            if self.inclusion_criteria(&block) {
+                return Some(self.fit_block(block));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -612,6 +769,35 @@ mod tests {
                 vec![1, 2],
             ]
         );
+    }
+
+    #[test]
+    fn test_lazy_cartesian_matches_eager() {
+        // Lazy iterator must produce the same items in the same order
+        // as the eager helper — block IDs are positional, so any
+        // reorder would break done-marker compatibility.
+        let dims = vec![vec![0, 1], vec![0, 1, 2]];
+        let eager = cartesian_product(&dims);
+        let lazy: Vec<Vec<i64>> = LazyCartesian::new(dims).collect();
+        assert_eq!(eager, lazy);
+    }
+
+    #[test]
+    fn test_lazy_cartesian_empty_dim_yields_nothing() {
+        // If any dimension is empty, the product is empty.
+        let lazy: Vec<Vec<i64>> =
+            LazyCartesian::new(vec![vec![0, 1], vec![]]).collect();
+        assert!(lazy.is_empty());
+    }
+
+    #[test]
+    fn test_lazy_cartesian_no_dims_yields_one_empty() {
+        // Conventional: cartesian product over zero dimensions has one
+        // empty tuple. Mirror what `cartesian_product(&[])` returns so
+        // any consumers using either path stay consistent.
+        let eager = cartesian_product(&[]);
+        let lazy: Vec<Vec<i64>> = LazyCartesian::new(vec![]).collect();
+        assert_eq!(eager, lazy);
     }
 
     #[test]

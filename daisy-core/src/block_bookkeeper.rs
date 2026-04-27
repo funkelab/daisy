@@ -1,7 +1,7 @@
 use crate::block::{Block, BlockId};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::debug;
 
 /// Tracks in-flight blocks to detect lost blocks (stream closed or timeout).
@@ -9,26 +9,35 @@ struct BlockLog {
     block: Block,
     client_addr: SocketAddr,
     time_sent: Instant,
+    /// Per-block deadline. Set from `Task::timeout` when the block is
+    /// dispatched. `None` means no timeout — the block can sit in
+    /// processing indefinitely as long as the client stays connected.
+    timeout: Option<Duration>,
 }
 
 pub struct BlockBookkeeper {
-    processing_timeout: Option<std::time::Duration>,
     sent_blocks: HashMap<BlockId, BlockLog>,
     /// Track which client addresses have disconnected so we can detect lost blocks.
     closed_clients: std::collections::HashSet<SocketAddr>,
 }
 
 impl BlockBookkeeper {
-    pub fn new(processing_timeout: Option<std::time::Duration>) -> Self {
+    pub fn new() -> Self {
         Self {
-            processing_timeout,
             sent_blocks: HashMap::new(),
             closed_clients: std::collections::HashSet::new(),
         }
     }
 
-    /// Record that a block was sent to a client.
-    pub fn notify_block_sent(&mut self, block: Block, client_addr: SocketAddr) {
+    /// Record that a block was sent to a client. `timeout` is the
+    /// per-block processing deadline — when set, `get_lost_blocks`
+    /// will reclaim this block once `now - time_sent > timeout`.
+    pub fn notify_block_sent(
+        &mut self,
+        block: Block,
+        client_addr: SocketAddr,
+        timeout: Option<Duration>,
+    ) {
         debug!(block_id = %block.block_id, %client_addr, "block sent to client");
         self.sent_blocks.insert(
             block.block_id.clone(),
@@ -36,6 +45,7 @@ impl BlockBookkeeper {
                 block,
                 client_addr,
                 time_sent: Instant::now(),
+                timeout,
             },
         );
     }
@@ -79,8 +89,11 @@ impl BlockBookkeeper {
         self.closed_clients.insert(client_addr);
     }
 
-    /// Return blocks that are lost: either the client disconnected or
-    /// processing timed out. Removes them from the sent list.
+    /// Return blocks that are lost: the client disconnected, OR the
+    /// per-block timeout (set on `notify_block_sent`) has elapsed.
+    /// Removes them from the sent list. The runner releases each
+    /// returned block as `Failed`, which goes through the normal
+    /// retry / orphan path.
     pub fn get_lost_blocks(&mut self) -> Vec<Block> {
         let now = Instant::now();
         let mut lost_ids = Vec::new();
@@ -90,8 +103,15 @@ impl BlockBookkeeper {
                 lost_ids.push(block_id.clone());
                 continue;
             }
-            if let Some(timeout) = self.processing_timeout {
+            if let Some(timeout) = log.timeout {
                 if now.duration_since(log.time_sent) > timeout {
+                    debug!(
+                        block_id = %block_id,
+                        client_addr = %log.client_addr,
+                        elapsed_ms = now.duration_since(log.time_sent).as_millis() as u64,
+                        timeout_ms = timeout.as_millis() as u64,
+                        "block timed out — reclaiming",
+                    );
                     lost_ids.push(block_id.clone());
                 }
             }

@@ -1,8 +1,8 @@
-use gerbera_core::block::Block;
-use gerbera_core::error::GerberaError;
-use gerbera_core::server::ProgressObserver;
-use gerbera_core::task::{CheckBlock, ProcessBlock, SpawnWorker};
-use gerbera_core::task_state::TaskCounters;
+use daisy_core::block::Block;
+use daisy_core::error::DaisyError;
+use daisy_core::server::ProgressObserver;
+use daisy_core::task::{CheckBlock, ProcessBlock, SpawnWorker};
+use daisy_core::task_state::TaskCounters;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use std::collections::HashMap;
@@ -50,7 +50,7 @@ impl PyProcessBlock {
 unsafe impl Sync for PyProcessBlock {}
 
 impl ProcessBlock for PyProcessBlock {
-    fn process(&self, block: &mut Block) -> Result<(), GerberaError> {
+    fn process(&self, block: &mut Block) -> Result<(), DaisyError> {
         Python::attach(|py| {
             let py_block = PyBlock::from_core(block.clone());
             let result: PyResult<Py<PyAny>> = self.py_fn.call1(py, (py_block.clone(),));
@@ -59,14 +59,14 @@ impl ProcessBlock for PyProcessBlock {
                     block.status = py_block.inner.status;
                     Ok(())
                 }
-                Err(e) => Err(GerberaError::ProcessFailed(format!("{e}"))),
+                Err(e) => Err(DaisyError::ProcessFailed(format!("{e}"))),
             }
         })
     }
 }
 
 /// Wraps a Python 0-arg callable as a `SpawnWorker` implementation.
-/// Acquires the GIL, sets the GERBERA_CONTEXT env var, and calls the function.
+/// Acquires the GIL, sets the DAISY_CONTEXT env var, and calls the function.
 pub struct PySpawnWorker {
     py_fn: Py<PyAny>,
 }
@@ -123,18 +123,18 @@ impl ProgressObserver for PyProgressObserver {
 }
 
 impl SpawnWorker for PySpawnWorker {
-    fn spawn(&self, env_context: &str) -> Result<(), GerberaError> {
+    fn spawn(&self, env_context: &str) -> Result<(), DaisyError> {
         Python::attach(|py| {
             // Set the env var so Client() / subprocess workers can find the server.
-            let os = py.import("os").map_err(|e| GerberaError::ProcessFailed(format!("{e}")))?;
-            let environ = os.getattr("environ").map_err(|e| GerberaError::ProcessFailed(format!("{e}")))?;
+            let os = py.import("os").map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
+            let environ = os.getattr("environ").map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
             environ
-                .set_item("GERBERA_CONTEXT", env_context)
-                .map_err(|e| GerberaError::ProcessFailed(format!("{e}")))?;
+                .set_item("DAISY_CONTEXT", env_context)
+                .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
 
             self.py_fn
                 .call0(py)
-                .map_err(|e| GerberaError::ProcessFailed(format!("{e}")))?;
+                .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
             Ok(())
         })
     }

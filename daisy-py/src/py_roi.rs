@@ -1,4 +1,4 @@
-use gerbera_core::{coordinate::Coordinate, roi::Roi};
+use daisy_core::{coordinate::Coordinate, roi::Roi};
 use pyo3::prelude::*;
 
 #[pyclass(name = "Coordinate", frozen, from_py_object, eq, hash)]

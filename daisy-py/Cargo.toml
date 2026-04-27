@@ -1,14 +1,14 @@
 [package]
-name = "gerbera-py"
-version = "0.1.0"
+name = "daisy-py"
+version = "2.0.0"
 edition = "2024"
 
 [lib]
-name = "_gerbera"
+name = "_daisy"
 crate-type = ["cdylib"]
 
 [dependencies]
-gerbera-core = { path = "../gerbera-core" }
+daisy-core = { path = "../daisy-core" }
 pyo3 = { version = "0.28", features = ["extension-module"] }
 tokio = { version = "1", features = ["full"] }
 libc = "0.2"

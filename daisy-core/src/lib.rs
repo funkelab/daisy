@@ -21,7 +21,7 @@ pub mod worker_pool;
 pub use block::{Block, BlockStatus};
 pub use client::Client;
 pub use coordinate::Coordinate;
-pub use error::GerberaError;
+pub use error::DaisyError;
 pub use roi::Roi;
 pub use scheduler::Scheduler;
 pub use serial::SerialRunner;

@@ -1,8 +1,8 @@
-use gerbera_core::resource_allocator::ResourceBudget;
-use gerbera_core::serial::SerialRunner;
-use gerbera_core::server::{ProgressObserver, Server};
-use gerbera_core::task::Task;
-use gerbera_core::worker_pool::WorkerPool;
+use daisy_core::resource_allocator::ResourceBudget;
+use daisy_core::serial::SerialRunner;
+use daisy_core::server::{ProgressObserver, Server};
+use daisy_core::task::Task;
+use daisy_core::worker_pool::WorkerPool;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
@@ -68,11 +68,11 @@ pub fn _run_serial(
 /// process_function / spawn_function.
 ///
 /// Returns a 2-tuple `(task_states, run_stats)` where `run_stats` is a
-/// nested dict matching `gerbera_core::run_stats::RunStats`.
+/// nested dict matching `daisy_core::run_stats::RunStats`.
 ///
 /// `progress_observer`, if provided, must be a Python object exposing
 /// `on_start(states)`, `on_progress(states)`, and `on_finish(states)`
-/// — see `gerbera/_compat.py:_TqdmObserver` for a tqdm-backed example.
+/// — see `daisy/_compat.py:_TqdmObserver` for a tqdm-backed example.
 #[pyfunction]
 #[pyo3(signature = (tasks, resources=None, progress_observer=None, host="127.0.0.1"))]
 pub fn _run_distributed_server(
@@ -168,7 +168,7 @@ pub fn _run_distributed_server(
 
 fn run_stats_to_py<'py>(
     py: Python<'py>,
-    s: &gerbera_core::run_stats::RunStats,
+    s: &daisy_core::run_stats::RunStats,
 ) -> PyResult<Bound<'py, PyAny>> {
     let process = PyDict::new(py);
     process.set_item("wall_time_secs", s.process.wall_time.as_secs_f64())?;

@@ -1,7 +1,7 @@
-from gerbera import BlockwiseDependencyGraph
-from gerbera import Task
-from gerbera import Block
-from gerbera import Roi
+from daisy import BlockwiseDependencyGraph
+from daisy import Task
+from daisy import Block
+from daisy import Roi
 
 import pytest
 

@@ -13,7 +13,7 @@
 //!
 //! See `Task::requires` for how tasks declare their per-worker cost.
 
-use crate::error::GerberaError;
+use crate::error::DaisyError;
 use crate::task::Task;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -62,7 +62,7 @@ impl ResourceAllocator {
     /// global budget on its own. If not, no number of workers could
     /// ever run that task — we hard-error at startup so the user sees
     /// it immediately rather than mysteriously never spawning.
-    pub fn validate(&self, tasks: &[Arc<Task>]) -> Result<(), GerberaError> {
+    pub fn validate(&self, tasks: &[Arc<Task>]) -> Result<(), DaisyError> {
         for task in tasks {
             for (k, v) in &task.requires {
                 if *v <= 0 {
@@ -70,7 +70,7 @@ impl ResourceAllocator {
                 }
                 let cap = self.budget.get(k);
                 if cap < *v {
-                    return Err(GerberaError::InvalidConfig(format!(
+                    return Err(DaisyError::InvalidConfig(format!(
                         "task {:?} requires {{{}: {}}} but the global budget \
                          only has {{{}: {}}}",
                         task.task_id, k, v, k, cap

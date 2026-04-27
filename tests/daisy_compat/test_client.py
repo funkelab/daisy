@@ -1,7 +1,7 @@
-import gerbera as daisy
+import daisy as daisy
 import multiprocessing as mp
-from gerbera.messages import AcquireBlock, ReleaseBlock, SendBlock, ExceptionMessage
-from gerbera.tcp import TCPServer
+from daisy.messages import AcquireBlock, ReleaseBlock, SendBlock, ExceptionMessage
+from daisy.tcp import TCPServer
 
 
 def run_test_server(block, conn):

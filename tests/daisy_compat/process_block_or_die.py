@@ -6,7 +6,7 @@ the normal exception handling in daisy's Worker._spawn_wrapper). Subsequent
 workers see the marker and process blocks normally.
 """
 
-import gerbera as daisy
+import daisy as daisy
 
 import os
 import sys

@@ -13,7 +13,7 @@ The TCP protocol workers and the server use to coordinate. Read this if you're w
 Each message is `[4-byte length, big-endian, u32][bincode payload]`.
 
 - The length is the length of the payload, not including itself.
-- Maximum payload size is **64 MiB** (`MAX_MESSAGE_SIZE` in gerbera-core/src/protocol.rs). A frame larger than this is rejected before allocation — the server returns an error and closes the connection.
+- Maximum payload size is **64 MiB** (`MAX_MESSAGE_SIZE` in daisy-core/src/protocol.rs). A frame larger than this is rejected before allocation — the server returns an error and closes the connection.
 - bincode is the default `bincode::config::standard()` — varint integers, little-endian, no length prefix on the bincode side (we add the length prefix ourselves at the framing layer).
 
 This is identical in shape to daisy's framing (also `[u32 length][payload]`) but the payload is bincode instead of pickle.
@@ -31,7 +31,7 @@ pub enum Message {
 }
 ```
 
-(Defined in gerbera-core/src/protocol.rs.)
+(Defined in daisy-core/src/protocol.rs.)
 
 ### AcquireBlock
 
@@ -116,13 +116,13 @@ Because the framing is `[u32 length][bincode]`, a worker in another language nee
 
 1. Length-prefix framing matching the same byte order (big-endian u32).
 2. A bincode codec for the `Message` variants and `Block` struct.
-3. The `GERBERA_CONTEXT` env var encoding, to discover host/port/task_id when launched as a 0-arg `spawn_function` worker.
+3. The `DAISY_CONTEXT` env var encoding, to discover host/port/task_id when launched as a 0-arg `spawn_function` worker.
 
-The `Message` and `Block` types in gerbera-core are the source of truth. They're plain Rust structs with `#[derive(Serialize, Deserialize)]` so any language with a bincode crate can speak the protocol. Python workers go through `_rs.SyncClient` which is what `gerbera.Client()` wraps — but the underlying TCP protocol is just bincode over TCP.
+The `Message` and `Block` types in daisy-core are the source of truth. They're plain Rust structs with `#[derive(Serialize, Deserialize)]` so any language with a bincode crate can speak the protocol. Python workers go through `_rs.SyncClient` which is what `daisy.Client()` wraps — but the underlying TCP protocol is just bincode over TCP.
 
 ## Differences from daisy's protocol
 
-- daisy uses pickle; gerbera uses bincode. Pickle can carry arbitrary Python objects (including exception tracebacks); bincode carries typed Rust structs (so error reporting goes through a String field).
-- daisy doesn't size-validate frames; gerbera caps at 64 MiB and rejects oversized payloads before allocating.
-- daisy has a separate `NotifyClientDisconnect` / `AckClientDisconnect` handshake; gerbera uses a single `Disconnect` message.
-- daisy uses tornado's IOStreams; gerbera uses tokio TCP. Both reduce to `[u32 length][payload]` on the wire.
+- daisy uses pickle; daisy uses bincode. Pickle can carry arbitrary Python objects (including exception tracebacks); bincode carries typed Rust structs (so error reporting goes through a String field).
+- daisy doesn't size-validate frames; daisy caps at 64 MiB and rejects oversized payloads before allocating.
+- daisy has a separate `NotifyClientDisconnect` / `AckClientDisconnect` handshake; daisy uses a single `Disconnect` message.
+- daisy uses tornado's IOStreams; daisy uses tokio TCP. Both reduce to `[u32 length][payload]` on the wire.

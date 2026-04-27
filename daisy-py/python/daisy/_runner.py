@@ -5,11 +5,11 @@ private serial path. The top-level `run_blockwise` here is the
 helper most users actually call.
 """
 
-import gerbera._gerbera as _rs
-from gerbera import logging as _worker_log
+import daisy._daisy as _rs
+from daisy import logging as _worker_log
 
-from gerbera._task import Task, _convert_tasks, _wrap_for_worker_logging
-from gerbera._progress import (
+from daisy._task import Task, _convert_tasks, _wrap_for_worker_logging
+from daisy._progress import (
     _print_execution_summary,
     _print_resource_utilization,
     _resolve_progress,
@@ -20,10 +20,10 @@ from gerbera._progress import (
 class Server:
     """Coordinator. Spawns and manages Rust worker threads internally.
 
-    Most users go through the top-level `gerbera.run_blockwise(...)`
+    Most users go through the top-level `daisy.run_blockwise(...)`
     helper. Instantiate this class directly when you want access to
     `last_run_stats` or `last_task_order` after the run, or when
-    you're embedding gerbera in a larger orchestrator.
+    you're embedding daisy in a larger orchestrator.
     """
 
     def __init__(self, stop_event=None):
@@ -49,7 +49,7 @@ class Server:
 
 def _run_serial(tasks):
     """Single-threaded execution path (no TCP, no workers). Used
-    when `gerbera.run_blockwise(..., multiprocessing=False)`."""
+    when `daisy.run_blockwise(..., multiprocessing=False)`."""
     wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                for t in tasks]
     try:

@@ -6,20 +6,20 @@ and inspects the `last_run_stats` dict captured on the Server.
 
 import time
 
-import gerbera
+import daisy
 
 
 def _make_server():
-    return gerbera.Server()
+    return daisy.Server()
 
 
 def test_stats_dict_has_expected_keys():
     server = _make_server()
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="basic",
-        total_roi=gerbera.Roi([0], [40]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=lambda b: None,
         read_write_conflict=False,
         max_workers=2,
@@ -46,11 +46,11 @@ def test_stats_dict_has_expected_keys():
 
 def test_constant_workload_reports_near_zero_slope():
     server = _make_server()
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="flat",
-        total_roi=gerbera.Roi([0], [200]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [200]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=lambda b: time.sleep(0.001),
         read_write_conflict=False,
         max_workers=1,  # serial-ish for clean trend
@@ -77,11 +77,11 @@ def test_slowing_workload_reports_positive_slope():
         time.sleep(0.001 + 0.00005 * i)
 
     server = _make_server()
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="slowing",
-        total_roi=gerbera.Roi([0], [400]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [400]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=slowing,
         read_write_conflict=False,
         max_workers=1,  # serial so the trend is unambiguous
@@ -100,11 +100,11 @@ def test_slowing_workload_reports_positive_slope():
 
 def test_per_worker_stats_present_and_blocks_account():
     server = _make_server()
-    task = gerbera.Task(
+    task = daisy.Task(
         task_id="multi",
-        total_roi=gerbera.Roi([0], [80]),
-        read_roi=gerbera.Roi([0], [10]),
-        write_roi=gerbera.Roi([0], [10]),
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
         process_function=lambda b: time.sleep(0.001),
         read_write_conflict=False,
         max_workers=4,

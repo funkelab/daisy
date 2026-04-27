@@ -1,12 +1,12 @@
 # Architecture
 
-A bird's-eye view of how gerbera is wired together. Skim this first; the per-component docs go deep on individual subsystems.
+A bird's-eye view of how daisy is wired together. Skim this first; the per-component docs go deep on individual subsystems.
 
 ## Crates and modules
 
 ```
-gerbera/
-├── gerbera-core/          Pure Rust, no Python deps
+daisy/
+├── daisy-core/          Pure Rust, no Python deps
 │   └── src/
 │       ├── block.rs           Block + BlockId + BlockStatus
 │       ├── coordinate.rs      ND integer coordinates and arithmetic
@@ -26,9 +26,9 @@ gerbera/
 │       ├── serial.rs          Single-threaded runner for debugging
 │       ├── run_stats.rs       Per-worker / per-task / process-wide stats
 │       ├── protocol.rs        Wire message enum + length-prefixed bincode framing
-│       └── error.rs           GerberaError
+│       └── error.rs           DaisyError
 │
-├── gerbera-py/            PyO3 bindings + Python adaptation layer
+├── daisy-py/            PyO3 bindings + Python adaptation layer
 │   ├── src/                   Rust → Python bridge
 │   │   ├── lib.rs             Module init, function exports
 │   │   ├── py_task.rs         Python Task class wrapping Rust Task
@@ -41,7 +41,7 @@ gerbera/
 │   │   ├── py_scheduler.rs    Python wrapper over Scheduler (rare; debug only)
 │   │   └── py_server.rs       Entry points: _run_serial, _run_distributed_server
 │   │
-│   └── python/gerbera/        Pure Python, user-facing API
+│   └── python/daisy/        Pure Python, user-facing API
 │       ├── __init__.py        Re-exports the public API
 │       ├── _task.py           Task / Scheduler / Client / Context classes
 │       ├── _progress.py       Topo ordering, tqdm observer, summary printers
@@ -62,12 +62,12 @@ gerbera/
               │
               │  Task(...)  +  run_blockwise([tasks])
               ▼
-    gerbera-py (PyO3 bindings)
+    daisy-py (PyO3 bindings)
         │
         │  _rs._run_distributed_server(...)
         │  releases the GIL via py.detach
         ▼
-    gerbera-core::Server::run_blockwise   ◄────── tokio multi-threaded runtime
+    daisy-core::Server::run_blockwise   ◄────── tokio multi-threaded runtime
         │                                          (the main thread blocks here
         │  bind TCP + select! loop                  via rt.block_on)
         │
@@ -145,7 +145,7 @@ For a 1-arg `process_function` task:
 
 **Bincode + size-validated framing** for the wire protocol. Type-safe (no pickle code-execution surface), cross-language, hard upper bound on message size before allocation. See [PROTOCOL.md](PROTOCOL.md).
 
-**Raw POSIX SIGINT handler** instead of `Python::check_signals` polling. The latter doesn't fire under tokio's multi-threaded runtime because CPython only processes signals on the main thread. The raw C handler sets an atomic flag from any thread. See `gerbera-py/src/py_server.rs`.
+**Raw POSIX SIGINT handler** instead of `Python::check_signals` polling. The latter doesn't fire under tokio's multi-threaded runtime because CPython only processes signals on the main thread. The raw C handler sets an atomic flag from any thread. See `daisy-py/src/py_server.rs`.
 
 **Resource budget composes with `max_workers`**. `requires` per task + `resources` global budget enforce concurrent worker counts across competing tasks. See [WORKER_POOL_COORDINATION.md](WORKER_POOL_COORDINATION.md).
 
@@ -160,6 +160,6 @@ For a 1-arg `process_function` task:
 | Counts don't add up                                              | `running_mut` gate — late mutations are silently dropped, look for `tracing::debug` lines `dropping release for non-running task` |
 | Workers don't restart                                            | `rebalance_workers` — check `worker_restart_count >= max_worker_restarts` |
 | `Ctrl+C` doesn't exit                                            | `py_server.rs` SIGINT handler installation       |
-| Progress bar order wrong                                         | `_topo_order` in `gerbera/_progress.py`          |
+| Progress bar order wrong                                         | `_topo_order` in `daisy/_progress.py`          |
 | Done marker says "layout mismatch"                               | `done_marker.rs::open_or_create` hash check      |
 | Worker can connect but blocks never arrive                       | Task's `requires` doesn't fit in `resources`     |

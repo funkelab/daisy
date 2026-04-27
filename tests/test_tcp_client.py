@@ -1,14 +1,14 @@
 """Port of daisy's test_tcp.py and test_client.py.
 
 Daisy's originals test raw TCP message passing and a mock server/client
-handshake. Gerbera's TCP layer is Rust-internal and tested via Rust
+handshake. Daisy's TCP layer is Rust-internal and tested via Rust
 integration tests (test_framing_roundtrip, test_server_client_*). These
 Python tests verify the equivalent user-visible behavior: that blocks
 flow correctly through the scheduler/server path and that the protocol
 handles all message types.
 """
 
-from gerbera import Task, Roi, Block, BlockStatus, Scheduler, run_blockwise
+from daisy import Task, Roi, Block, BlockStatus, Scheduler, run_blockwise
 import pytest
 
 

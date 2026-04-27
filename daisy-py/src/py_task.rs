@@ -1,4 +1,4 @@
-use gerbera_core::task::{Fit, Task};
+use daisy_core::task::{Fit, Task};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
@@ -27,6 +27,12 @@ pub struct PyTask {
     pub requires: HashMap<String, i64>,
     /// Cap on worker restarts before the task is abandoned. Default 10.
     pub max_worker_restarts: u32,
+    /// Per-block processing timeout in seconds. `None` (default) means
+    /// no timeout — blocks can sit in `processing` indefinitely as
+    /// long as the worker stays connected. When set, the bookkeeper
+    /// reclaims any block that's been processing longer than this and
+    /// re-queues it for retry (or orphans, depending on retry budget).
+    pub timeout_secs: Option<f64>,
 }
 
 #[pymethods]
@@ -47,6 +53,7 @@ impl PyTask {
         done_marker_path=None,
         requires=None,
         max_worker_restarts=10,
+        timeout_secs=None,
     ))]
     fn new(
         task_id: String,
@@ -63,6 +70,7 @@ impl PyTask {
         done_marker_path: Option<String>,
         requires: Option<Bound<'_, PyDict>>,
         max_worker_restarts: u32,
+        timeout_secs: Option<f64>,
     ) -> PyResult<Self> {
         let ups = if let Some(list) = upstream_tasks {
             let mut v = Vec::new();
@@ -100,6 +108,7 @@ impl PyTask {
             done_marker_path,
             requires: reqs,
             max_worker_restarts,
+            timeout_secs,
         })
     }
 
@@ -136,8 +145,8 @@ impl PyTask {
 
 impl PyTask {
     pub fn empty() -> Self {
-        use gerbera_core::coordinate::Coordinate;
-        use gerbera_core::roi::Roi;
+        use daisy_core::coordinate::Coordinate;
+        use daisy_core::roi::Roi;
         let zero_roi = PyRoi {
             inner: Roi::new(Coordinate::new(vec![0]), Coordinate::new(vec![1])),
         };
@@ -156,6 +165,7 @@ impl PyTask {
             done_marker_path: None,
             requires: HashMap::new(),
             max_worker_restarts: 10,
+            timeout_secs: None,
         }
     }
 
@@ -200,6 +210,11 @@ impl PyTask {
             builder = builder.requires(borrow.requires.clone());
         }
         builder = builder.max_worker_restarts(borrow.max_worker_restarts);
+        if let Some(secs) = borrow.timeout_secs {
+            if secs > 0.0 && secs.is_finite() {
+                builder = builder.timeout(std::time::Duration::from_secs_f64(secs));
+            }
+        }
 
         for up in upstream_arc {
             builder = builder.upstream(up);

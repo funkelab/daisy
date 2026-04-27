@@ -1,4 +1,4 @@
-from gerbera._compat import (
+from daisy._compat import (
     Block,
     BlockStatus,
     BlockwiseDependencyGraph,
@@ -15,6 +15,7 @@ from gerbera._compat import (
     run_blockwise,
     set_done_marker_basedir,
 )
+from daisy._progress import JsonProgressObserver
 
 __all__ = [
     "Block",
@@ -24,6 +25,7 @@ __all__ = [
     "Context",
     "Coordinate",
     "DependencyGraph",
+    "JsonProgressObserver",
     "Roi",
     "Scheduler",
     "Server",

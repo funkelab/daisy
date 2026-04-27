@@ -1,5 +1,5 @@
-use gerbera_core::scheduler::Scheduler;
-use gerbera_core::task::Task;
+use daisy_core::scheduler::Scheduler;
+use daisy_core::task::Task;
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 use std::collections::HashMap;

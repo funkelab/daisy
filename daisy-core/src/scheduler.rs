@@ -1,7 +1,7 @@
 use crate::block::{Block, BlockStatus};
 use crate::dependency_graph::DependencyGraph;
 use crate::done_marker::DoneMarker;
-use crate::error::GerberaError;
+use crate::error::DaisyError;
 use crate::processing_queue::ProcessingQueue;
 use crate::ready_surface::ReadySurface;
 use crate::task::Task;
@@ -51,14 +51,13 @@ impl Scheduler {
         // as `Running` — terminal variants only appear after the
         // matching transition.
         let roots = dependency_graph.roots();
-        for (task_id, (num_roots, root_blocks)) in roots {
+        for (task_id, (num_roots, root_iter)) in roots {
             let entry = task_states
                 .entry(task_id.clone())
                 .or_insert_with(|| TaskState::Running(RunningTask::default()));
             if let Some(rt) = entry.as_running_mut() {
                 rt.ready_count += num_roots;
             }
-            let root_iter = Box::new(root_blocks.into_iter()) as Box<dyn Iterator<Item = Block> + Send>;
             task_queues.insert(task_id, ProcessingQueue::new(num_roots, Some(root_iter)));
         }
 
@@ -81,7 +80,7 @@ impl Scheduler {
     /// `new` and before any blocks are processed. On failure (layout
     /// mismatch / IO error) returns the error and leaves the scheduler
     /// without any markers — the caller should treat this as fatal.
-    pub fn init_done_markers(&mut self) -> Result<(), GerberaError> {
+    pub fn init_done_markers(&mut self) -> Result<(), DaisyError> {
         for (task_id, task) in &self.task_map {
             let Some(ref dir) = task.done_marker_path else { continue };
             match DoneMarker::open_or_create(
@@ -103,7 +102,7 @@ impl Scheduler {
                 }
                 Err(e) => {
                     warn!(task_id = %task_id, error = %e, "failed to open done-marker");
-                    return Err(GerberaError::InvalidConfig(format!("{e}")));
+                    return Err(DaisyError::InvalidConfig(format!("{e}")));
                 }
             }
         }

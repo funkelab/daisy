@@ -27,10 +27,10 @@ import tempfile
 import time
 from pathlib import Path
 
-import gerbera
-import gerbera.logging as gl
+import daisy
+import daisy.logging as gl
 
-_TMP = Path(tempfile.mkdtemp(prefix="gerbera_stress_"))
+_TMP = Path(tempfile.mkdtemp(prefix="daisy_stress_"))
 gl.set_log_basedir(_TMP / "logs")
 print(f"output paths under: {_TMP}")
 
@@ -46,7 +46,7 @@ MAX_WORKER_RESTARTS = 4         # generous — well above expected deaths
 # %% [markdown]
 # ## The worker
 #
-# Connects via `GERBERA_CONTEXT`, loops acquiring blocks, occasionally
+# Connects via `DAISY_CONTEXT`, loops acquiring blocks, occasionally
 # raises mid-loop. The `with client.acquire_block()` context manager
 # marks the in-flight block FAILED on exit (so it's re-queued for
 # retry), then re-raises — which propagates out of `worker()` and
@@ -54,7 +54,7 @@ MAX_WORKER_RESTARTS = 4         # generous — well above expected deaths
 
 # %%
 def worker():
-    client = gerbera.Client()
+    client = daisy.Client()
     while True:
         with client.acquire_block() as block:
             if block is None:
@@ -74,11 +74,11 @@ def process(block):
 
 # %%
 def make_task(task_id, upstream=None):
-    return gerbera.Task(
+    return daisy.Task(
         task_id=task_id,
-        total_roi=gerbera.Roi([0], [NUM_BLOCKS]),
-        read_roi=gerbera.Roi([0], [1]),
-        write_roi=gerbera.Roi([0], [1]),
+        total_roi=daisy.Roi([0], [NUM_BLOCKS]),
+        read_roi=daisy.Roi([0], [1]),
+        write_roi=daisy.Roi([0], [1]),
         process_function=process,
         read_write_conflict=False,
         max_workers=MAX_WORKERS,
@@ -97,7 +97,7 @@ label   = make_task("label",   upstream=predict)
 
 # %%
 t0 = time.perf_counter()
-ok = gerbera.run_blockwise([extract, predict, label])
+ok = daisy.run_blockwise([extract, predict, label])
 elapsed = time.perf_counter() - t0
 print(f"\nrun_blockwise returned ok={ok}, total elapsed = {elapsed:.2f} s")
 print(f"\nlogs and any failure tracebacks: {_TMP / 'logs'}")

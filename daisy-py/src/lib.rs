@@ -27,11 +27,11 @@ use py_task_state::PyTaskState;
 fn run_blockwise(py: Python<'_>, tasks: Bound<'_, PyList>, multiprocessing: bool) -> PyResult<bool> {
     if multiprocessing {
         return Err(PyErr::new::<pyo3::exceptions::PyNotImplementedError, _>(
-            "use gerbera.Server().run_blockwise() for distributed mode",
+            "use daisy.Server().run_blockwise() for distributed mode",
         ));
     }
 
-    let mut cache: HashMap<String, Arc<gerbera_core::Task>> = HashMap::new();
+    let mut cache: HashMap<String, Arc<daisy_core::Task>> = HashMap::new();
     let mut arc_tasks = Vec::new();
     for item in tasks.iter() {
         let bound_task: Bound<'_, PyTask> = item.cast()?.clone();
@@ -39,14 +39,14 @@ fn run_blockwise(py: Python<'_>, tasks: Bound<'_, PyList>, multiprocessing: bool
         arc_tasks.push(arc);
     }
 
-    let states = gerbera_core::SerialRunner::run(&arc_tasks)
+    let states = daisy_core::SerialRunner::run(&arc_tasks)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Ok(states.values().all(|s| s.balanced()))
 }
 
 #[pymodule]
-fn _gerbera(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _daisy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyCoordinate>()?;
     m.add_class::<PyRoi>()?;
     m.add_class::<PyBlock>()?;

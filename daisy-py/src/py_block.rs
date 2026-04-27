@@ -1,4 +1,4 @@
-use gerbera_core::block::{Block, BlockId, BlockStatus};
+use daisy_core::block::{Block, BlockId, BlockStatus};
 use pyo3::prelude::*;
 
 use crate::py_roi::PyRoi;
