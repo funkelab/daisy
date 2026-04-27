@@ -205,6 +205,78 @@ def test_abandonment_handles_in_flight_block_release_race():
         assert state.worker_restart_count == 2
 
 
+def _always_failing_block(block):
+    raise RuntimeError("simulated block failure")
+
+
+def test_block_function_failure_kills_worker_and_drives_abandonment():
+    """A 1-arg `process_function` that always raises should drive
+    the same restart-cap → abandonment cycle as a worker-function
+    task. Each failed block exits the worker dirty, the runner
+    counts it as a death, and refills until the cap is hit.
+
+    Without this, a buggy block function would silently retry every
+    block to its `max_retries` cap and the run would finish with
+    every block accounted as failed but `worker_restart_count`
+    stuck at zero. The user wouldn't see the abandonment they
+    expected; the run would just slog through all blocks.
+    """
+    task = gerbera.Task(
+        task_id="buggy_block_fn",
+        total_roi=gerbera.Roi([0], [80]),
+        read_roi=gerbera.Roi([0], [10]),
+        write_roi=gerbera.Roi([0], [10]),
+        process_function=_always_failing_block,
+        read_write_conflict=False,
+        max_workers=1,
+        max_retries=0,
+        max_worker_restarts=3,
+    )
+
+    server = gerbera.Server()
+    states = server.run_blockwise([task], progress=False)
+
+    state = states["buggy_block_fn"]
+    assert state.is_done()
+    # Each failed block is one worker death. With max_retries=0 and
+    # max_worker_restarts=3, the runner allows 3 restarts before
+    # abandoning — i.e. up to 4 worker lifetimes, each consuming
+    # exactly one block.
+    assert state.worker_restart_count == 3
+    assert state.worker_failure_count == 4
+    # 4 blocks attempted-and-failed; the rest abandoned as orphaned.
+    assert state.failed_count == 4
+    assert state.orphaned_count == 4
+    assert state.completed_count == 0
+
+
+def test_block_function_success_does_not_kill_worker():
+    """The worker only exits dirty on failure. A clean run should
+    leave `worker_restart_count` and `worker_failure_count` at zero
+    regardless of how many blocks went through."""
+    def fine(block):
+        pass
+
+    task = gerbera.Task(
+        task_id="clean_block_fn",
+        total_roi=gerbera.Roi([0], [40]),
+        read_roi=gerbera.Roi([0], [10]),
+        write_roi=gerbera.Roi([0], [10]),
+        process_function=fine,
+        read_write_conflict=False,
+        max_workers=2,
+        max_retries=0,
+    )
+
+    server = gerbera.Server()
+    states = server.run_blockwise([task], progress=False)
+    state = states["clean_block_fn"]
+    assert state.is_done()
+    assert state.completed_count == 4
+    assert state.worker_failure_count == 0
+    assert state.worker_restart_count == 0
+
+
 def _instantly_crashing_worker():
     """0-arg worker that crashes before acquiring any block."""
     raise RuntimeError("downstream worker crash on startup")

@@ -60,7 +60,11 @@ def worker():
             if block is None:
                 return
             if random.random() < WORKER_DEATH_RATE:
-                raise RuntimeError("simulated worker crash")
+                raise RuntimeError("Simulated worker crash")
+            
+def process(block):
+    if random.random() < WORKER_DEATH_RATE:
+        raise RuntimeError("Simulated block failure")
 
 # %% [markdown]
 # ## Three chained tasks
@@ -75,7 +79,7 @@ def make_task(task_id, upstream=None):
         total_roi=gerbera.Roi([0], [NUM_BLOCKS]),
         read_roi=gerbera.Roi([0], [1]),
         write_roi=gerbera.Roi([0], [1]),
-        process_function=worker,
+        process_function=process,
         read_write_conflict=False,
         max_workers=MAX_WORKERS,
         max_retries=2,

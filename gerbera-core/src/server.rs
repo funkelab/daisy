@@ -541,6 +541,14 @@ impl Server {
                         return false;
                     }
                 };
+                // Any block failure kills this worker. The runner
+                // then refills (counting toward `worker_restart_count`)
+                // until the cap is hit, at which point abandonment
+                // fires. This unifies block-function and
+                // worker-function semantics: in both modes,
+                // `worker_restart_count` counts failed work
+                // attempts, and `max_worker_restarts` caps how many
+                // failures the runner tolerates before giving up.
                 loop {
                     match rt.block_on(client.acquire_block()) {
                         Ok(Some(mut block)) => {
@@ -556,11 +564,18 @@ impl Server {
                                     block.status = crate::block::BlockStatus::Failed;
                                 }
                             }
+                            let was_failure =
+                                block.status == crate::block::BlockStatus::Failed;
                             if let Err(e) = rt.block_on(client.release_block(block)) {
                                 error!(worker_id, error = %e, "failed to release block");
                                 return false;
                             }
                             notifier.stats.blocks_processed += 1;
+                            if was_failure {
+                                debug!(worker_id, "exiting dirty after failed block");
+                                let _ = rt.block_on(client.disconnect());
+                                return false;
+                            }
                         }
                         Ok(None) => {
                             debug!(worker_id, "no more blocks, exiting");
