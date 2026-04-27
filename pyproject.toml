@@ -1,13 +1,41 @@
 [project]
 name = "daisy"
 version = "2.0.0"
+description = "Blockwise task scheduler for processing large volumetric data"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
+authors = [
+    { name = "William Patton", email = "wllmpttn24@gmail.com" },
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: System :: Distributed Computing",
+]
 dependencies = [
     "tqdm>=4.65",
 ]
 
+[project.urls]
+Homepage = "https://github.com/funkelab/daisy"
+Repository = "https://github.com/funkelab/daisy"
+Issues = "https://github.com/funkelab/daisy/issues"
+Changelog = "https://github.com/funkelab/daisy/blob/main/CHANGELOG.md"
+
 [build-system]
-requires = ["maturin>=1.0,<2.0"]
+requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [tool.maturin]
@@ -15,10 +43,17 @@ manifest-path = "daisy-py/Cargo.toml"
 python-source = "daisy-py/python"
 module-name = "daisy._daisy"
 features = ["pyo3/extension-module"]
+exclude = [
+    { path = "dev/**", format = "sdist" },
+    { path = "benchmarks/**", format = "sdist" },
+    { path = "tests/**", format = "sdist" },
+]
 
 [dependency-groups]
 dev = [
     "filelock>=3.29.0",
+    "pytest>=8",
+    "pytest-timeout>=2",
 ]
 examples = [
     "ipykernel>=7.2.0",

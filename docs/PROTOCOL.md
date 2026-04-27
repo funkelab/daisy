@@ -120,9 +120,9 @@ Because the framing is `[u32 length][bincode]`, a worker in another language nee
 
 The `Message` and `Block` types in daisy-core are the source of truth. They're plain Rust structs with `#[derive(Serialize, Deserialize)]` so any language with a bincode crate can speak the protocol. Python workers go through `_rs.SyncClient` which is what `daisy.Client()` wraps — but the underlying TCP protocol is just bincode over TCP.
 
-## Differences from daisy's protocol
+## Differences from daisy 1.x's protocol
 
-- daisy uses pickle; daisy uses bincode. Pickle can carry arbitrary Python objects (including exception tracebacks); bincode carries typed Rust structs (so error reporting goes through a String field).
-- daisy doesn't size-validate frames; daisy caps at 64 MiB and rejects oversized payloads before allocating.
-- daisy has a separate `NotifyClientDisconnect` / `AckClientDisconnect` handshake; daisy uses a single `Disconnect` message.
-- daisy uses tornado's IOStreams; daisy uses tokio TCP. Both reduce to `[u32 length][payload]` on the wire.
+- daisy 1.x uses pickle; daisy v2 uses bincode. Pickle can carry arbitrary Python objects (including exception tracebacks); bincode carries typed Rust structs (so error reporting goes through a String field).
+- daisy 1.x doesn't size-validate frames; daisy v2 caps at 64 MiB and rejects oversized payloads before allocating.
+- daisy 1.x has a separate `NotifyClientDisconnect` / `AckClientDisconnect` handshake; daisy v2 uses a single `Disconnect` message.
+- daisy 1.x uses tornado's IOStreams; daisy v2 uses tokio TCP. Both reduce to `[u32 length][payload]` on the wire.

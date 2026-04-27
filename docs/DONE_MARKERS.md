@@ -1,6 +1,6 @@
 # Done markers
 
-Persistent on-disk record of which blocks have completed. Lets a partial run resume from where it left off without re-doing finished work. This is daisy-specific — daisy has a `check_function` hook for the same purpose, but no built-in persistence layer.
+Persistent on-disk record of which blocks have completed. Lets a partial run resume from where it left off without re-doing finished work. This is daisy v2-specific — daisy 1.x has a `check_function` hook for the same purpose, but no built-in persistence layer.
 
 ## What's stored
 
@@ -89,9 +89,9 @@ Pass `done_marker_path=False` to disable the marker for a specific task even if 
 
 In the execution summary, a resumed run prints `Skipped: N` for the count of pre-skipped blocks. A fully-resumed run (everything was already done) takes essentially no time — the runner skips everything, transitions every task to `Done`, and exits.
 
-## Tradeoffs vs daisy's `check_function`
+## Tradeoffs vs daisy 1.x's `check_function`
 
-**Pro daisy**: zero-config persistence. The user doesn't have to write a function that knows where its outputs live, or handle "is this output complete and consistent?" themselves.
+**Pro daisy v2**: zero-config persistence. The user doesn't have to write a function that knows where its outputs live, or handle "is this output complete and consistent?" themselves.
 
 **Pro daisy**: the check function can validate that output is actually complete and well-formed. The done marker only knows "we said it was done". If a successful block was followed by partial corruption (e.g. user interrupted during a write), the marker will lie about it.
 

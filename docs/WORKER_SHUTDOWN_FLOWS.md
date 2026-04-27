@@ -1,4 +1,4 @@
-# Worker Shutdown Flows: daisy vs daisy
+# Worker Shutdown Flows: daisy 1.x vs daisy v2
 
 Three scenarios, traced through both codebases.
 
@@ -301,6 +301,6 @@ Worker Thread (0-arg spawn)             Server (tokio event loop)
 
 1. **Daisy Ctrl-C handling**: add `tokio::signal::ctrl_c()` as a branch in the select loop. On trigger, break out of the event loop and run the existing shutdown code.
 
-2. **Processing timeout**: wire `Task.timeout` through to `BlockBookkeeper::new(Some(duration))` in both daisy and daisy. This is the only reliable backstop for hung workers, network partitions, and edge cases where the TCP socket doesn't close.
+2. **Processing timeout**: wire `Task.timeout` through to `BlockBookkeeper::new(Some(duration))` in both daisy 1.x and daisy v2. This is the only reliable backstop for hung workers, network partitions, and edge cases where the TCP socket doesn't close.
 
-3. **Detection latency**: daisy's 500ms health tick is 5x slower than daisy's 0.1s loop. For most workloads this doesn't matter (blocks take seconds to minutes), but it could be made configurable.
+3. **Detection latency**: daisy v2's 500ms health tick is 5x slower than daisy 1.x's 0.1s loop. For most workloads this doesn't matter (blocks take seconds to minutes), but it could be made configurable.

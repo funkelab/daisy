@@ -1,3 +1,5 @@
+from importlib.metadata import PackageNotFoundError, version as _version
+
 from daisy._compat import (
     Block,
     BlockStatus,
@@ -17,6 +19,11 @@ from daisy._compat import (
 )
 from daisy._progress import JsonProgressObserver
 
+try:
+    __version__ = _version("daisy")
+except PackageNotFoundError:
+    __version__ = "unknown"
+
 __all__ = [
     "Block",
     "BlockStatus",
@@ -31,6 +38,7 @@ __all__ = [
     "Server",
     "Task",
     "TaskState",
+    "__version__",
     "get_done_marker_basedir",
     "run_blockwise",
     "set_done_marker_basedir",

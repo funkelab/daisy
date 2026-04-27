@@ -51,7 +51,7 @@ daisy/
 │
 ├── examples/              Cell-style scripts (# %%) for VS Code interactive mode
 ├── tests/                 pytest-driven integration tests (Python entry → Rust runtime)
-├── benchmarks/            Throughput comparisons vs daisy
+├── benchmarks/            Throughput comparisons vs daisy 1.x
 └── docs/                  This directory
 ```
 
