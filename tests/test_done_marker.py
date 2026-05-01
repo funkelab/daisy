@@ -14,7 +14,7 @@ import tempfile
 from pathlib import Path
 
 import daisy
-from daisy._compat import _run_serial
+from daisy._runner import _run_serial
 
 
 def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):

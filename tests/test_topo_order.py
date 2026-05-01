@@ -9,7 +9,7 @@ interleaved gratuitously.
 """
 
 import daisy
-from daisy._compat import _topo_order
+from daisy._progress import _topo_order
 
 
 def _task(task_id, upstream=None):

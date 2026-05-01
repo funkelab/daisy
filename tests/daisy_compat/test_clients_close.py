@@ -11,13 +11,11 @@ from daisy.logging import set_log_basedir
 logging.basicConfig(level=logging.DEBUG)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Task() renamed `num_workers` to `max_workers` in v2. "
-        "See test_workers_close_migrated."
-    ),
-)
+# Originally xfailed because v2 dropped `num_workers`; now passes
+# natively against the top-level `daisy` namespace because that
+# resolves to `daisy.v1_compat`, which accepts both `num_workers`
+# and `max_workers`. The v2-native equivalent lives in
+# `test_workers_close_migrated` below.
 def test_workers_close(tmp_path):
     set_log_basedir(tmp_path)
     num_workers = 5

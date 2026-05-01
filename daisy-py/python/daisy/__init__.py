@@ -1,6 +1,19 @@
-from importlib.metadata import PackageNotFoundError, version as _version
+"""daisy v2.0.0 — blockwise task scheduler for large volumetric data.
 
-from daisy._compat import (
+The top-level namespace re-exports `daisy.v1_compat` so existing
+daisy 1.x scripts run unchanged wherever the v2 API didn't break
+compatibility.
+
+Two explicit alternatives:
+
+- ``import daisy.v2 as daisy`` — v2-native surface, no compat shims,
+  Rust types exposed directly.
+- ``import daisy.v1_compat as daisy`` — same module the bare
+  `import daisy` resolves to; spell it out when you want to be
+  explicit about depending on the compat layer.
+"""
+
+from daisy.v1_compat import (
     Block,
     BlockStatus,
     BlockwiseDependencyGraph,
@@ -8,21 +21,18 @@ from daisy._compat import (
     Context,
     Coordinate,
     DependencyGraph,
+    JsonProgressObserver,
     Roi,
     Scheduler,
+    SerialServer,
     Server,
     Task,
     TaskState,
+    __version__,
     get_done_marker_basedir,
     run_blockwise,
     set_done_marker_basedir,
 )
-from daisy._progress import JsonProgressObserver
-
-try:
-    __version__ = _version("daisy")
-except PackageNotFoundError:
-    __version__ = "unknown"
 
 __all__ = [
     "Block",
@@ -35,6 +45,7 @@ __all__ = [
     "JsonProgressObserver",
     "Roi",
     "Scheduler",
+    "SerialServer",
     "Server",
     "Task",
     "TaskState",

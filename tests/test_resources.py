@@ -195,15 +195,19 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
 
 
 def test_num_workers_keyword_is_rejected():
-    """`num_workers=` was the daisy-style keyword; daisy now only
-    accepts `max_workers=`. Passing `num_workers=` should be a
-    `TypeError` from the constructor signature."""
+    """The v2-native `Task` (in `daisy.v2`) rejects the daisy 1.x
+    `num_workers=` kwarg — only `max_workers=` is accepted. The
+    v1.x-compat surface (`daisy.v1_compat`, also re-exported at
+    top-level `daisy`) deliberately *does* accept `num_workers=`
+    as an alias; that's covered by `tests/daisy_compat/`."""
+    from daisy import v2
+
     with pytest.raises(TypeError):
-        daisy.Task(
+        v2.Task(
             task_id="legacy",
-            total_roi=daisy.Roi([0], [20]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
+            total_roi=v2.Roi([0], [20]),
+            read_roi=v2.Roi([0], [10]),
+            write_roi=v2.Roi([0], [10]),
             process_function=lambda b: None,
             read_write_conflict=False,
             num_workers=2,

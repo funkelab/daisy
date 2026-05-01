@@ -18,13 +18,9 @@ from daisy.logging import set_log_basedir
 logging.basicConfig(level=logging.DEBUG)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "Task() renamed `num_workers` to `max_workers` in v2. "
-        "See test_dead_worker_replacement_migrated."
-    ),
-)
+# Originally xfailed because v2 dropped `num_workers`; now passes
+# natively under `daisy.v1_compat` (the top-level default).
+# `test_dead_worker_replacement_migrated` covers the v2-native call.
 def test_dead_worker_replacement(tmp_path):
     """Workers that exit via SystemExit are detected and replaced.
 

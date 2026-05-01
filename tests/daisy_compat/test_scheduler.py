@@ -457,14 +457,9 @@ def test_chained_tasks(chained_task):
     assert scheduler.task_states[second_task.task_id].is_done()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "The `overlapping_tasks` fixture uses Task(num_workers=1), "
-        "renamed to Task(max_workers=1) in v2. See "
-        "test_overlapping_tasks_migrated."
-    ),
-)
+# Originally xfailed because v2 dropped `num_workers`; now passes
+# natively under `daisy.v1_compat` (the top-level default).
+# `test_overlapping_tasks_migrated` covers the v2-native call.
 def test_overlapping_tasks(overlapping_tasks):
     first, second = overlapping_tasks
     scheduler = Scheduler([second])

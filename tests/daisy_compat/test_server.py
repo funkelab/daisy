@@ -11,17 +11,12 @@ def process_block(block):
     print("Processing block %s" % block)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "daisy v2 has no SerialServer class. Serial mode is selected via "
-        "`daisy.run_blockwise(..., multiprocessing=False)`. Task() also "
-        "renamed `num_workers` to `max_workers`. See test_basic_migrated."
-    ),
-)
-# Class names are looked up via getattr at test time so that the missing
-# `SerialServer` symbol triggers the xfail-tracked failure during execution
-# rather than at collection.
+# Originally xfailed because v2 dropped `SerialServer` and renamed
+# `num_workers` to `max_workers`. Both are restored by the v1.x-compat
+# layer that the top-level `daisy` namespace re-exports, so this test
+# now passes natively. The v2-native equivalent (parametrize over
+# `multiprocessing=[True, False]` instead of two server classes) lives
+# in `test_basic_migrated` below.
 @pytest.mark.parametrize("server_class_name", ["Server", "SerialServer"])
 def test_basic(server_class_name):
     server = getattr(daisy, server_class_name)()
