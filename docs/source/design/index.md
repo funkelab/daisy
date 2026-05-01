@@ -8,19 +8,21 @@ If you're new, start with the architecture overview and then dip into whichever 
 
 1. **[ARCHITECTURE.md](ARCHITECTURE.md)** — System-level overview. The runtime topology (Python entry → Rust runtime → workers), what each crate does, how a block flows from acquire to release.
 
-2. **[SCHEDULER.md](SCHEDULER.md)** — The dependency graph, the ready surface, and how block-level dependencies become the ordering constraints that drive worker dispatch.
+2. **[PIPELINES.md](PIPELINES.md)** — The `Pipeline` DAG: how `+` and `|` compose tasks into edge lists, how Python identity drives deduplication, and how the v1.x `Task(upstream_tasks=…)` form bridges into the same data structure.
 
-3. **[PROTOCOL.md](PROTOCOL.md)** — TCP wire format, message types, framing. Read this if you're writing a worker in another language or debugging connection issues.
+3. **[SCHEDULER.md](SCHEDULER.md)** — The dependency graph, the ready surface, and how block-level dependencies become the ordering constraints that drive worker dispatch.
 
-4. **[DONE_MARKERS.md](DONE_MARKERS.md)** — On-disk persistence layer for resumable runs. Zarr v3 layout, hash-based layout-change detection, what survives across runs.
+4. **[PROTOCOL.md](PROTOCOL.md)** — TCP wire format, message types, framing. Read this if you're writing a worker in another language or debugging connection issues.
 
-5. **[ABANDONMENT.md](ABANDONMENT.md)** — The typestate model that gates task counter mutations. Race windows that exist when workers die mid-block and how the lifecycle prevents them.
+5. **[DONE_MARKERS.md](DONE_MARKERS.md)** — On-disk persistence layer for resumable runs. Zarr v3 layout, hash-based layout-change detection, what survives across runs.
 
-6. **[RUN_STATS.md](RUN_STATS.md)** — How per-worker, per-task, and process-wide statistics are collected and aggregated. The linear-regression slope for block-duration trend.
+6. **[ABANDONMENT.md](ABANDONMENT.md)** — The typestate model that gates task counter mutations. Race windows that exist when workers die mid-block and how the lifecycle prevents them.
 
-7. **[WORKER_POOL_COORDINATION.md](WORKER_POOL_COORDINATION.md)** — The resource-budget design (`requires` per task, global `resources` budget). How concurrent worker counts compose across tasks competing for the same resource.
+7. **[RUN_STATS.md](RUN_STATS.md)** — How per-worker, per-task, and process-wide statistics are collected and aggregated. The linear-regression slope for block-duration trend.
 
-8. **[WORKER_SHUTDOWN_FLOWS.md](WORKER_SHUTDOWN_FLOWS.md)** — Sequence diagrams for the three shutdown scenarios (normal exit, KeyboardInterrupt, dirty crash) compared between daisy 1.x and daisy v2.
+8. **[WORKER_POOL_COORDINATION.md](WORKER_POOL_COORDINATION.md)** — The resource-budget design (`requires` per task, global `resources` budget). How concurrent worker counts compose across tasks competing for the same resource.
+
+9. **[WORKER_SHUTDOWN_FLOWS.md](WORKER_SHUTDOWN_FLOWS.md)** — Sequence diagrams for the three shutdown scenarios (normal exit, KeyboardInterrupt, dirty crash) compared between daisy 1.x and daisy v2.
 
 ## Conventions
 
@@ -33,6 +35,7 @@ If you're new, start with the architecture overview and then dip into whichever 
 :maxdepth: 1
 
 ARCHITECTURE
+PIPELINES
 SCHEDULER
 PROTOCOL
 DONE_MARKERS

@@ -123,39 +123,41 @@ Worker Process (receives SIGTERM):
 
 **Gap**: blocks that were being processed when SIGTERM hit are lost. The bookkeeper doesn't mark them as failed — the server has already exited the event loop. The task_states returned show them as still "processing."
 
-### Daisy
+### Daisy v2
 
 ```
 User hits Ctrl-C
      │
      ▼
-py.detach() is running the tokio event loop on the main thread.
-Python signal handling is deferred until GIL reacquisition.
-
-     ├─ py.detach returns (GIL reacquired)
-     │   ⚠ BUT: no KeyboardInterrupt handler installed.
-     │   The signal is delivered when Python regains control.
-     │   If the event loop is still running, it blocks indefinitely.
+Raw POSIX SIGINT handler (installed by py_server.rs before py.detach)
+     ├─ sets SIGINT_FLAG = true (atomic, lock-free)
      │
      ▼
-  ⚠ CURRENTLY: Ctrl-C during py.detach() is NOT handled gracefully.
-  The tokio runtime continues running until all tasks complete or
-  the process is killed by a second signal.
+Server tokio event loop:
+     ├─ abort_interval (every 100ms):
+     │   abort_check() reads SIGINT_FLAG
+     │   if true → break out of select! loop with io::Error(Interrupted)
+     │
+     ▼
+Server.run_blockwise() drops scope:
+     ├─ TCP listener dropped (accept loop ends)
+     ├─ For each worker pool: send RequestShutdown to pending,
+     │   join threads (workers exit their loops cleanly)
+     ├─ ResourceAllocator drops, ExitNotifier RAII fires per worker
+     ├─ Returns Err(io::Error::Interrupted)
+     │
+     ▼
+py_server.rs:
+     ├─ Restores the previous SIGINT handler (always — even on early return)
+     ├─ Maps Interrupted → raises Python KeyboardInterrupt
+     │
+     ▼
+  Python user code sees a normal KeyboardInterrupt.
 ```
 
-**Gap**: daisy has no `stop_event` mechanism. The `py.detach` call releases the GIL and runs the tokio event loop synchronously. Python's signal handler for SIGINT can't run until `py.detach` returns, which only happens when all tasks complete. A second Ctrl-C (SIGINT) will kill the process outright.
+**Key detail**: a raw `libc::signal(SIGINT, handle_sigint)` C handler is installed before `py.detach`. It runs from any thread regardless of GIL state, sets an atomic flag, and the tokio run loop's 100ms `abort_interval` polls it. `Python::check_signals()` doesn't work here because CPython only processes signals on the main thread and the main thread is blocked inside `py.detach`. The previous handler is always restored before `_run_distributed_server` returns, so subsequent Python code gets normal signal handling back.
 
-**What would need to change**: install a tokio signal handler that sets a shutdown flag, causing the event loop to exit early:
-
-```rust
-// In run_blockwise, inside the select:
-_ = tokio::signal::ctrl_c() => {
-    info!("received Ctrl-C, shutting down");
-    break;
-}
-```
-
-Then the existing shutdown code (send RequestShutdown to pending, close accept, join threads) handles cleanup.
+**Source**: `daisy-py/src/py_server.rs` lines 307–343 (handler install + restore), `daisy-core/src/server.rs` (run loop integration).
 
 ---
 
@@ -291,16 +293,14 @@ Worker Thread (0-arg spawn)             Server (tokio event loop)
 | Scenario | Daisy | Daisy |
 |---|---|---|
 | **Normal shutdown** | Graceful TCP handshake (NotifyDisconnect/Ack), process exits 0, reaper keeps in pool | RequestShutdown message, thread returns `true`, not respawned |
-| **Ctrl-C** | `stop_event.set()` exits loop, `finally` sends SIGTERM to all workers, joins | ⚠ **Not handled** — `py.detach` blocks, Python signal handler deferred. Needs `tokio::signal::ctrl_c()` in select loop |
+| **Ctrl-C** | `stop_event.set()` exits loop, `finally` sends SIGTERM to all workers, joins | Raw `libc::signal` handler sets atomic flag; 100ms `abort_interval` polls it; run loop exits with `Interrupted`, mapped to Python `KeyboardInterrupt`. Previous handler always restored. |
 | **Worker crash** | `stream.closed()` detected on next 0.1s tick → block FAILED → retry. `reap_dead_workers` → respawn | TCP EOF → synthetic Disconnect → bookkeeper. Health tick (500ms) → `get_lost_blocks` → block FAILED → retry. `check_thread_health` → respawn |
 | **Block recovery** | Block marked FAILED, retried up to `max_retries` | Same |
 | **Detection latency** | ~0.1s (event loop poll) | ~500ms (health tick). Disconnect registered immediately but block recovery waits for tick |
 | **Timeout backstop** | `BlockBookkeeper.processing_timeout` (available but usually None) | Same field exists, also not wired to Python API |
 
-### Gaps to Address
+### Remaining gaps
 
-1. **Daisy Ctrl-C handling**: add `tokio::signal::ctrl_c()` as a branch in the select loop. On trigger, break out of the event loop and run the existing shutdown code.
+1. **Detection latency**: daisy v2's 500ms health tick is 5× slower than daisy 1.x's 100ms loop. For most workloads this doesn't matter (blocks take seconds to minutes), but it could be made configurable.
 
-2. **Processing timeout**: wire `Task.timeout` through to `BlockBookkeeper::new(Some(duration))` in both daisy 1.x and daisy v2. This is the only reliable backstop for hung workers, network partitions, and edge cases where the TCP socket doesn't close.
-
-3. **Detection latency**: daisy v2's 500ms health tick is 5x slower than daisy 1.x's 0.1s loop. For most workloads this doesn't matter (blocks take seconds to minutes), but it could be made configurable.
+2. **Processing timeout in the Python API**: `Task.timeout` is now wired through (constructor accepts `timeout: float | int | None`) and `BlockBookkeeper::new(Some(duration))` is the backstop for hung workers, network partitions, and edge cases where the TCP socket doesn't close. Default is no timeout, on the assumption that arbitrarily long blocks are legitimate (long imaging volumes, slow ML inference). Set per-task when you have a real upper bound.

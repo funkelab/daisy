@@ -11,14 +11,15 @@ daisy/
 │       ├── block.rs           Block + BlockId + BlockStatus
 │       ├── coordinate.rs      ND integer coordinates and arithmetic
 │       ├── roi.rs             Region-of-interest (offset + shape)
-│       ├── task.rs            Task definition + builder
+│       ├── task.rs            Task definition + builder (no DAG fields — see pipeline.rs)
+│       ├── pipeline.rs        DAG carrier: `Vec<Arc<Task>>` + `Vec<(upstream_id, downstream_id)>`
 │       ├── task_state.rs      Typestate enum: Running / Done / Abandoned
-│       ├── dependency_graph.rs  Per-task and inter-task block dep graphs
+│       ├── dependency_graph.rs  Per-task and inter-task block dep graphs (built from a Pipeline)
 │       ├── ready_surface.rs   Surface/boundary tracking, orphan BFS
 │       ├── processing_queue.rs Per-task ready queue + retry counters
-│       ├── scheduler.rs       Coordinates dep graph + ready surface
+│       ├── scheduler.rs       Coordinates dep graph + ready surface (consumes a Pipeline)
 │       ├── done_marker.rs     Zarr v3 persistent skip markers
-│       ├── resource_allocator.rs  Global resource budget
+│       ├── resource_allocator.rs  Global resource budget (`requires` + `resources`)
 │       ├── block_bookkeeper.rs  In-flight block tracking
 │       ├── client.rs          TCP client (workers connect via this)
 │       ├── worker_pool.rs     External-process worker pool (subprocess workers)
@@ -31,26 +32,34 @@ daisy/
 ├── daisy-py/            PyO3 bindings + Python adaptation layer
 │   ├── src/                   Rust → Python bridge
 │   │   ├── lib.rs             Module init, function exports
-│   │   ├── py_task.rs         Python Task class wrapping Rust Task
+│   │   ├── py_task.rs         Python Task — direct PyO3 class (`#[pyclass(subclass)]`)
+│   │   ├── py_pipeline.rs     Python Pipeline — `+` / `|` operators, edge dedup
 │   │   ├── py_task_state.rs   Python TaskState wrapping TaskCounters snapshot
 │   │   ├── py_block.rs        Python Block wrapping Rust Block
 │   │   ├── py_roi.rs          Python Roi (transparent passthrough)
+│   │   ├── py_context.rs      Worker-side context: env-var encoding, host/port/task_id
 │   │   ├── py_callbacks.rs    PyProcessBlock / PySpawnWorker / PyProgressObserver
 │   │   ├── py_sync_client.rs  Synchronous TCP client for 0-arg workers
 │   │   ├── py_dep_graph.rs    Python wrapper over DependencyGraph
-│   │   ├── py_scheduler.rs    Python wrapper over Scheduler (rare; debug only)
-│   │   └── py_server.rs       Entry points: _run_serial, _run_distributed_server
+│   │   ├── py_scheduler.rs    Python Scheduler — accepts `Pipeline | Task`
+│   │   └── py_server.rs       Entry points: _run_serial / _run_distributed_server /
+│   │                          _run_blockwise_orchestrator / _topo_order
 │   │
 │   └── python/daisy/        Pure Python, user-facing API
-│       ├── __init__.py        Re-exports the public API
-│       ├── _task.py           Task / Scheduler / Client / Context classes
-│       ├── _progress.py       Topo ordering, tqdm observer, summary printers
+│       ├── __init__.py        Re-exports the public API (= `v1_compat` by default)
+│       ├── _daisy.pyi         PyO3 module stubs (kept in sync with src/*.rs by hand)
+│       ├── _task.py           Direct re-exports of `_rs.Task`/`Scheduler`/`Context`,
+│       │                      plus the `Client` context manager and worker-logging wrap
+│       ├── _progress.py       tqdm observer, JSON observer, summary printers
 │       ├── _runner.py         Server class + run_blockwise entry point
-│       ├── _compat.py         Thin re-export shim for back-compat imports
+│       ├── v2.py              v2-native API surface (no daisy 1.x shims)
+│       ├── v1_compat.py       daisy 1.x shims: `Task(num_workers=…, upstream_tasks=…)`,
+│       │                      `SerialServer`, list-of-tasks `run_blockwise([…])`
 │       └── logging.py         Per-thread / per-worker log routing
 │
 ├── examples/              Cell-style scripts (# %%) for VS Code interactive mode
 ├── tests/                 pytest-driven integration tests (Python entry → Rust runtime)
+│   └── daisy_compat/      Tests for the v1.x backwards-compat surface
 ├── benchmarks/            Throughput comparisons vs daisy 1.x
 └── docs/                  This directory
 ```
@@ -60,11 +69,12 @@ daisy/
 ```
         Python user script
               │
-              │  Task(...)  +  run_blockwise([tasks])
+              │  Task(...) → Pipeline (via `+` / `|`)
+              │  daisy.run_blockwise(pipeline)
               ▼
     daisy-py (PyO3 bindings)
         │
-        │  _rs._run_distributed_server(...)
+        │  _rs._run_blockwise_orchestrator(pipeline, ...)
         │  releases the GIL via py.detach
         ▼
     daisy-core::Server::run_blockwise   ◄────── tokio multi-threaded runtime
@@ -90,9 +100,9 @@ daisy/
 
 Three layers, three responsibilities:
 
-- **Python**: API ergonomics. Constructors, defaults, deprecation aliases, the `Client` context manager, the tqdm observer, the per-thread log proxy. No scheduling logic.
-- **PyO3 bridge**: type conversion + GIL discipline. Wraps Python callables in `dyn ProcessBlock` / `dyn SpawnWorker`. Releases the GIL across long Rust operations and re-acquires it for callbacks.
-- **Rust core**: the actual machinery. Dependency graph, ready surface, scheduler, TCP server, worker threads, resource budget, run statistics, signal handling.
+- **Python**: minimal — `Client` context manager (worker-side), the tqdm/JSON progress observers, the per-thread log proxy, and the v1.x compat shims (`num_workers=` alias, list-of-tasks `run_blockwise`, `SerialServer`). `Task`, `Pipeline`, `Scheduler`, `Context`, `Roi`, etc. are direct re-exports of their PyO3 classes — no Python wrapper.
+- **PyO3 bridge**: type conversion + GIL discipline. Wraps Python callables in `dyn ProcessBlock` / `dyn SpawnWorker`. Releases the GIL across long Rust operations and re-acquires it for callbacks. The `Pipeline` `+` / `|` operators live here; composition is fully Rust-side.
+- **Rust core**: the actual machinery. Pipeline DAG, dependency graph, ready surface, scheduler, TCP server, worker threads, resource budget, run statistics, signal handling.
 
 ## How a block flows from acquire to release
 
@@ -160,6 +170,6 @@ For a 1-arg `process_function` task:
 | Counts don't add up                                              | `running_mut` gate — late mutations are silently dropped, look for `tracing::debug` lines `dropping release for non-running task` |
 | Workers don't restart                                            | `rebalance_workers` — check `worker_restart_count >= max_worker_restarts` |
 | `Ctrl+C` doesn't exit                                            | `py_server.rs` SIGINT handler installation       |
-| Progress bar order wrong                                         | `_topo_order` in `daisy/_progress.py`          |
+| Progress bar order wrong                                         | `_topo_order` in `daisy-py/src/py_server.rs`     |
 | Done marker says "layout mismatch"                               | `done_marker.rs::open_or_create` hash check      |
 | Worker can connect but blocks never arrive                       | Task's `requires` doesn't fit in `resources`     |

@@ -67,7 +67,7 @@ Two worker shapes, both folded into the same death/restart cycle:
 
 **0-arg `spawn_function`**: the user owns the loop. An exception inside their function unwinds out of `PySpawnWorker::spawn`, which returns `Err`. The Rust thread exits dirty.
 
-**1-arg `process_function`**: the Rust thread owns the loop. After every `client.release_block()`, if the block came back with status `Failed`, the thread exits dirty. (This was a deliberate semantic choice — see the discussion in REFACTOR.md.)
+**1-arg `process_function`**: the Rust thread owns the loop. After every `client.release_block()`, if the block came back with status `Failed`, the thread exits dirty. This is deliberate: a process-function failure is treated as a worker death, so it bumps `worker_failure_count` and goes through the same restart-cap accounting as a 0-arg crash. The result is that a buggy `process_function` is bounded by `max_worker_restarts + 1` block failures before the runner gives up — the same invariant you get for 0-arg workers.
 
 In both cases, the dirty exit triggers the same downstream flow:
 

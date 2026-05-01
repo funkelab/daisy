@@ -92,7 +92,7 @@ The `∠` is just decoration to make the trend readable in monospace.
 
 A histogram tells you the distribution — useful but the user can compute it themselves from the per-block timings if we expose them. The slope is the one summary statistic that surfaces a *trend* from a `Vec<f64>`, and trends are what people actually care about (regressions over time, memory bloat, cache thrashing). Two numbers — mean + slope — fit on a one-line dashboard.
 
-REFACTOR 2.4 has a proposal for emitting per-block timings as a JSON stream, which would make the histogram option easy.
+For users who want the raw distribution, `JsonProgressObserver` (see `daisy-py/python/daisy/_progress.py`) emits one line of JSON per task per state change with the full counter snapshot — pipe it into `jq` or a dashboard for histogram analysis.
 
 ## Where to look
 

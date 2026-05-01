@@ -1,234 +1,101 @@
-# Worker Pool Coordination Across Tasks
+# Worker pool coordination across tasks
 
-## The Problem
+How concurrent worker counts compose across tasks competing for shared resources. The mechanism is a **per-task `requires`** declaration plus a **global `resources` budget** consumed by the runner.
 
-Currently, each task declares its own `num_workers`. When running a pipeline of tasks (A → B → C), the server spawns workers per-task:
+This replaces daisy 1.x's per-task `num_workers` (which had no notion of cross-task resource sharing — each task got its own static pool, and 5 tasks each declaring `num_workers=10` would happily spawn 50 workers regardless of the host's actual capacity).
 
-```
-Task A: 10 workers
-Task B: 10 workers  
-Task C: 10 workers
-```
+## API
 
-All 30 workers are spawned upfront. But if the machine only has 15 cores, or the user only wants to use 15 slots, there's no way to express that. And more importantly, the workers are static — if task A has no ready blocks (all its blocks are complete or waiting on processing), its 10 workers sit idle while task B has a backlog.
-
-## What We Want
-
-A global worker budget shared across tasks, with dynamic reallocation based on where the work actually is.
+Each task declares what one of *its* workers consumes:
 
 ```python
-pipeline = daisy.Pipeline(
-    tasks=[task_a, task_b, task_c],
-    total_workers=15,
+extract  = daisy.Task(..., requires={"cpu": 1}, max_workers=8)
+predict  = daisy.Task(..., requires={"gpu": 1, "cpu": 4}, max_workers=4)
+relabel  = daisy.Task(..., requires={"cpu": 1}, max_workers=8)
+```
+
+The runner is given a global budget:
+
+```python
+daisy.run_blockwise(
+    extract + predict + relabel,
+    resources={"cpu": 32, "gpu": 8},
 )
-pipeline.run()
 ```
 
-The server should:
-1. Start by giving all 15 workers to task A (the only task with ready blocks)
-2. As task A blocks complete and task B blocks become ready, shift workers from A to B
-3. If task A is done, give all 15 to B
-4. Handle the case where A and B both have work — split based on ready block counts
+At any moment, the number of *concurrent* workers for a task is bounded by the smaller of:
 
-## Current Architecture
+- its own `max_workers` cap,
+- the global budget after subtracting other tasks' usage.
 
-The relevant pieces:
+## How it composes
 
-### Server event loop (`server.rs`)
-
-Workers are spawned at startup, one thread per task per `num_workers`:
+The allocator (`daisy-core/src/resource_allocator.rs`) maintains:
 
 ```rust
-for task in tasks {
-    for _ in 0..task.num_workers {
-        let handle = Self::spawn_worker(&spec);
-        workers.push((spec, WorkerThread::Running(handle)));
-    }
+pub struct ResourceAllocator {
+    budget: ResourceBudget,                  // global cap
+    used:   HashMap<String, i64>,            // currently-consumed totals
+    alive:  HashMap<String, usize>,          // worker count per task
 }
 ```
 
-Each worker thread is bound to a specific task — it connects via TCP and requests blocks only for its `task_id`. It runs until the server sends `RequestShutdown`.
+`try_allocate(&task)` is the gate every worker spawn goes through. It checks that for every key in `task.requires`, `used[k] + v ≤ budget[k]`; on success, the per-key usage and the per-task `alive` counter both bump. `release(&task)` is the symmetric drop. Spawn paths in `daisy-core/src/server.rs` call `try_allocate` before launching a thread; the worker's RAII `ExitNotifier` calls `release` on Drop.
 
-### Scheduler state (`task_state.rs`)
+A task with empty `requires={}` is treated as costing zero resources — it's bounded only by `max_workers`. Useful for IO-bound tasks where you don't want resource accounting at all.
 
-The scheduler already tracks everything needed for allocation decisions:
+## Disjoint resources run in parallel
 
-```rust
-pub struct TaskState {
-    pub ready_count: i64,       // blocks available to dispatch
-    pub processing_count: i64,  // blocks currently being worked on
-    pub pending_count: i64,     // blocks waiting on dependencies
-    pub completed_count: i64,
-}
-```
-
-### Worker threads (`server.rs`)
-
-Each worker is a `std::thread` with a TCP client that loops:
+Two tasks competing for the *same* key share that key's pool:
 
 ```
-acquire_block(task_id) → process → release_block → repeat
+budget = {"cpu": 4}
+A.requires = {"cpu": 1}, A.max_workers = 8
+B.requires = {"cpu": 1}, B.max_workers = 8
 ```
 
-The `task_id` is baked into the worker at spawn time.
+→ combined alive count for A and B never exceeds 4.
 
-## Design
+Two tasks declaring *disjoint* keys don't compete:
 
-### Core Idea: Task-Agnostic Workers
-
-Instead of workers being bound to a single task, make them request "the next available block from any task." The server decides which task to assign based on the current state.
-
-### Option A: Server-Side Assignment (Recommended)
-
-Workers send a generic `AcquireBlock` without a task ID. The server picks the best task:
-
-```rust
-// New message variant:
-AcquireBlockAny  // "give me any block from any task"
-
-// Server picks task based on allocation policy:
-fn pick_task(&self, scheduler: &Scheduler) -> Option<String> {
-    // ... allocation logic ...
-}
+```
+budget = {"cpu": 4, "gpu": 2}
+A.requires = {"cpu": 1}, A.max_workers = 4
+B.requires = {"gpu": 1}, B.max_workers = 2
 ```
 
-**Changes needed:**
+→ A and B both run at full `max_workers` simultaneously.
 
-1. **Protocol**: add `AcquireBlockAny` message variant alongside the existing `AcquireBlock { task_id }`. Existing workers that target a specific task still work.
+This is the test matrix in `tests/test_resources.py`:
 
-2. **Server `handle_acquire`**: when receiving `AcquireBlockAny`, call an allocator to pick the task, then dispatch as normal through the single path.
+- `test_max_workers_caps_concurrency_without_requires` — empty requires, only `max_workers` matters
+- `test_resource_budget_caps_one_task_below_max_workers` — budget overrides `max_workers` when smaller
+- `test_two_tasks_share_a_resource` — combined peak ≤ shared budget
+- `test_disjoint_resources_run_in_parallel` — disjoint budgets don't gate each other
+- `test_requires_exceeds_budget_hard_errors` — startup validation
+- `test_chained_tasks_reassign_workers_when_upstream_drains` — workers shift between dependent tasks as work moves through the DAG
 
-3. **Worker threads**: change from `Client::connect(host, port, task_id)` to `Client::connect(host, port)` without a task binding. The worker loop becomes:
-   ```rust
-   loop {
-       match client.acquire_block_any().await {
-           Some(block) => { process(block); release(block); }
-           None => break,
-       }
-   }
-   ```
+## Validation at startup
 
-4. **Process function routing**: the block carries its `task_id`, so the worker looks up the correct process function for that task. This requires workers to have access to all tasks' process functions, not just one.
+`ResourceAllocator::validate(&[Arc<Task>])` runs once before the run loop starts. For each task, for each `requires` key, it checks that the per-worker requirement fits in the global budget (`v ≤ budget[k]`). If not, it returns `DaisyError::InvalidConfig` with a message naming the offending task and key:
 
-### Option B: Worker Rebalancing
-
-Keep task-bound workers but dynamically adjust counts. A `WorkerAllocator` runs on the health tick and redistributes:
-
-```rust
-fn rebalance(
-    task_states: &HashMap<String, TaskState>,
-    current_allocation: &HashMap<String, usize>,
-    total_budget: usize,
-) -> HashMap<String, usize> {
-    // ... new allocation ...
-}
+```
+task "predict" requires {gpu: 8} but the global budget only has {gpu: 1}
 ```
 
-To shrink a task's workers: send `RequestShutdown` to excess workers.
-To grow: spawn new worker threads for that task.
+This is hard-error rather than warn-and-skip: a task whose `requires` doesn't fit will *never* spawn a worker, and silently never running is the worst possible failure mode.
 
-**Simpler to implement** (no protocol change), but has overhead from constantly spawning/killing threads and re-establishing TCP connections.
+## Why workers are task-bound
 
-### Recommended: Option A
+A more sophisticated design would have a global pool of fungible workers that the server dispatches across tasks based on where the work is. We don't do that, on purpose:
 
-Option A is cleaner because workers are long-lived. They don't need to reconnect when work shifts between tasks. The server just routes different blocks to them.
+- Worker-function (0-arg) workers are **stateful** — they're long-running subprocesses that load a model on startup and process blocks in a loop. Reassigning a "predict" worker to handle a "relabel" block would require it to switch models, which defeats the whole point of the lifecycle.
+- Process-function (1-arg) workers don't have that constraint, but the protocol and worker threads are uniform across both shapes — making process-function workers fungible while keeping worker-function workers task-bound would split the implementation in two.
 
-## Allocation Policies
+The resource-budget approach gets you most of the benefit (no over-subscription, fair sharing under contention) without the per-task statefulness penalty. The downside is that an idle "predict" worker doesn't get reassigned to a busy "extract" task — it just exits when there's no more "predict" work, freeing its resource share for "extract" to grow into.
 
-The allocator decides which task gets the next block when a worker asks. Several strategies:
+## Where to look
 
-### 1. Proportional to Ready Blocks
-
-```rust
-fn pick_task(states: &HashMap<String, TaskState>) -> Option<String> {
-    states.iter()
-        .filter(|(_, s)| s.ready_count > 0)
-        .max_by_key(|(_, s)| s.ready_count)
-        .map(|(id, _)| id.clone())
-}
-```
-
-Give work to the task with the most ready blocks. Simple, avoids starvation, naturally balances.
-
-### 2. Priority by Pipeline Position
-
-Prefer downstream tasks (closer to final output). This minimizes intermediate data sitting in storage:
-
-```rust
-fn pick_task(
-    states: &HashMap<String, TaskState>,
-    topo_order: &[String],  // tasks in dependency order, downstream last
-) -> Option<String> {
-    // Prefer the latest task in the pipeline that has ready blocks.
-    topo_order.iter().rev()
-        .find(|id| states[*id].ready_count > 0)
-        .cloned()
-}
-```
-
-### 3. Drain-Then-Fill
-
-Fully drain each task before moving to the next. Minimizes context switching and memory pressure from multiple tasks running simultaneously:
-
-```rust
-fn pick_task(states: &HashMap<String, TaskState>) -> Option<String> {
-    // Pick the first task (in dependency order) that has ready blocks.
-    // Only move to the next task when the current one is fully done
-    // or blocked on dependencies.
-}
-```
-
-### 4. User-Defined
-
-Expose the allocator as a trait so users can implement custom policies:
-
-```rust
-pub trait WorkerAllocator: Send + Sync {
-    fn pick_task(&self, states: &HashMap<String, TaskState>) -> Option<String>;
-}
-```
-
-From Python:
-```python
-class MyAllocator:
-    def pick_task(self, states):
-        # Custom logic
-        return task_id
-
-pipeline = daisy.Pipeline(tasks, total_workers=15, allocator=MyAllocator())
-```
-
-## Implementation Steps
-
-### Phase 1: Task-Agnostic Workers (Minimal)
-
-1. Add `AcquireBlockAny` to the `Message` enum
-2. Add `pick_task` method to server (default: proportional to ready blocks)
-3. Change worker threads to not bind to a task — carry all tasks' process functions
-4. When a block arrives, look up the process function by `block.task_id`
-5. Add `total_workers` field to the `run_blockwise` API
-
-**Estimated scope**: ~100 lines in `server.rs`, ~20 lines in `protocol.rs`, ~30 lines in `py_server.rs`.
-
-### Phase 2: Allocation Policies
-
-1. Define `WorkerAllocator` trait
-2. Implement the four strategies above
-3. Expose to Python via PyO3
-
-**Estimated scope**: new `allocator.rs` module, ~150 lines.
-
-### Phase 3: Observability
-
-1. Log worker→task assignments per health tick
-2. Expose current allocation via `Server.worker_allocation` property
-3. Add metrics: blocks/sec per task, worker utilization, idle time
-
-## What Doesn't Need to Change
-
-- **Scheduler**: already tracks per-task state, no changes needed
-- **Dependency graph**: task dependencies are already resolved correctly
-- **Block bookkeeper**: tracks by client address, doesn't care about task assignment
-- **Ready surface**: per-task, works as-is
-- **Pending requests**: the single dispatch path handles any task's blocks
-- **Python compat layer**: `Task.num_workers` becomes a hint/default; the global budget overrides it
+- `daisy-core/src/resource_allocator.rs` — `ResourceBudget`, `ResourceAllocator::try_allocate`/`release`/`validate`.
+- `daisy-core/src/server.rs::rebalance_workers` — calls `try_allocate` before each spawn; per-task spawn caps come from `min(task.max_workers, allocator headroom)`.
+- `tests/test_resources.py` — full behavior matrix.
