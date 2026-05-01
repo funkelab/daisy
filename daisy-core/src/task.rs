@@ -67,10 +67,9 @@ pub struct Task {
     pub total_write_roi: Roi,
     pub read_write_conflict: bool,
     pub fit: Fit,
-    pub num_workers: usize,
+    pub max_workers: usize,
     pub max_retries: u32,
     pub timeout: Option<std::time::Duration>,
-    pub upstream_tasks: Vec<Arc<Task>>,
     pub check_function: Option<Arc<dyn CheckBlock>>,
     /// Cap on the number of times a worker for this task may exit with
     /// an error before the runner stops respawning replacements. Once
@@ -104,10 +103,6 @@ impl Task {
     pub fn builder(task_id: &str) -> TaskBuilder {
         TaskBuilder::new(task_id)
     }
-
-    pub fn requires(&self) -> &[Arc<Task>] {
-        &self.upstream_tasks
-    }
 }
 
 pub struct TaskBuilder {
@@ -117,10 +112,9 @@ pub struct TaskBuilder {
     write_roi: Option<Roi>,
     read_write_conflict: bool,
     fit: Fit,
-    num_workers: usize,
+    max_workers: usize,
     max_retries: u32,
     timeout: Option<std::time::Duration>,
-    upstream_tasks: Vec<Arc<Task>>,
     check_function: Option<Arc<dyn CheckBlock>>,
     process_function: Option<Arc<dyn ProcessBlock + Sync>>,
     spawn_function: Option<Arc<dyn SpawnWorker>>,
@@ -138,10 +132,9 @@ impl TaskBuilder {
             write_roi: None,
             read_write_conflict: true,
             fit: Fit::Valid,
-            num_workers: 1,
+            max_workers: 1,
             max_retries: 2,
             timeout: None,
-            upstream_tasks: Vec::new(),
             check_function: None,
             process_function: None,
             spawn_function: None,
@@ -176,8 +169,8 @@ impl TaskBuilder {
         self
     }
 
-    pub fn num_workers(mut self, n: usize) -> Self {
-        self.num_workers = n;
+    pub fn max_workers(mut self, n: usize) -> Self {
+        self.max_workers = n;
         self
     }
 
@@ -188,11 +181,6 @@ impl TaskBuilder {
 
     pub fn timeout(mut self, t: std::time::Duration) -> Self {
         self.timeout = Some(t);
-        self
-    }
-
-    pub fn upstream(mut self, task: Arc<Task>) -> Self {
-        self.upstream_tasks.push(task);
         self
     }
 
@@ -248,10 +236,9 @@ impl TaskBuilder {
             total_write_roi,
             read_write_conflict: self.read_write_conflict,
             fit: self.fit,
-            num_workers: self.num_workers,
+            max_workers: self.max_workers,
             max_retries: self.max_retries,
             timeout: self.timeout,
-            upstream_tasks: self.upstream_tasks,
             check_function: self.check_function,
             process_function: self.process_function,
             spawn_function: self.spawn_function,

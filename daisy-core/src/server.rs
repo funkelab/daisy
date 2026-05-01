@@ -103,33 +103,24 @@ impl Server {
     /// so the sum across all tasks competing for a resource never
     /// exceeds the corresponding budget. Tasks with empty `requires`
     /// ignore the budget entirely and are bounded only by their own
-    /// `num_workers` cap (the legacy behaviour).
+    /// `max_workers` cap (the legacy behaviour).
     pub async fn run_blockwise(
         &self,
         listener: TcpListener,
-        tasks: &[Arc<Task>],
+        pipeline: &crate::pipeline::Pipeline,
         worker_pools: &mut HashMap<String, WorkerPool>,
         resources: ResourceBudget,
         progress: Option<Arc<dyn ProgressObserver>>,
         abort_check: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
         block_tracking: bool,
     ) -> std::io::Result<(HashMap<String, TaskCounters>, crate::run_stats::RunStats)> {
-        let mut scheduler = Scheduler::new(tasks, true);
+        let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
             if let Err(e) = scheduler.init_done_markers() {
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
             }
         }
-        // The caller may have passed only the leaf tasks (which is what
-        // the Python entry point does when materializing a Pipeline or
-        // a single chained task). `Scheduler::new` recursively pulls
-        // upstream tasks into `task_map`, but the rebalance / spawn
-        // loops below need the full closure so they spawn workers for
-        // every task in the DAG, not just the leaves. Build that
-        // closure once here.
-        let all_tasks: Vec<Arc<Task>> =
-            scheduler.task_map.values().cloned().collect();
-        let tasks: &[Arc<Task>] = &all_tasks;
+        let tasks: &[Arc<Task>] = &pipeline.tasks;
         let mut bookkeeper = BlockBookkeeper::new();
 
         let (msg_tx, mut msg_rx) = mpsc::channel::<ClientMessage>(256);
@@ -273,7 +264,7 @@ impl Server {
         // Initial fill — only tasks that already have ready blocks
         // (i.e. roots) get workers up front. Downstream tasks get
         // workers spawned later, when upstream completion makes their
-        // first blocks ready. Capped by per-task `num_workers` and the
+        // first blocks ready. Capped by per-task `max_workers` and the
         // global resource budget.
         Self::rebalance_workers(
             &self.host,
@@ -777,7 +768,7 @@ impl Server {
     }
 
     /// Spawn additional workers for tasks that have ready work, fewer
-    /// alive workers than their `num_workers` cap, and whose
+    /// alive workers than their `max_workers` cap, and whose
     /// per-worker `requires` fits in the remaining resource budget.
     /// Idempotent — safe to call any time.
     ///
@@ -821,7 +812,7 @@ impl Server {
                     continue;
                 }
                 let alive = allocator.alive(&task.task_id);
-                if alive >= task.num_workers {
+                if alive >= task.max_workers {
                     continue;
                 }
                 // A spawn that *replaces* a previously-dead worker
@@ -1001,7 +992,7 @@ impl Server {
         let ready_tasks = scheduler.get_ready_tasks();
         for task in &ready_tasks {
             if let Some(pool) = worker_pools.get_mut(&task.task_id) {
-                pool.set_num_workers(task.num_workers, &self.host, self.port)?;
+                pool.set_num_workers(task.max_workers, &self.host, self.port)?;
             }
         }
         Ok(())

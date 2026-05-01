@@ -21,17 +21,18 @@ impl SerialRunner {
     /// `false`, marker initialization is skipped — every block is processed
     /// regardless of any `done_marker_path` configured on the tasks.
     pub fn run(
-        tasks: &[Arc<Task>],
+        pipeline: &crate::pipeline::Pipeline,
         block_tracking: bool,
     ) -> Result<HashMap<String, TaskCounters>, DaisyError> {
-        let mut scheduler = Scheduler::new(tasks, true);
+        let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
             scheduler.init_done_markers()?;
         }
 
         let mut started_tasks = HashSet::new();
         let mut finished_tasks: HashSet<String> = HashSet::new();
-        let all_tasks: HashSet<String> = tasks.iter().map(|t| t.task_id.clone()).collect();
+        let all_tasks: HashSet<String> =
+            pipeline.tasks.iter().map(|t| t.task_id.clone()).collect();
 
         loop {
             let ready_tasks = scheduler.get_ready_tasks();
@@ -112,7 +113,8 @@ mod tests {
                 .build(),
         );
 
-        let states = SerialRunner::run(&[task.clone()], true).unwrap();
+        let pipeline = crate::pipeline::Pipeline::from_task(task.clone());
+        let states = SerialRunner::run(&pipeline, true).unwrap();
         let state = &states["test"];
         assert!(state.balanced());
         assert_eq!(state.total_block_count, 4);

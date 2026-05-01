@@ -31,11 +31,17 @@ def _topo_order(tasks):
     all_tasks = {}
     upstream_map = {}
 
+    # `_rs.Task` no longer carries `upstream_tasks`; v2 expresses
+    # task DAGs via `Pipeline`. For users coming from daisy 1.x via
+    # `Task(upstream_tasks=[...])`, the v1_compat factory records the
+    # upstream list in a side-table that we read here.
+    from daisy._task import _get_task_upstream
+
     def visit(t):
         if t.task_id in all_tasks:
             return
         all_tasks[t.task_id] = t
-        ups = list(t.upstream_tasks or [])
+        ups = list(_get_task_upstream(t) or [])
         upstream_map[t.task_id] = {u.task_id for u in ups}
         for u in ups:
             visit(u)

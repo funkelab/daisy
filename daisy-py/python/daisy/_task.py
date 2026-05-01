@@ -1,18 +1,19 @@
-"""User-facing Task / Scheduler / Client / Context classes.
+"""User-facing pure-data classes (Task, Scheduler, Client, Context).
 
-These are the constructors users hold; they wrap (or pass-through)
-the Rust-defined types in `daisy._daisy` and `_rs.SyncClient`.
+`Task` and `Scheduler` are direct re-exports of their `_rs.*`
+PyO3-backed counterparts — no Python wrapper. `Client` keeps a thin
+Python wrapper because its `acquire_block()` context manager performs
+per-worker traceback logging through `daisy.logging`, which is the
+"logging integration" carve-out that's deliberately Python-side.
 
-This module has no scheduling logic, no progress-display code, and
-no run-loop entry points. Those live in `_progress.py` and
-`_runner.py`.
+Backwards-compat aliases (e.g. `num_workers=` on Task) live in
+`daisy.v1_compat`, not here.
 """
 
 from contextlib import contextmanager
 import copy
 import inspect
 import logging
-import os
 from pathlib import Path
 
 import daisy._daisy as _rs
@@ -29,10 +30,6 @@ def set_done_marker_basedir(path) -> None:
     `<basedir>/<task_id>`. Set to `None` to disable auto-resolution
     against this basedir — `daisy.logging.LOG_BASEDIR` is then the
     final fallback before "no marker".
-
-    Thin wrapper over `_rs.set_done_marker_basedir`; the storage
-    lives in Rust so all paths (Python wrappers, raw `_rs.Task`,
-    Pipeline materialization) see the same value.
     """
     _rs.set_done_marker_basedir(str(path) if path is not None else None)
 
@@ -42,7 +39,11 @@ def get_done_marker_basedir() -> Path | None:
     return p if p is None else Path(p)
 
 
-# Types with identical API — no wrapping needed.
+# Direct re-exports — no Python wrappers. The Rust types provide the
+# full user-facing surface (constructor, getters, reset, pipeline
+# operators, copy.copy support, attribute setters for process_function
+# / upstream_tasks so `_wrap_for_worker_logging` and Pipeline
+# materialize work).
 Roi = _rs.Roi
 Coordinate = _rs.Coordinate
 Block = _rs.Block
@@ -50,152 +51,103 @@ BlockStatus = _rs.BlockStatus
 BlockwiseDependencyGraph = _rs.BlockwiseDependencyGraph
 DependencyGraph = _rs.DependencyGraph
 TaskState = _rs.TaskState
-
-
-class Task:
-    """User-facing Task constructor. Thin wrapper over `_rs.Task`."""
-
-    def __init__(
-        self,
-        task_id,
-        total_roi,
-        read_roi,
-        write_roi,
-        process_function=None,
-        check_function=None,
-        init_callback_fn=None,
-        read_write_conflict=True,
-        max_workers=1,
-        max_retries=2,
-        fit="valid",
-        timeout=None,
-        upstream_tasks=None,
-        done_marker_path=None,
-        requires=None,
-        max_worker_restarts=10,
-    ):
-        self.task_id = task_id
-        self.total_roi = total_roi
-        self.read_roi = read_roi
-        self.write_roi = write_roi
-        self.process_function = process_function
-        self.check_function = check_function
-        self.init_callback_fn = init_callback_fn
-        self.read_write_conflict = read_write_conflict
-        self.max_workers = int(max_workers)
-        self.max_retries = max_retries
-        self.fit = fit
-        self.timeout = timeout
-        self.upstream_tasks = upstream_tasks or []
-        # Three states for `done_marker_path`:
-        #   - explicit string/Path  → use it verbatim
-        #   - False                 → disabled for this task (override basedir)
-        #   - None (default)        → fall back to global basedir + task_id
-        self.done_marker_path = done_marker_path
-        # Per-worker resource cost; empty dict (or None) disables
-        # resource accounting for this task — the worker count is bounded
-        # purely by `max_workers`.
-        self.requires = dict(requires) if requires else {}
-        # Cap on the number of times a worker for this task may exit
-        # with an error before the runner stops respawning. Once
-        # reached, any unprocessed blocks are accounted as orphaned.
-        self.max_worker_restarts = int(max_worker_restarts)
-
-    def reset(self) -> Path | None:
-        """Delete this task's done-marker, so the next run starts fresh
-        for every block of this task. Returns the path that was cleared
-        (or `None` if no marker was configured / nothing existed).
-
-        Does *not* cascade to upstream or downstream tasks. If a
-        downstream task has a marker recording "done based on this
-        task's previous output," its marker still says done — call
-        `reset()` on those tasks too if you want the downstream re-run.
-
-        Filesystem operation lives in Rust (`daisy_core::DoneMarker::clear`);
-        this wrapper just resolves the path through the normal precedence
-        chain (per-task `done_marker_path` → global basedir → log basedir)
-        and delegates.
-        """
-        cleared = self._to_rs().reset()
-        return Path(cleared) if cleared is not None else None
-
-    def _to_rs(self):
-        # Pass `done_marker_path` through verbatim — `_rs.Task` handles
-        # the 3-state spec (None/False/str) and resolves Auto against
-        # the global basedir / `daisy.logging.LOG_BASEDIR` at convert
-        # time inside `convert_task_tree`.
-        upstream_rs = [t._to_rs() if isinstance(t, Task) else t for t in self.upstream_tasks]
-        timeout_secs = None
-        if self.timeout is not None:
-            if hasattr(self.timeout, "total_seconds"):
-                timeout_secs = float(self.timeout.total_seconds())
-            else:
-                timeout_secs = float(self.timeout)
-        return _rs.Task(
-            task_id=self.task_id,
-            total_roi=self.total_roi,
-            read_roi=self.read_roi,
-            write_roi=self.write_roi,
-            process_function=self.process_function,
-            check_function=self.check_function,
-            read_write_conflict=self.read_write_conflict,
-            fit=self.fit,
-            num_workers=self.max_workers,
-            max_retries=self.max_retries,
-            upstream_tasks=upstream_rs if upstream_rs else None,
-            done_marker_path=self.done_marker_path,
-            requires=self.requires if self.requires else None,
-            max_worker_restarts=self.max_worker_restarts,
-            timeout_secs=timeout_secs,
-        )
-
-    def requires(self):
-        return self.upstream_tasks
-
-    def __add__(self, other):
-        """`a + b` — sequential pipeline composition. Delegates to
-        the Rust `_rs.Pipeline`; `b`'s blocks depend on `a`'s outputs."""
-        return _rs.Pipeline.from_task(self).__add__(other)
-
-    def __or__(self, other):
-        """`a | b` — parallel pipeline composition. Delegates to
-        the Rust `_rs.Pipeline`; union of two DAGs with no new edges."""
-        return _rs.Pipeline.from_task(self).__or__(other)
-
-
-def _convert_tasks(tasks):
-    return [t._to_rs() if isinstance(t, Task) else t for t in tasks]
-
-
-class Scheduler:
-    """Maps daisy's Scheduler(tasks) to _rs.Scheduler."""
-
-    def __init__(self, tasks, count_all_orphans=True):
-        self._inner = _rs.Scheduler(_convert_tasks(tasks))
-
-    def acquire_block(self, task_id):
-        return self._inner.acquire_block(task_id)
-
-    def release_block(self, block):
-        self._inner.release_block(block)
-
-    @property
-    def task_states(self):
-        return self._inner.task_states
-
-    @property
-    def dependency_graph(self):
-        return self._inner.dependency_graph
-
-
-# `Context` is implemented in Rust as `_rs.Context`. Exposed as a
-# top-level alias for the same dict-like env-var encoder the Python
-# class used to provide.
+Task = _rs.Task
+Scheduler = _rs.Scheduler
 Context = _rs.Context
 
 
+def _convert_tasks(tasks):
+    """Identity for `_rs.Task` instances; kept as a function so call
+    sites that historically called `_to_rs()` per task keep working
+    while the codebase converges on direct `_rs.Task` use."""
+    return list(tasks)
+
+
+_V1_UPSTREAM_ATTR = "_v1_upstream_tasks"
+
+
+def _record_task_upstream(task, upstream):
+    """Record v1.x-style `upstream_tasks=` on the task itself.
+    `_rs.Task` carries `__dict__` (pyclass(dict)), so we just stash
+    the list as a Python attribute. Lifetime ties to the task —
+    GC of the task naturally clears the attribute too."""
+    if upstream:
+        setattr(task, _V1_UPSTREAM_ATTR, list(upstream))
+
+
+def _get_task_upstream(task):
+    """Return the recorded upstream list (or None) for a task."""
+    return getattr(task, _V1_UPSTREAM_ATTR, None)
+
+
+def _to_pipeline(x):
+    """Coerce a `Pipeline`, a `Task`, or a list/tuple of tasks into a
+    `_rs.Pipeline`. List inputs honour `Task(upstream_tasks=[...])`
+    via the v1.x-compat side-table."""
+    if isinstance(x, _rs.Pipeline):
+        return x
+    if isinstance(x, _rs.Task):
+        return _rs.Pipeline.from_task(x)
+    if isinstance(x, (list, tuple)):
+        return _build_pipeline_from_tasks(x)
+    raise TypeError(
+        "expected a Pipeline, a Task, or a list of tasks; "
+        f"got {type(x).__name__}"
+    )
+
+
+def _build_pipeline_from_tasks(tasks):
+    """Build a `_rs.Pipeline` from a flat list of tasks, walking the
+    side-table for v1.x-style upstream declarations. Used by
+    `run_blockwise([task1, task2, ...])` to bridge the v1.x calling
+    convention to the v2 Pipeline-only runtime.
+
+    Strategy: collect every task transitively reachable through the
+    upstream side-table; start with a parallel union of all tasks (no
+    edges); then for each edge (up, down) union in a sequential
+    pair-pipeline `up + down`. The pipeline composition operators
+    deduplicate tasks by Python identity, so each edge contributes
+    exactly the (up, down) edge to the merged DAG without
+    duplicating tasks.
+    """
+    seen: dict[int, _rs.Task] = {}
+    edges: list[tuple[int, int]] = []
+
+    def visit(t):
+        if id(t) in seen:
+            return
+        seen[id(t)] = t
+        for up in _get_task_upstream(t) or ():
+            edges.append((id(up), id(t)))
+            visit(up)
+
+    for t in tasks:
+        visit(t)
+
+    pipe = None
+    for t in seen.values():
+        s = _rs.Pipeline.from_task(t)
+        pipe = s if pipe is None else (pipe | s)
+    for up_id, down_id in edges:
+        up = seen[up_id]
+        down = seen[down_id]
+        # Parallel-union an `up + down` pair-pipeline. The `+`
+        # introduces the edge; the `|` (vs. `+`) avoids creating
+        # spurious edges from `pipe`'s current outputs to `up`.
+        pipe = pipe | (_rs.Pipeline.from_task(up) + _rs.Pipeline.from_task(down))
+    return pipe
+
+
 class Client:
-    """Maps daisy's Client(context) to _rs.SyncClient."""
+    """Worker-side client. Reads connection info from the
+    `DAISY_CONTEXT` env var (or accepts an explicit `Context`),
+    connects to the scheduler over TCP, and yields blocks via a
+    context manager that handles status bookkeeping and routes
+    failure tracebacks into the per-worker log.
+
+    The acquire_block context manager is implemented in Python
+    because it integrates with `daisy.logging` (the "logging"
+    carve-out for the otherwise all-Rust runtime)."""
 
     def __init__(self, context=None):
         if context is None:
@@ -218,11 +170,6 @@ class Client:
             if block.status == BlockStatus.PROCESSING:
                 block.status = BlockStatus.SUCCESS
         except BaseException as e:
-            # Mark the block failed, emit a structured warning, write
-            # the traceback to the worker's log destinations (one
-            # consolidated call that bypasses `sys.stderr` so it can't
-            # be picked up by host-environment hooks), and re-raise so
-            # the caller can decide whether to continue.
             block.status = BlockStatus.FAILED
             try:
                 _worker_log.logger.warning(
@@ -250,9 +197,16 @@ class Client:
 
 
 def _wrap_for_worker_logging(task):
-    """Return a shallow copy of `task` whose `process_function` is wrapped
-    so that stdout/stderr emitted during the call go to the worker's log
-    files (see `daisy.logging`)."""
+    """Return a shallow copy of `task` (a `_rs.Task`) whose
+    `process_function` is wrapped so that stdout/stderr emitted during
+    the call go to the worker's log files, and any exception is
+    routed through `daisy.logging.emit_failure` before re-raising.
+
+    Operates on `_rs.Task` instances. Tasks are pure data with no
+    inter-task knowledge in v2 — DAG dependencies live on the
+    Pipeline, so this function only needs to wrap the single task's
+    process_function (no upstream recursion).
+    """
     if task.process_function is None:
         return task
 
@@ -267,8 +221,7 @@ def _wrap_for_worker_logging(task):
                     return orig()
                 except BaseException as e:
                     _worker_log.logger.warning(
-                        "worker function %s failed: %s",
-                        task_id, e,
+                        "worker function %s failed: %s", task_id, e,
                     )
                     _worker_log.emit_failure(
                         _worker_log.format_traceback(
@@ -298,11 +251,4 @@ def _wrap_for_worker_logging(task):
 
     clone = copy.copy(task)
     clone.process_function = wrapped
-    # Upstream tasks get wrapped too so a chained pipeline logs uniformly.
-    clone.upstream_tasks = [
-        _wrap_for_worker_logging(up) if isinstance(up, Task) else up
-        for up in task.upstream_tasks
-    ]
     return clone
-
-

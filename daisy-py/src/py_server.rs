@@ -33,56 +33,63 @@ extern "C" fn handle_sigint(_signum: libc::c_int) {
 }
 
 use crate::py_callbacks::PyProgressObserver;
+use crate::py_pipeline::PyPipeline;
 
 use crate::py_task::PyTask;
 use crate::py_task_state::PyTaskState;
 
-/// Topological order of `tasks` with alphabetical tiebreaker on the
-/// ready set. Roots first; a task becomes a candidate once every one
-/// of its upstream dependencies has been emitted; from the candidate
-/// set we always pick the alphabetically smallest. This is the order
-/// used to render the post-run execution summary.
+/// Coerce a Pipeline-or-Task input into a `PyPipeline`. A Task is
+/// promoted to a singleton pipeline so the rest of the runtime only
+/// sees one shape.
+fn coerce_pipeline_or_task(
+    py: Python<'_>,
+    input: &Bound<'_, PyAny>,
+) -> PyResult<Py<PyPipeline>> {
+    if let Ok(p) = input.downcast::<PyPipeline>() {
+        return Ok(p.clone().unbind());
+    }
+    if input.downcast::<PyTask>().is_ok() {
+        let task_obj: Py<PyAny> = input.clone().unbind();
+        return Py::new(py, PyPipeline::from_task(task_obj));
+    }
+    Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+        "expected a Pipeline or a Task; got {}",
+        input.get_type().name()?
+    )))
+}
+
+/// Topological order of a `Pipeline` (or singleton-promoted `Task`)
+/// with alphabetical tiebreaker on the ready set. Roots first; a
+/// task becomes a candidate once every one of its upstream
+/// dependencies has been emitted; from the candidate set we always
+/// pick the alphabetically smallest. This is the order used to
+/// render the post-run execution summary.
 #[pyfunction]
-pub fn _topo_order(tasks: Bound<'_, PyList>) -> PyResult<Vec<String>> {
+pub fn _topo_order(input: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<Vec<String>> {
+    let pipeline_obj = coerce_pipeline_or_task(py, input)?;
+    let pipeline = pipeline_obj.borrow(py);
+    use std::cmp::Reverse;
     use std::collections::{BinaryHeap, HashMap, HashSet};
 
-    let mut all_tasks: HashSet<String> = HashSet::new();
-    let mut upstream_map: HashMap<String, HashSet<String>> = HashMap::new();
-    let mut downstream_map: HashMap<String, Vec<String>> = HashMap::new();
+    // Pull task ids in pipeline order.
+    let task_ids: Vec<String> = pipeline
+        .tasks
+        .iter()
+        .map(|t| t.getattr(py, "task_id")?.extract::<String>(py))
+        .collect::<PyResult<_>>()?;
 
-    fn visit(
-        t: &Bound<'_, PyAny>,
-        all_tasks: &mut HashSet<String>,
-        upstream_map: &mut HashMap<String, HashSet<String>>,
-        downstream_map: &mut HashMap<String, Vec<String>>,
-    ) -> PyResult<()> {
-        let tid: String = t.getattr("task_id")?.extract()?;
-        if all_tasks.contains(&tid) {
-            return Ok(());
-        }
-        all_tasks.insert(tid.clone());
-        let ups_obj = t.getattr("upstream_tasks")?;
-        let ups: Vec<Bound<'_, PyAny>> = ups_obj.try_iter()?.collect::<PyResult<_>>()?;
-        let mut up_ids: HashSet<String> = HashSet::new();
-        for u in &ups {
-            let uid: String = u.getattr("task_id")?.extract()?;
-            up_ids.insert(uid.clone());
-            downstream_map.entry(uid).or_default().push(tid.clone());
-        }
-        upstream_map.insert(tid, up_ids);
-        for u in &ups {
-            visit(u, all_tasks, upstream_map, downstream_map)?;
-        }
-        Ok(())
+    let mut upstream_map: HashMap<String, HashSet<String>> =
+        task_ids.iter().map(|t| (t.clone(), HashSet::new())).collect();
+    let mut downstream_map: HashMap<String, Vec<String>> =
+        task_ids.iter().map(|t| (t.clone(), Vec::new())).collect();
+
+    for &(u_idx, d_idx) in &pipeline.edges {
+        let up = &task_ids[u_idx];
+        let down = &task_ids[d_idx];
+        upstream_map.get_mut(down).unwrap().insert(up.clone());
+        downstream_map.get_mut(up).unwrap().push(down.clone());
     }
 
-    for t in tasks.iter() {
-        visit(&t, &mut all_tasks, &mut upstream_map, &mut downstream_map)?;
-    }
-
-    // Min-heap by alphabetical order: BinaryHeap is a max-heap, so we
-    // wrap with `std::cmp::Reverse`.
-    use std::cmp::Reverse;
     let mut ready: BinaryHeap<Reverse<String>> = BinaryHeap::new();
     for (tid, ups) in &upstream_map {
         if ups.is_empty() {
@@ -124,7 +131,7 @@ pub fn _topo_order(tasks: Bound<'_, PyList>) -> PyResult<Vec<String>> {
 /// completed successfully or was skipped from a prior run.
 #[pyfunction]
 #[pyo3(signature = (
-    tasks,
+    input,
     multiprocessing = true,
     resources = None,
     progress = None,
@@ -132,14 +139,16 @@ pub fn _topo_order(tasks: Bound<'_, PyList>) -> PyResult<Vec<String>> {
 ))]
 pub fn _run_blockwise_orchestrator(
     py: Python<'_>,
-    tasks: Bound<'_, PyList>,
+    input: &Bound<'_, PyAny>,
     multiprocessing: bool,
     resources: Option<Bound<'_, PyDict>>,
     progress: Option<Py<PyAny>>,
     block_tracking: bool,
 ) -> PyResult<bool> {
+    let pipeline = coerce_pipeline_or_task(py, input)?;
+    let pipeline_any = pipeline.clone_ref(py).into_any();
     // Compute the display topological order.
-    let order = _topo_order(tasks.clone())?;
+    let order = _topo_order(pipeline_any.bind(py), py)?;
     let order_py = pyo3::types::PyList::new(py, &order)?;
 
     // Resolve progress argument:
@@ -176,7 +185,7 @@ pub fn _run_blockwise_orchestrator(
     let (states_obj, run_stats_obj): (Py<PyAny>, Option<Py<PyAny>>) = if multiprocessing {
         let result = _run_distributed_server(
             py,
-            tasks,
+            pipeline.bind(py).as_any(),
             resources,
             progress_obj,
             "127.0.0.1",
@@ -187,7 +196,7 @@ pub fn _run_blockwise_orchestrator(
         let stats: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
         (states, Some(stats))
     } else {
-        let states_map = _run_serial(py, tasks, block_tracking)?;
+        let states_map = _run_serial(py, pipeline.bind(py).as_any(), block_tracking)?;
         let dict = pyo3::types::PyDict::new(py);
         for (k, v) in states_map {
             dict.set_item(k, v.into_pyobject(py)?)?;
@@ -237,24 +246,17 @@ fn rt_err(e: impl std::fmt::Display) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{e}"))
 }
 
-/// Run tasks serially (single-threaded, no TCP).
+/// Run a pipeline (or singleton-promoted task) serially.
 #[pyfunction]
-#[pyo3(signature = (tasks, block_tracking=true))]
+#[pyo3(signature = (input, block_tracking=true))]
 pub fn _run_serial(
     py: Python<'_>,
-    tasks: Bound<'_, PyList>,
+    input: &Bound<'_, PyAny>,
     block_tracking: bool,
 ) -> PyResult<HashMap<String, PyTaskState>> {
-    let mut cache: HashMap<String, Arc<Task>> = HashMap::new();
-    let mut arc_tasks: Vec<Arc<Task>> = Vec::new();
-    for item in tasks.iter() {
-        let bound_task: Bound<'_, PyTask> = item.cast()?.clone();
-        let arc = PyTask::convert_task_tree(&bound_task, py, &mut cache)?;
-        arc_tasks.push(arc);
-    }
-
-    let states = SerialRunner::run(&arc_tasks, block_tracking).map_err(rt_err)?;
-
+    let pipeline = coerce_pipeline_or_task(py, input)?;
+    let core_pipeline = pipeline.borrow(py).to_core(py)?;
+    let states = SerialRunner::run(&core_pipeline, block_tracking).map_err(rt_err)?;
     Ok(states
         .into_iter()
         .map(|(k, v)| (k, PyTaskState { inner: v }))
@@ -272,22 +274,17 @@ pub fn _run_serial(
 /// `on_start(states)`, `on_progress(states)`, and `on_finish(states)`
 /// — see `daisy/_compat.py:_TqdmObserver` for a tqdm-backed example.
 #[pyfunction]
-#[pyo3(signature = (tasks, resources=None, progress_observer=None, host="127.0.0.1", block_tracking=true))]
+#[pyo3(signature = (input, resources=None, progress_observer=None, host="127.0.0.1", block_tracking=true))]
 pub fn _run_distributed_server(
     py: Python<'_>,
-    tasks: Bound<'_, PyList>,
+    input: &Bound<'_, PyAny>,
     resources: Option<Bound<'_, PyDict>>,
     progress_observer: Option<Py<PyAny>>,
     host: &str,
     block_tracking: bool,
 ) -> PyResult<Py<pyo3::types::PyTuple>> {
-    let mut cache: HashMap<String, Arc<Task>> = HashMap::new();
-    let mut arc_tasks: Vec<Arc<Task>> = Vec::new();
-    for item in tasks.iter() {
-        let bound_task: Bound<'_, PyTask> = item.cast()?.clone();
-        let arc = PyTask::convert_task_tree(&bound_task, py, &mut cache)?;
-        arc_tasks.push(arc);
-    }
+    let pipeline = coerce_pipeline_or_task(py, input)?;
+    let core_pipeline = pipeline.borrow(py).to_core(py)?;
 
     let budget = if let Some(d) = resources {
         let mut m = HashMap::new();
@@ -325,11 +322,10 @@ pub fn _run_distributed_server(
     // the Rust server and call back into Python via Python::attach when
     // they need to execute the process function.
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
-    let tasks_clone = arc_tasks.clone();
     let result = py.detach(move || {
         rt.block_on(server.run_blockwise(
             listener,
-            &tasks_clone,
+            &core_pipeline,
             &mut worker_pools,
             budget,
             progress,

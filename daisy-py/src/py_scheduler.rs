@@ -1,14 +1,11 @@
 use daisy_core::scheduler::Scheduler;
-use daisy_core::task::Task;
 use pyo3::prelude::*;
-use pyo3::types::PyList;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::py_block::PyBlock;
 use crate::py_dep_graph::PyDependencyGraph;
-use crate::py_task::PyTask;
+use crate::py_pipeline::PyPipeline;
 use crate::py_task_state::PyTaskState;
+use std::collections::HashMap;
 
 #[pyclass(name = "Scheduler", skip_from_py_object, unsendable)]
 pub struct PyScheduler {
@@ -17,16 +14,26 @@ pub struct PyScheduler {
 
 #[pymethods]
 impl PyScheduler {
+    /// Construct from a `Pipeline`, a single `Task`, or a list of
+    /// tasks. List input goes through Python's `_task._build_pipeline_from_tasks`
+    /// to honour v1.x-style `Task(upstream_tasks=[...])` declarations.
+    /// Construct from a `Pipeline` or a `Task` (singleton-promoted).
+    /// Lists of tasks are not accepted at this layer — v1_compat
+    /// converts them to a Pipeline before reaching here.
     #[new]
-    fn new(py: Python<'_>, tasks: Bound<'_, PyList>) -> PyResult<Self> {
-        let mut cache: HashMap<String, Arc<Task>> = HashMap::new();
-        let mut arc_tasks = Vec::new();
-        for item in tasks.iter() {
-            let bound_task: Bound<'_, PyTask> = item.cast()?.clone();
-            let arc = PyTask::convert_task_tree(&bound_task, py, &mut cache)?;
-            arc_tasks.push(arc);
-        }
-        let scheduler = Scheduler::new(&arc_tasks, true);
+    fn new(py: Python<'_>, input: &Bound<'_, PyAny>) -> PyResult<Self> {
+        let pipeline = if let Ok(p) = input.downcast::<PyPipeline>() {
+            p.clone().unbind()
+        } else if input.downcast::<crate::py_task::PyTask>().is_ok() {
+            Py::new(py, PyPipeline::from_task(input.clone().unbind()))?
+        } else {
+            return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                "Scheduler expects a Pipeline or a Task; got {}",
+                input.get_type().name()?
+            )));
+        };
+        let core_pipeline = pipeline.borrow(py).to_core(py)?;
+        let scheduler = Scheduler::new(&core_pipeline, true);
         Ok(Self { inner: scheduler })
     }
 

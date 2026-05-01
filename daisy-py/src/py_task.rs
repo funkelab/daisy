@@ -111,7 +111,7 @@ fn parse_done_marker_spec(v: Option<&Bound<'_, PyAny>>) -> PyResult<DoneMarkerSp
     ))
 }
 
-#[pyclass(name = "Task", skip_from_py_object)]
+#[pyclass(name = "Task", skip_from_py_object, subclass)]
 pub struct PyTask {
     pub task_id: String,
     pub total_roi: PyRoi,
@@ -119,12 +119,10 @@ pub struct PyTask {
     pub write_roi: PyRoi,
     pub read_write_conflict: bool,
     pub fit: String,
-    pub num_workers: usize,
+    pub max_workers: usize,
     pub max_retries: u32,
     pub check_function: Option<Py<PyAny>>,
     pub process_function: Option<Py<PyAny>>,
-    /// Stored as Py references so they survive without Clone.
-    pub upstream_tasks: Vec<Py<PyTask>>,
     /// Three-state done-marker spec (Auto / Disabled / explicit path).
     /// Resolution against the global basedir / `LOG_BASEDIR` happens
     /// in `convert_task_tree`, not at construction, so the same
@@ -154,13 +152,12 @@ impl PyTask {
         check_function=None,
         read_write_conflict=true,
         fit="valid".to_string(),
-        num_workers=1,
+        max_workers=1,
         max_retries=2,
-        upstream_tasks=None,
+        timeout=None,
         done_marker_path=None,
         requires=None,
         max_worker_restarts=10,
-        timeout_secs=None,
     ))]
     fn new(
         task_id: String,
@@ -171,24 +168,30 @@ impl PyTask {
         check_function: Option<Py<PyAny>>,
         read_write_conflict: bool,
         fit: String,
-        num_workers: usize,
+        max_workers: usize,
         max_retries: u32,
-        upstream_tasks: Option<Bound<'_, PyList>>,
+        timeout: Option<&Bound<'_, PyAny>>,
         done_marker_path: Option<&Bound<'_, PyAny>>,
         requires: Option<Bound<'_, PyDict>>,
         max_worker_restarts: u32,
-        timeout_secs: Option<f64>,
     ) -> PyResult<Self> {
         let done_marker_path = parse_done_marker_spec(done_marker_path)?;
-        let ups = if let Some(list) = upstream_tasks {
-            let mut v = Vec::new();
-            for item in list.iter() {
-                let bound: Bound<'_, PyTask> = item.cast()?.clone();
-                v.push(bound.unbind());
+        let timeout_secs: Option<f64> = match timeout {
+            None => None,
+            Some(v) if v.is_none() => None,
+            Some(v) => {
+                if let Ok(secs) = v.call_method0("total_seconds")
+                    .and_then(|x| x.extract::<f64>())
+                {
+                    Some(secs)
+                } else if let Ok(secs) = v.extract::<f64>() {
+                    Some(secs)
+                } else {
+                    return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+                        "timeout must be a float seconds, a timedelta, or None",
+                    ));
+                }
             }
-            v
-        } else {
-            Vec::new()
         };
         let reqs: HashMap<String, i64> = if let Some(d) = requires {
             let mut m = HashMap::new();
@@ -208,11 +211,10 @@ impl PyTask {
             write_roi,
             read_write_conflict,
             fit,
-            num_workers,
+            max_workers,
             max_retries,
             check_function,
             process_function,
-            upstream_tasks: ups,
             done_marker_path,
             requires: reqs,
             max_worker_restarts,
@@ -251,12 +253,94 @@ impl PyTask {
     }
 
     #[getter]
-    fn upstream_tasks(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
-        let list = PyList::empty(py);
-        for u in &self.upstream_tasks {
-            list.append(u.clone_ref(py))?;
+    fn process_function(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.process_function.as_ref().map(|f| f.clone_ref(py))
+    }
+
+    /// Settable so `_wrap_for_worker_logging` can replace the
+    /// process_function with a logging-wrapped version on a clone.
+    #[setter(process_function)]
+    fn set_process_function(&mut self, value: Option<Py<PyAny>>) {
+        self.process_function = value;
+    }
+
+    #[getter]
+    fn check_function(&self, py: Python<'_>) -> Option<Py<PyAny>> {
+        self.check_function.as_ref().map(|f| f.clone_ref(py))
+    }
+
+    #[getter]
+    fn read_write_conflict(&self) -> bool {
+        self.read_write_conflict
+    }
+
+    #[getter]
+    fn max_workers(&self) -> usize {
+        self.max_workers
+    }
+
+    #[getter]
+    fn max_worker_restarts(&self) -> u32 {
+        self.max_worker_restarts
+    }
+
+    #[getter]
+    fn timeout_secs(&self) -> Option<f64> {
+        self.timeout_secs
+    }
+
+    #[getter]
+    fn requires(&self, py: Python<'_>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        for (k, v) in &self.requires {
+            dict.set_item(k, v)?;
         }
-        Ok(list.unbind())
+        Ok(dict.unbind())
+    }
+
+    /// Shallow copy: same callables (Py<PyAny> ref-counted). Mirrors
+    /// `copy.copy(task)` so callers (e.g. `_wrap_for_worker_logging`)
+    /// can mutate `process_function` on the clone without affecting
+    /// the original.
+    fn __copy__(&self, py: Python<'_>) -> Self {
+        Self {
+            task_id: self.task_id.clone(),
+            total_roi: self.total_roi.clone(),
+            read_roi: self.read_roi.clone(),
+            write_roi: self.write_roi.clone(),
+            read_write_conflict: self.read_write_conflict,
+            fit: self.fit.clone(),
+            max_workers: self.max_workers,
+            max_retries: self.max_retries,
+            check_function: self.check_function.as_ref().map(|f| f.clone_ref(py)),
+            process_function: self.process_function.as_ref().map(|f| f.clone_ref(py)),
+            done_marker_path: self.done_marker_path.clone(),
+            requires: self.requires.clone(),
+            max_worker_restarts: self.max_worker_restarts,
+            timeout_secs: self.timeout_secs,
+        }
+    }
+
+    fn __deepcopy__(&self, py: Python<'_>, _memo: &Bound<'_, PyAny>) -> Self {
+        // copy.deepcopy hits the same path — the user's callables
+        // shouldn't be deep-cloned anyway (they're Python functions).
+        self.__copy__(py)
+    }
+
+    /// `a + b` — sequential pipeline composition. `b`'s blocks depend
+    /// on `a`'s outputs.
+    fn __add__(slf: PyRef<'_, Self>, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<crate::py_pipeline::PyPipeline> {
+        let self_obj: Py<PyAny> = slf.into_pyobject(py)?.into_any().unbind();
+        let pipeline = crate::py_pipeline::PyPipeline::from_task(self_obj);
+        pipeline.__add__(py, other)
+    }
+
+    /// `a | b` — parallel pipeline composition. Union of the two
+    /// DAGs, no new edges.
+    fn __or__(slf: PyRef<'_, Self>, py: Python<'_>, other: &Bound<'_, PyAny>) -> PyResult<crate::py_pipeline::PyPipeline> {
+        let self_obj: Py<PyAny> = slf.into_pyobject(py)?.into_any().unbind();
+        let pipeline = crate::py_pipeline::PyPipeline::from_task(self_obj);
+        pipeline.__or__(py, other)
     }
 
     /// Delete this task's done-marker so the next run starts fresh.
@@ -304,11 +388,10 @@ impl PyTask {
             write_roi: zero_roi,
             read_write_conflict: false,
             fit: "valid".into(),
-            num_workers: 0,
+            max_workers: 0,
             max_retries: 0,
             check_function: None,
             process_function: None,
-            upstream_tasks: Vec::new(),
             done_marker_path: DoneMarkerSpec::Disabled,
             requires: HashMap::new(),
             max_worker_restarts: 10,
@@ -316,9 +399,12 @@ impl PyTask {
         }
     }
 
-    /// Recursively convert to core `Task`, using a cache to handle shared
-    /// upstream references.
-    pub fn convert_task_tree(
+    /// Convert a single `PyTask` to a core `Arc<Task>`. Tasks are
+    /// pure data with no inter-task knowledge — DAG dependencies live
+    /// on the `Pipeline`, not the task. Caching by task_id is still
+    /// honoured so a Pipeline that mentions the same task twice (via
+    /// composition) collapses to a single Arc.
+    pub fn convert_task(
         bound: &Bound<'_, PyTask>,
         py: Python<'_>,
         cache: &mut HashMap<String, Arc<Task>>,
@@ -328,18 +414,6 @@ impl PyTask {
             return Ok(cached.clone());
         }
 
-        // Recursively convert upstream tasks first.
-        let upstream_refs: Vec<Py<PyTask>> = {
-            let borrow = bound.borrow();
-            borrow.upstream_tasks.iter().map(|r| r.clone_ref(py)).collect()
-        };
-        let mut upstream_arc = Vec::new();
-        for up_ref in &upstream_refs {
-            let up_bound: &Bound<'_, PyTask> = up_ref.bind(py);
-            let up_arc = Self::convert_task_tree(up_bound, py, cache)?;
-            upstream_arc.push(up_arc);
-        }
-
         let borrow = bound.borrow();
         let mut builder = Task::builder(&borrow.task_id)
             .total_roi(borrow.total_roi.inner.clone())
@@ -347,12 +421,9 @@ impl PyTask {
             .write_roi(borrow.write_roi.inner.clone())
             .read_write_conflict(borrow.read_write_conflict)
             .fit(Fit::from_str(&borrow.fit))
-            .num_workers(borrow.num_workers)
+            .max_workers(borrow.max_workers)
             .max_retries(borrow.max_retries);
 
-        // Resolve the 3-state spec to a final path string. Auto pulls
-        // from the Rust-side basedir global, falling back to Python's
-        // `daisy.logging.LOG_BASEDIR`.
         if let Some(path) = borrow.done_marker_path.resolve(py, &borrow.task_id) {
             builder = builder.done_marker_path(&path);
         }
@@ -364,10 +435,6 @@ impl PyTask {
             if secs > 0.0 && secs.is_finite() {
                 builder = builder.timeout(std::time::Duration::from_secs_f64(secs));
             }
-        }
-
-        for up in upstream_arc {
-            builder = builder.upstream(up);
         }
 
         if let Some(ref check_fn) = borrow.check_function {

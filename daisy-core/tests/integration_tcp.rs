@@ -1,5 +1,6 @@
 use daisy_core::block::BlockStatus;
 use daisy_core::client::Client;
+use daisy_core::pipeline::Pipeline;
 use daisy_core::protocol::{read_message, write_message, Message};
 use daisy_core::resource_allocator::ResourceBudget;
 use daisy_core::roi::Roi;
@@ -51,71 +52,10 @@ async fn test_framing_roundtrip() {
     let _ = server_task.await;
 }
 
-/// Regression test: chained tasks (b depends on a) — leaf-only entry,
-/// i.e. caller passes `[b]` and trusts the scheduler to discover `a`
-/// via `b.upstream_tasks`. This is the shape the Python entry point
-/// produces, and previously hung because the rebalance loop iterated
-/// the input slice (just `[b]`) and never spawned a worker for `a`.
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn test_chained_tasks_leaf_only_distributed() {
-    let task_a = Arc::new(
-        Task::builder("a")
-            .total_roi(Roi::from_slices(&[0], &[40]))
-            .read_roi(Roi::from_slices(&[0], &[10]))
-            .write_roi(Roi::from_slices(&[0], &[10]))
-            .read_write_conflict(false)
-            .num_workers(1)
-            .build(),
-    );
-    let task_b = Arc::new(
-        Task::builder("b")
-            .total_roi(Roi::from_slices(&[0], &[40]))
-            .read_roi(Roi::from_slices(&[0], &[10]))
-            .write_roi(Roi::from_slices(&[0], &[10]))
-            .read_write_conflict(false)
-            .num_workers(1)
-            .upstream(task_a.clone())
-            .build(),
-    );
-    let leaf = vec![task_b];
-
-    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
-    let host = server.host().to_string();
-    let port = server.port();
-    let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
-
-    let h = host.clone();
-    let w_a = tokio::spawn(run_worker(h.clone(), port, "a".to_string()));
-    let w_b = tokio::spawn(run_worker(h, port, "b".to_string()));
-
-    let (states, _) = tokio::time::timeout(
-        std::time::Duration::from_secs(8),
-        server.run_blockwise(
-            listener,
-            &leaf,
-            &mut worker_pools,
-            ResourceBudget::empty(),
-            None,
-            None,
-            true,
-        ),
-    )
-    .await
-    .expect("leaf-only chained run timed out — upstream not picked up")
-    .unwrap();
-
-    assert_eq!(states["a"].completed_count, 4);
-    assert_eq!(states["b"].completed_count, 4);
-
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_a).await;
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_b).await;
-}
-
-
-/// Regression test: chained tasks (b depends on a) should run cleanly
-/// in distributed mode. This previously hung because the worker for
-/// task "a" exited after consuming all its blocks but the rebalance
-/// for task "b" didn't fire, so no worker was ever spawned for it.
+/// Regression test: chained tasks (b depends on a) run cleanly in
+/// distributed mode. The worker for "a" finishes its blocks, exits,
+/// and the rebalance loop spawns a worker for "b" once a's
+/// completion unlocks b's first blocks.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_chained_tasks_distributed() {
     let task_a = Arc::new(
@@ -124,7 +64,7 @@ async fn test_chained_tasks_distributed() {
             .read_roi(Roi::from_slices(&[0], &[10]))
             .write_roi(Roi::from_slices(&[0], &[10]))
             .read_write_conflict(false)
-            .num_workers(1)
+            .max_workers(1)
             .build(),
     );
     let task_b = Arc::new(
@@ -133,11 +73,14 @@ async fn test_chained_tasks_distributed() {
             .read_roi(Roi::from_slices(&[0], &[10]))
             .write_roi(Roi::from_slices(&[0], &[10]))
             .read_write_conflict(false)
-            .num_workers(1)
-            .upstream(task_a.clone())
+            .max_workers(1)
             .build(),
     );
-    let tasks = vec![task_a, task_b];
+    let pipeline = Pipeline::new(
+        vec![task_a, task_b],
+        vec![("a".to_string(), "b".to_string())],
+    )
+    .unwrap();
 
     let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
     let host = server.host().to_string();
@@ -152,7 +95,7 @@ async fn test_chained_tasks_distributed() {
         std::time::Duration::from_secs(8),
         server.run_blockwise(
             listener,
-            &tasks,
+            &pipeline,
             &mut worker_pools,
             ResourceBudget::empty(),
             None,
@@ -196,9 +139,11 @@ async fn test_server_client_no_conflict() {
             .read_roi(Roi::from_slices(&[0], &[10]))
             .write_roi(Roi::from_slices(&[0], &[10]))
             .read_write_conflict(false)
-            .num_workers(0)
+            .max_workers(0)
             .build(),
     );
+
+    let pipeline = Pipeline::from_task(task);
 
     let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
     let host = server.host().to_string();
@@ -214,7 +159,7 @@ async fn test_server_client_no_conflict() {
         std::time::Duration::from_secs(10),
         server.run_blockwise(
             listener,
-            &[task],
+            &pipeline,
             &mut worker_pools,
             ResourceBudget::empty(),
             None,
@@ -250,10 +195,12 @@ async fn test_server_client_with_conflict() {
             .read_roi(Roi::from_slices(&[0], &[20]))
             .write_roi(Roi::from_slices(&[5], &[10]))
             .read_write_conflict(true)
-            .num_workers(0)
+            .max_workers(0)
             .max_retries(2)
             .build(),
     );
+
+    let pipeline = Pipeline::from_task(task);
 
     let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
     let host = server.host().to_string();
@@ -269,7 +216,7 @@ async fn test_server_client_with_conflict() {
         std::time::Duration::from_secs(10),
         server.run_blockwise(
             listener,
-            &[task],
+            &pipeline,
             &mut worker_pools,
             ResourceBudget::empty(),
             None,
@@ -308,10 +255,12 @@ async fn test_server_block_failure_and_retry() {
             .read_roi(Roi::from_slices(&[0], &[10]))
             .write_roi(Roi::from_slices(&[0], &[10]))
             .read_write_conflict(false)
-            .num_workers(0)
+            .max_workers(0)
             .max_retries(3)
             .build(),
     );
+
+    let pipeline = Pipeline::from_task(task);
 
     let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
     let host = server.host().to_string();
@@ -345,7 +294,7 @@ async fn test_server_block_failure_and_retry() {
         std::time::Duration::from_secs(10),
         server.run_blockwise(
             listener,
-            &[task],
+            &pipeline,
             &mut worker_pools,
             ResourceBudget::empty(),
             None,

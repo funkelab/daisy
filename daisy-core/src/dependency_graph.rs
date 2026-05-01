@@ -504,15 +504,34 @@ pub struct DependencyGraph {
 }
 
 impl DependencyGraph {
-    pub fn new(tasks: &[Arc<Task>]) -> Self {
+    /// Build the inter-task dep graph from a `Pipeline` — tasks plus
+    /// an explicit edge list. Tasks no longer carry an
+    /// `upstream_tasks` field; the Pipeline is the canonical
+    /// dependency carrier.
+    pub fn from_pipeline(pipeline: &crate::pipeline::Pipeline) -> Self {
         let mut graph = Self {
             upstream_tasks: HashMap::new(),
             downstream_tasks: HashMap::new(),
             task_map: HashMap::new(),
             task_graphs: HashMap::new(),
         };
-        for task in tasks {
-            graph.add_task(task.clone());
+        for task in &pipeline.tasks {
+            let task_id = task.task_id.clone();
+            graph.task_map.insert(task_id.clone(), task.clone());
+            graph.upstream_tasks.entry(task_id.clone()).or_default();
+            graph.downstream_tasks.entry(task_id).or_default();
+        }
+        for (up, down) in &pipeline.edges {
+            graph
+                .upstream_tasks
+                .entry(down.clone())
+                .or_default()
+                .insert(up.clone());
+            graph
+                .downstream_tasks
+                .entry(up.clone())
+                .or_default()
+                .insert(down.clone());
         }
         for task in graph.task_map.values() {
             let dep_graph = BlockwiseDependencyGraph::from_task(task);
@@ -584,32 +603,6 @@ impl DependencyGraph {
             .collect()
     }
 
-    fn add_task(&mut self, task: Arc<Task>) {
-        let task_id = task.task_id.clone();
-        if self.task_map.contains_key(&task_id) {
-            return;
-        }
-        self.task_map.insert(task_id.clone(), task.clone());
-        self.upstream_tasks
-            .entry(task_id.clone())
-            .or_default();
-        self.downstream_tasks
-            .entry(task_id.clone())
-            .or_default();
-
-        for upstream_task in task.requires() {
-            self.add_task(upstream_task.clone());
-            let up_id = upstream_task.task_id.clone();
-            self.upstream_tasks
-                .entry(task_id.clone())
-                .or_default()
-                .insert(up_id.clone());
-            self.downstream_tasks
-                .entry(up_id)
-                .or_default()
-                .insert(task_id.clone());
-        }
-    }
 }
 
 /// Compute the Cartesian product of a list of per-dimension value lists.

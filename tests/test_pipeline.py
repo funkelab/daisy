@@ -7,7 +7,7 @@ import daisy.v2 as daisy
 from daisy.v2 import Pipeline
 
 
-def _task(task_id, upstream_tasks=None):
+def _task(task_id):
     return daisy.Task(
         task_id=task_id,
         total_roi=daisy.Roi([0], [40]),
@@ -15,7 +15,6 @@ def _task(task_id, upstream_tasks=None):
         write_roi=daisy.Roi([0], [10]),
         process_function=lambda b: None,
         read_write_conflict=False,
-        upstream_tasks=upstream_tasks,
     )
 
 
@@ -107,47 +106,28 @@ def test_invalid_operand_type():
 # -- Materialization & non-mutation -----------------------------------
 
 
-def test_materialize_does_not_mutate_originals():
+def test_pipeline_holds_original_task_references():
+    """Pipeline composition keeps the original `Task` instances (no
+    cloning at compose time). DAG dependencies live on the Pipeline's
+    edges, not on the tasks themselves."""
     a, b = _task("a"), _task("b")
     p = a + b
-    assert a.upstream_tasks == []
-    assert b.upstream_tasks == []
-    p.materialize()
-    assert a.upstream_tasks == []
-    assert b.upstream_tasks == []
-
-
-def test_materialize_returns_clones_with_new_upstream():
-    a, b = _task("a"), _task("b")
-    p = a + b
-    [b_clone] = p.materialize()
-    assert b_clone is not b
-    assert len(b_clone.upstream_tasks) == 1
-    a_clone = b_clone.upstream_tasks[0]
-    assert a_clone is not a
-    assert a_clone.task_id == "a"
+    assert any(t is a for t in p.tasks)
+    assert any(t is b for t in p.tasks)
 
 
 def test_pipeline_can_be_run_independently_after_composition():
-    """Composing a sub-pipeline into a larger parent must not break
-    running the sub-pipeline alone."""
+    """Composing a sub-pipeline into a larger parent must not change
+    the sub-pipeline's edge list."""
     a, b = _task("a"), _task("b")
     sub = a + b
+    sub_edges_before = {(u.task_id, d.task_id) for u, d in sub.edges}
+
     parent_extra = _task("c")
     _ = sub + parent_extra
 
-    seen = set()
-
-    def collect(t):
-        if t.task_id in seen:
-            return
-        seen.add(t.task_id)
-        for u in t.upstream_tasks:
-            collect(u)
-
-    for o in sub.materialize():
-        collect(o)
-    assert seen == {"a", "b"}
+    sub_edges_after = {(u.task_id, d.task_id) for u, d in sub.edges}
+    assert sub_edges_before == sub_edges_after == {("a", "b")}
 
 
 # -- Reset & run_blockwise --------------------------------------------

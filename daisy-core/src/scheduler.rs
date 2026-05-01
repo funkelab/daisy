@@ -32,8 +32,9 @@ pub struct Scheduler {
 }
 
 impl Scheduler {
-    pub fn new(tasks: &[Arc<Task>], count_all_orphans: bool) -> Self {
-        let dependency_graph = Arc::new(DependencyGraph::new(tasks));
+    pub fn new(pipeline: &crate::pipeline::Pipeline, count_all_orphans: bool) -> Self {
+        let dependency_graph = Arc::new(DependencyGraph::from_pipeline(pipeline));
+        let tasks: &[Arc<Task>] = &pipeline.tasks;
 
         let dg_down = Arc::clone(&dependency_graph);
         let dg_up = Arc::clone(&dependency_graph);
@@ -384,8 +385,4 @@ fn init_task(
     task_queues
         .entry(task_id.clone())
         .or_insert_with(|| ProcessingQueue::new(0, None));
-
-    for upstream in task.requires() {
-        init_task(upstream, dg, task_map, task_states, task_queues);
-    }
 }
