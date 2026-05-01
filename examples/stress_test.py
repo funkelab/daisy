@@ -27,7 +27,7 @@ import tempfile
 import time
 from pathlib import Path
 
-import daisy
+import daisy.v2 as daisy
 import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_stress_"))

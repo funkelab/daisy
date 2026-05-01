@@ -32,7 +32,7 @@ from skimage.data import astronaut
 from skimage.filters import sobel
 from skimage.segmentation import watershed
 
-import daisy
+import daisy.v2 as daisy
 import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_astronaut_pipeline_"))

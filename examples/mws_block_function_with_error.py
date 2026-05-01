@@ -35,7 +35,7 @@ import mwatershed
 import numpy as np
 import zarr
 
-import daisy
+import daisy.v2 as daisy
 import daisy.logging as gl
 
 # Write per-worker logs and the persistent done-marker to a fresh temp

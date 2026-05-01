@@ -14,10 +14,10 @@
 # In **block-function mode** the Python function receives a single
 # `Block` argument and daisy drives the loop — for every block the
 # scheduler hands out, daisy calls `process_block(block)`. We run the
-# task twice — once on the single-threaded `SerialServer`
-# (`multiprocessing=False`) and once on the multi-worker `Server`
-# (`multiprocessing=True`) — so you can see both code paths converge on
-# the same result.
+# task twice — once in single-threaded mode
+# (`multiprocessing=False`, no TCP, no worker threads) and once with
+# the multi-worker server (`multiprocessing=True`) — so you can see
+# both code paths converge on the same result.
 
 # %%
 import tempfile
@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
 
-import daisy
+import daisy.v2 as daisy
 import daisy.logging as gl
 
 # Write per-worker logs to a fresh temp dir so the example doesn't
@@ -185,9 +185,9 @@ def process_block(block):
 
 
 # %% [markdown]
-# ## Run on the serial server
+# ## Run in serial mode
 #
-# `multiprocessing=False` dispatches to `SerialServer`: no TCP, no
+# `multiprocessing=False` runs the serial path: no TCP, no
 # threads — the scheduler calls `process_block` directly on the main
 # thread for every ready block. This is the debugging path.
 
@@ -223,7 +223,7 @@ print(f"serial: ok={ok_serial}, elapsed={serial_elapsed * 1e3:.1f} ms, "
 # ## Run on the multiprocessing server
 #
 # `multiprocessing=True` dispatches to the distributed `Server`: daisy
-# binds a TCP listener, spawns `num_workers` worker threads in Rust, and
+# binds a TCP listener, spawns `max_workers` worker threads in Rust, and
 # each worker pulls blocks from the scheduler over TCP. Worker threads
 # take the GIL only for the `process_block` callback — the TCP round-trip
 # and block lifecycle stay in Rust, so blocks process in parallel on
@@ -273,7 +273,7 @@ assert np.array_equal(serial_output, mp_output), "serial and mp produced differe
 #
 # On the serial path every block was processed by the main thread (one
 # "worker"). On the multiprocessing path blocks scatter across
-# `num_workers` threads; colouring by worker id reveals how the
+# `max_workers` threads; colouring by worker id reveals how the
 # scheduler handed work out.
 
 # %%

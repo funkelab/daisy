@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
 
-import daisy
+import daisy.v2 as daisy
 import daisy.logging as gl
 
 # Write per-worker logs to a fresh temp dir so the example doesn't
