@@ -175,6 +175,26 @@ class Task:
     def requires(self):
         return self.upstream_tasks
 
+    def __add__(self, other):
+        """`a + b` — sequential: `b`'s blocks depend on `a`'s outputs.
+        Returns a `Pipeline`. See `daisy._pipeline.Pipeline`."""
+        from daisy._pipeline import Pipeline
+        return Pipeline.from_task(self) + other
+
+    def __or__(self, other):
+        """`a | b` — parallel: union, no inter-pipeline edges. Returns
+        a `Pipeline`."""
+        from daisy._pipeline import Pipeline
+        return Pipeline.from_task(self) | other
+
+    def __radd__(self, other):
+        from daisy._pipeline import Pipeline
+        return other + Pipeline.from_task(self)
+
+    def __ror__(self, other):
+        from daisy._pipeline import Pipeline
+        return other | Pipeline.from_task(self)
+
 
 def _convert_tasks(tasks):
     return [t._to_rs() if isinstance(t, Task) else t for t in tasks]

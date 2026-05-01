@@ -32,6 +32,9 @@ class Server:
         self.port = None
 
     def run_blockwise(self, tasks, resources=None, progress=True, block_tracking=True):
+        from daisy._pipeline import Pipeline
+        if isinstance(tasks, Pipeline):
+            tasks = tasks.materialize()
         wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                    for t in tasks]
         order = _topo_order(tasks)
@@ -53,6 +56,9 @@ class Server:
 def _run_serial(tasks, block_tracking=True):
     """Single-threaded execution path (no TCP, no workers). Used
     when `daisy.run_blockwise(..., multiprocessing=False)`."""
+    from daisy._pipeline import Pipeline
+    if isinstance(tasks, Pipeline):
+        tasks = tasks.materialize()
     wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                for t in tasks]
     try:
@@ -107,6 +113,9 @@ def run_blockwise(
     this run regardless of any per-task or global configuration —
     every block is processed afresh.
     """
+    from daisy._pipeline import Pipeline
+    if isinstance(tasks, Pipeline):
+        tasks = tasks.materialize()
     order = _topo_order(tasks)
     if multiprocessing:
         server = Server()
