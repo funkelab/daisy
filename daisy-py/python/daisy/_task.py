@@ -103,15 +103,45 @@ class Task:
         # reached, any unprocessed blocks are accounted as orphaned.
         self.max_worker_restarts = int(max_worker_restarts)
 
+    def reset(self) -> Path | None:
+        """Delete this task's done-marker, so the next run starts fresh
+        for every block of this task. Returns the path that was cleared
+        (or `None` if no marker was configured / nothing existed).
+
+        Does *not* cascade to upstream or downstream tasks. If a
+        downstream task has a marker recording "done based on this
+        task's previous output," its marker still says done — call
+        `reset()` on those tasks too if you want the downstream re-run.
+
+        Filesystem operation lives in Rust (`daisy_core::DoneMarker::clear`);
+        this wrapper just resolves the path through the normal precedence
+        chain (per-task `done_marker_path` → global basedir → log basedir)
+        and delegates.
+        """
+        cleared = self._to_rs().reset()
+        return Path(cleared) if cleared is not None else None
+
     def _resolve_done_marker_path(self) -> str | None:
-        """Resolve the effective marker path string (or None to disable)."""
+        """Resolve the effective marker path string (or None to disable).
+
+        Precedence:
+          1. `done_marker_path=False`        → disabled.
+          2. `done_marker_path=<path>`       → that path verbatim.
+          3. global basedir (set via `set_done_marker_basedir`) → `<basedir>/<task_id>`.
+          4. otherwise                       → `<log_basedir>/<task_id>`,
+             so markers live next to the per-task logs by default.
+             Falls through to None only if there's no log basedir either.
+        """
         if self.done_marker_path is False:
             return None
         if self.done_marker_path is not None:
             return str(self.done_marker_path)
         basedir = get_done_marker_basedir()
         if basedir is None:
-            return None
+            from daisy.logging import LOG_BASEDIR as _log_basedir
+            if _log_basedir is None:
+                return None
+            basedir = _log_basedir
         return str(Path(basedir) / self.task_id)
 
     def _to_rs(self):
@@ -321,3 +351,5 @@ def _wrap_for_worker_logging(task):
         for up in task.upstream_tasks
     ]
     return clone
+
+

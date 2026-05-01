@@ -15,9 +15,19 @@ pub struct SerialRunner;
 impl SerialRunner {
     /// Run tasks to completion serially. The `process_function` on each `Task`
     /// must be set (via the builder) since this runner calls it directly.
-    pub fn run(tasks: &[Arc<Task>]) -> Result<HashMap<String, TaskCounters>, DaisyError> {
+    ///
+    /// `block_tracking`: when `true`, per-task done-markers are opened and
+    /// the scheduler's pre-check skips already-completed blocks. When
+    /// `false`, marker initialization is skipped — every block is processed
+    /// regardless of any `done_marker_path` configured on the tasks.
+    pub fn run(
+        tasks: &[Arc<Task>],
+        block_tracking: bool,
+    ) -> Result<HashMap<String, TaskCounters>, DaisyError> {
         let mut scheduler = Scheduler::new(tasks, true);
-        scheduler.init_done_markers()?;
+        if block_tracking {
+            scheduler.init_done_markers()?;
+        }
 
         let mut started_tasks = HashSet::new();
         let mut finished_tasks: HashSet<String> = HashSet::new();
@@ -46,7 +56,12 @@ impl SerialRunner {
                 started_tasks.insert(task_id.clone());
             }
 
-            // Call the process function directly.
+            // Call the process function directly. Reset status to Processing
+            // on every attempt — re-queued blocks come back with their last
+            // attempt's terminal status (e.g. Failed), which would otherwise
+            // poison the post-call promotion check below and prevent a
+            // successful retry from being recorded.
+            block.status = BlockStatus::Processing;
             let task = scheduler.task_map.get(&task_id).unwrap().clone();
             if let Some(ref process_fn) = task.process_function {
                 match process_fn.process(&mut block) {
@@ -97,7 +112,7 @@ mod tests {
                 .build(),
         );
 
-        let states = SerialRunner::run(&[task.clone()]).unwrap();
+        let states = SerialRunner::run(&[task.clone()], true).unwrap();
         let state = &states["test"];
         assert!(state.balanced());
         assert_eq!(state.total_block_count, 4);

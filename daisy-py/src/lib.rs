@@ -39,7 +39,7 @@ fn run_blockwise(py: Python<'_>, tasks: Bound<'_, PyList>, multiprocessing: bool
         arc_tasks.push(arc);
     }
 
-    let states = daisy_core::SerialRunner::run(&arc_tasks)
+    let states = daisy_core::SerialRunner::run(&arc_tasks, true)
         .map_err(|e| PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(e.to_string()))?;
 
     Ok(states.values().all(|s| s.balanced()))

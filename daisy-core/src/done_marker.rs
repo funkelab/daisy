@@ -298,6 +298,21 @@ impl DoneMarker {
     pub fn flush(&self) -> io::Result<()> {
         self.mmap.flush()
     }
+
+    /// Delete the marker at `path` so the next run starts fresh. No-op
+    /// if `path` doesn't exist. Removes the directory recursively if
+    /// it's a directory (the normal case — a Zarr v3 array is a dir),
+    /// falling back to a file unlink for older single-file layouts.
+    pub fn clear(path: &Path) -> io::Result<()> {
+        if !path.exists() {
+            return Ok(());
+        }
+        if path.is_dir() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        }
+    }
 }
 
 impl Drop for DoneMarker {

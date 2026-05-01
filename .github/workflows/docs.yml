@@ -1,0 +1,70 @@
+name: docs
+
+on:
+  push:
+    branches: [main, v2.0]
+  pull_request:
+    branches: [main, v2.0]
+  workflow_dispatch:
+
+# Allow only one concurrent deploy at a time per ref.
+concurrency:
+  group: pages-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Install docs dependencies
+        run: uv sync --group docs
+
+      - name: Cache jupyter-cache
+        uses: actions/cache@v4
+        with:
+          path: docs/source/.jupyter_cache
+          key: jupyter-cache-${{ runner.os }}-${{ hashFiles('examples/*.py', 'daisy-py/python/daisy/**/*.py', 'daisy-core/src/**/*.rs') }}
+          restore-keys: |
+            jupyter-cache-${{ runner.os }}-
+
+      - name: Build docs
+        run: |
+          uv run --group docs sphinx-build -b html docs/source docs/_build/html
+
+      - name: Upload artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+
+  deploy:
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

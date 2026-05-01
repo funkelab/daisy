@@ -96,6 +96,7 @@ async fn test_server_client_no_conflict() {
             ResourceBudget::empty(),
             None,
             None,
+            true,
         ),
     )
     .await
@@ -150,6 +151,7 @@ async fn test_server_client_with_conflict() {
             ResourceBudget::empty(),
             None,
             None,
+            true,
         ),
     )
     .await
@@ -225,6 +227,7 @@ async fn test_server_block_failure_and_retry() {
             ResourceBudget::empty(),
             None,
             None,
+            true,
         ),
     )
     .await

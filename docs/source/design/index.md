@@ -1,6 +1,6 @@
-# daisy architecture docs
+# Design notes
 
-Design documentation for the daisy library. This directory holds the *why* and the *how* — for *what* and *how-to-use*, see the README and the `examples/` directory.
+Design documentation for the daisy library. This section holds the *why* and the *how* — for *what* and *how-to-use*, see the [tutorials](../tutorials/index.md) and the [API reference](../api.md).
 
 ## Reading order
 
@@ -14,7 +14,7 @@ If you're new, start with the architecture overview and then dip into whichever 
 
 4. **[DONE_MARKERS.md](DONE_MARKERS.md)** — On-disk persistence layer for resumable runs. Zarr v3 layout, hash-based layout-change detection, what survives across runs.
 
-5. **[ABANDONMENT.md](ABANDONMENT.md)** — The typestate model that gates task counter mutations. Race windows that exist when workers die mid-block and how the lifecycle prevents them. (A copy of the design note; the source of truth.)
+5. **[ABANDONMENT.md](ABANDONMENT.md)** — The typestate model that gates task counter mutations. Race windows that exist when workers die mid-block and how the lifecycle prevents them.
 
 6. **[RUN_STATS.md](RUN_STATS.md)** — How per-worker, per-task, and process-wide statistics are collected and aggregated. The linear-regression slope for block-duration trend.
 
@@ -22,16 +22,22 @@ If you're new, start with the architecture overview and then dip into whichever 
 
 8. **[WORKER_SHUTDOWN_FLOWS.md](WORKER_SHUTDOWN_FLOWS.md)** — Sequence diagrams for the three shutdown scenarios (normal exit, KeyboardInterrupt, dirty crash) compared between daisy 1.x and daisy v2.
 
-## Pointers to other docs
-
-Internal planning notes live under [`../dev/`](../dev/) (excluded from the published sdist):
-
-- **[../dev/REFACTOR.md](../dev/REFACTOR.md)** — Inventory of simplification opportunities and proposed features. Use this when planning what to work on next.
-- **[../dev/INTERNAL_DIFFERENCES.md](../dev/INTERNAL_DIFFERENCES.md)** — Subsystem-by-subsystem comparison vs daisy 1.x. Useful for users migrating from daisy 1.x.
-- **[../dev/MIGRATION_REPORT.md](../dev/MIGRATION_REPORT.md)** — Notes on the migration from daisy 1.x's API to daisy v2's.
-
 ## Conventions
 
 - Code references use `path:line` format (e.g. `daisy-core/src/scheduler.rs:172`) so they're navigable in any editor that follows the convention.
 - "daisy 1.x" refers to the upstream Python library that daisy v2 is a rewrite of. "daisy v2" (or just "daisy", in unambiguous contexts) refers to this codebase.
 - Box-drawing characters (`└─`, `→`) appear in some diagrams. They render in any monospace font.
+
+:::{toctree}
+:hidden:
+:maxdepth: 1
+
+ARCHITECTURE
+SCHEDULER
+PROTOCOL
+DONE_MARKERS
+ABANDONMENT
+RUN_STATS
+WORKER_POOL_COORDINATION
+WORKER_SHUTDOWN_FLOWS
+:::

@@ -112,10 +112,13 @@ impl Server {
         resources: ResourceBudget,
         progress: Option<Arc<dyn ProgressObserver>>,
         abort_check: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+        block_tracking: bool,
     ) -> std::io::Result<(HashMap<String, TaskCounters>, crate::run_stats::RunStats)> {
         let mut scheduler = Scheduler::new(tasks, true);
-        if let Err(e) = scheduler.init_done_markers() {
-            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
+        if block_tracking {
+            if let Err(e) = scheduler.init_done_markers() {
+                return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
+            }
         }
         let mut bookkeeper = BlockBookkeeper::new();
 

@@ -32,16 +32,21 @@ import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_stress_"))
 gl.set_log_basedir(_TMP / "logs")
+# Enable per-task done markers under _TMP/markers so partial progress
+# survives across the retry loop below — abandoned runs leave behind a
+# Zarr v3 array recording which blocks already completed, and the next
+# call to `run_blockwise` skips those blocks via the pre-check.
+daisy.set_done_marker_basedir(_TMP / "markers")
 print(f"output paths under: {_TMP}")
 
 # %% [markdown]
 # ## Configuration
 
 # %%
-NUM_BLOCKS = 350_000
-WORKER_DEATH_RATE = 1.0 / 30_000   # ~10 worker deaths per task
+NUM_BLOCKS = 35_000
+WORKER_DEATH_RATE = 1.0 / 3_000   # ~10 worker deaths per task
 MAX_WORKERS = 4
-MAX_WORKER_RESTARTS = 4         # generous — well above expected deaths
+MAX_WORKER_RESTARTS = 4         # unlikely to make it all the way through
 
 # %% [markdown]
 # ## The worker
@@ -96,8 +101,10 @@ label   = make_task("label",   upstream=predict)
 # ## Run
 
 # %%
-t0 = time.perf_counter()
-ok = daisy.run_blockwise([extract, predict, label])
-elapsed = time.perf_counter() - t0
-print(f"\nrun_blockwise returned ok={ok}, total elapsed = {elapsed:.2f} s")
+completed = False
+while not completed:
+    t0 = time.perf_counter()
+    completed = daisy.run_blockwise([extract, predict, label])
+    elapsed = time.perf_counter() - t0
+    print(f"\nrun_blockwise returned completed={completed}, total elapsed = {elapsed:.2f} s")
 print(f"\nlogs and any failure tracebacks: {_TMP / 'logs'}")

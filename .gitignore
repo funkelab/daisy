@@ -6,3 +6,8 @@ __pycache__/
 *.dylib
 *.egg-info/
 Cargo.lock
+
+# Sphinx build artifacts
+docs/_build/
+docs/source/.jupyter_cache/
+docs/source/jupyter_execute/

@@ -1,7 +1,9 @@
+use daisy_core::done_marker::DoneMarker;
 use daisy_core::task::{Fit, Task};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use crate::py_callbacks::{PyCheckBlock, PyProcessBlock, PySpawnWorker};
@@ -140,6 +142,26 @@ impl PyTask {
     #[getter]
     fn max_retries(&self) -> u32 {
         self.max_retries
+    }
+
+    /// Delete this task's done-marker so the next run starts fresh.
+    /// Returns the path that was cleared, or None if no marker was
+    /// configured / nothing existed at the resolved path.
+    fn reset(&self) -> PyResult<Option<String>> {
+        let Some(ref p) = self.done_marker_path else {
+            return Ok(None);
+        };
+        let path = Path::new(p);
+        if !path.exists() {
+            return Ok(None);
+        }
+        DoneMarker::clear(path).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "failed to clear done-marker at {}: {e}",
+                p
+            ))
+        })?;
+        Ok(Some(p.clone()))
     }
 }
 

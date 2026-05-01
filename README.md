@@ -46,16 +46,23 @@ A **block function** receives one block at a time. A **worker function** takes z
 
 ## Documentation
 
-Design and protocol documentation lives under [`docs/`](docs/):
+Full documentation (including executable tutorials and the design notes) is built with Sphinx + MyST-NB and published to GitHub Pages. To build locally:
 
-- [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system overview
-- [`SCHEDULER.md`](docs/SCHEDULER.md) — dependency graph and ready surface
-- [`PROTOCOL.md`](docs/PROTOCOL.md) — TCP wire format
-- [`DONE_MARKERS.md`](docs/DONE_MARKERS.md) — on-disk persistence for resumable runs
-- [`RUN_STATS.md`](docs/RUN_STATS.md) — per-worker and per-task statistics
-- [`WORKER_POOL_COORDINATION.md`](docs/WORKER_POOL_COORDINATION.md) — resource budgets
-- [`WORKER_SHUTDOWN_FLOWS.md`](docs/WORKER_SHUTDOWN_FLOWS.md) — shutdown sequencing
-- [`ABANDONMENT.md`](docs/ABANDONMENT.md) — typestate model for task lifecycle
+```bash
+uv sync --group docs
+uv run sphinx-build -b html docs/source docs/_build/html
+```
+
+The design notes are also browsable directly under [`docs/source/design/`](docs/source/design/):
+
+- [`ARCHITECTURE.md`](docs/source/design/ARCHITECTURE.md) — system overview
+- [`SCHEDULER.md`](docs/source/design/SCHEDULER.md) — dependency graph and ready surface
+- [`PROTOCOL.md`](docs/source/design/PROTOCOL.md) — TCP wire format
+- [`DONE_MARKERS.md`](docs/source/design/DONE_MARKERS.md) — on-disk persistence for resumable runs
+- [`RUN_STATS.md`](docs/source/design/RUN_STATS.md) — per-worker and per-task statistics
+- [`WORKER_POOL_COORDINATION.md`](docs/source/design/WORKER_POOL_COORDINATION.md) — resource budgets
+- [`WORKER_SHUTDOWN_FLOWS.md`](docs/source/design/WORKER_SHUTDOWN_FLOWS.md) — shutdown sequencing
+- [`ABANDONMENT.md`](docs/source/design/ABANDONMENT.md) — typestate model for task lifecycle
 
 ## License
 

@@ -31,7 +31,7 @@ class Server:
         self.hostname = None
         self.port = None
 
-    def run_blockwise(self, tasks, resources=None, progress=True):
+    def run_blockwise(self, tasks, resources=None, progress=True, block_tracking=True):
         wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                    for t in tasks]
         order = _topo_order(tasks)
@@ -39,7 +39,10 @@ class Server:
         observer = _resolve_progress(progress, task_order=order)
         try:
             states, run_stats = _rs._run_distributed_server(
-                _convert_tasks(wrapped), resources, observer,
+                _convert_tasks(wrapped),
+                resources,
+                observer,
+                block_tracking=block_tracking,
             )
             self.last_run_stats = run_stats
             return states
@@ -47,19 +50,34 @@ class Server:
             _worker_log.close_all_log_files()
 
 
-def _run_serial(tasks):
+def _run_serial(tasks, block_tracking=True):
     """Single-threaded execution path (no TCP, no workers). Used
     when `daisy.run_blockwise(..., multiprocessing=False)`."""
     wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
                for t in tasks]
     try:
-        return _rs._run_serial(_convert_tasks(wrapped))
+        return _rs._run_serial(_convert_tasks(wrapped), block_tracking=block_tracking)
     finally:
         _worker_log.close_all_log_files()
 
 
-def run_blockwise(tasks, multiprocessing=True, resources=None, progress=True):
+def run_blockwise(
+    tasks,
+    multiprocessing=True,
+    resources=None,
+    progress=True,
+    block_tracking=True,
+):
     """Run the given tasks to completion.
+
+    Returns `True` only if every block of every task either completed
+    successfully in this run or was skipped because a prior run already
+    marked it done. Any permanently failed or orphaned blocks (i.e.
+    blocks that ran out of retries, or whose upstream dependencies
+    failed) cause this to return `False` — even if the runner itself
+    finished cleanly. Inspect the per-task `TaskState` returned from
+    `Server.run_blockwise` for the full counter breakdown, or read the
+    "Execution Summary" printed to stderr after each run.
 
     `resources` is an optional `dict[str, int]` global budget consumed by
     tasks whose `requires=...` declares non-empty entries. Tasks with
@@ -68,22 +86,41 @@ def run_blockwise(tasks, multiprocessing=True, resources=None, progress=True):
     Ignored in serial mode.
 
     `progress`:
+
       - `True` (default in multiprocessing mode): show a `tqdm.auto`
         progress bar per task, with live counts in the postfix.
       - `False` / `None`: disable.
       - object with `on_start`/`on_progress`/`on_finish` methods: a
         custom observer (e.g. for logging into a file or pushing to a
         dashboard).
+
       Always disabled in serial mode.
+
+    `block_tracking`: when True (default), per-task done markers are
+    enabled. The marker location is resolved per task in this order:
+    explicit `done_marker_path` on the task → global basedir set via
+    `set_done_marker_basedir` → the daisy log basedir
+    (`./daisy_logs`, or whatever `daisy.logging.set_log_basedir` was
+    given). With markers on, re-running the same tasks after an
+    aborted or partial run skips already-completed blocks via the
+    scheduler pre-check. When False, marker tracking is disabled for
+    this run regardless of any per-task or global configuration —
+    every block is processed afresh.
     """
     order = _topo_order(tasks)
     if multiprocessing:
         server = Server()
-        states = server.run_blockwise(tasks, resources=resources, progress=progress)
+        states = server.run_blockwise(
+            tasks, resources=resources, progress=progress,
+            block_tracking=block_tracking,
+        )
         run_stats = getattr(server, "last_run_stats", None)
     else:
-        states = _run_serial(tasks)
+        states = _run_serial(tasks, block_tracking=block_tracking)
         run_stats = None
     _print_execution_summary(states, task_order=order)
     _print_resource_utilization(run_stats, task_order=order)
-    return all(s.is_done() for s in states.values())
+    return all(
+        s.completed_count == s.total_block_count
+        for s in states.values()
+    )

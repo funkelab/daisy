@@ -43,9 +43,11 @@ fn rt_err(e: impl std::fmt::Display) -> PyErr {
 
 /// Run tasks serially (single-threaded, no TCP).
 #[pyfunction]
+#[pyo3(signature = (tasks, block_tracking=true))]
 pub fn _run_serial(
     py: Python<'_>,
     tasks: Bound<'_, PyList>,
+    block_tracking: bool,
 ) -> PyResult<HashMap<String, PyTaskState>> {
     let mut cache: HashMap<String, Arc<Task>> = HashMap::new();
     let mut arc_tasks: Vec<Arc<Task>> = Vec::new();
@@ -55,7 +57,7 @@ pub fn _run_serial(
         arc_tasks.push(arc);
     }
 
-    let states = SerialRunner::run(&arc_tasks).map_err(rt_err)?;
+    let states = SerialRunner::run(&arc_tasks, block_tracking).map_err(rt_err)?;
 
     Ok(states
         .into_iter()
@@ -74,13 +76,14 @@ pub fn _run_serial(
 /// `on_start(states)`, `on_progress(states)`, and `on_finish(states)`
 /// — see `daisy/_compat.py:_TqdmObserver` for a tqdm-backed example.
 #[pyfunction]
-#[pyo3(signature = (tasks, resources=None, progress_observer=None, host="127.0.0.1"))]
+#[pyo3(signature = (tasks, resources=None, progress_observer=None, host="127.0.0.1", block_tracking=true))]
 pub fn _run_distributed_server(
     py: Python<'_>,
     tasks: Bound<'_, PyList>,
     resources: Option<Bound<'_, PyDict>>,
     progress_observer: Option<Py<PyAny>>,
     host: &str,
+    block_tracking: bool,
 ) -> PyResult<Py<pyo3::types::PyTuple>> {
     let mut cache: HashMap<String, Arc<Task>> = HashMap::new();
     let mut arc_tasks: Vec<Arc<Task>> = Vec::new();
@@ -135,6 +138,7 @@ pub fn _run_distributed_server(
             budget,
             progress,
             Some(abort_check),
+            block_tracking,
         ))
     });
 
