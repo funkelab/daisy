@@ -175,11 +175,11 @@ def step_recolor(block):
 # %% [markdown]
 # ## Define the pipeline
 #
-# Three tasks, chained via `upstream_tasks=`. `requires` declares each
-# task's per-worker resource cost; `max_workers` is the hard cap.
-# `resources={"cpu": 4, "gpu": 1}` is the global budget — enough CPU
-# headroom that the pipeline isn't CPU-starved, with the watershed
-# stage gated by a single "GPU" slot.
+# Three tasks chained via `+` composition: `edges → segment → recolor`.
+# `requires` declares each task's per-worker resource cost; `max_workers`
+# is the hard cap. `resources={"cpu": 4, "gpu": 1}` is the global budget
+# — enough CPU headroom that the pipeline isn't CPU-starved, with the
+# watershed stage gated by a single "GPU" slot.
 
 # %%
 edges_task = daisy.Task(
@@ -204,7 +204,6 @@ segment_task = daisy.Task(
     max_workers=4,        # cap is 4, but global budget caps at 1
     max_retries=0,
     requires={"gpu": 1},
-    upstream_tasks=[edges_task],
 )
 
 recolor_task = daisy.Task(
@@ -217,23 +216,21 @@ recolor_task = daisy.Task(
     max_workers=4,
     max_retries=0,
     requires={"cpu": 1},
-    upstream_tasks=[segment_task],
 )
+
+pipeline = edges_task + segment_task + recolor_task
 
 # %% [markdown]
 # ## Run the pipeline
 #
-# `run_blockwise` sees the dependency chain and dispatches each stage
-# only after its upstream blocks complete. Block 0 of `recolor` can
-# start as soon as block 0 of `segment` completes; it doesn't have to
-# wait for `segment` to fully drain.
+# The Pipeline's edge structure tells the scheduler that each stage
+# depends on its upstream. Block 0 of `recolor` can start as soon as
+# block 0 of `segment` completes; it doesn't have to wait for `segment`
+# to fully drain.
 
 # %%
 t_start = time.perf_counter()
-ok = daisy.run_blockwise(
-    [edges_task, segment_task, recolor_task],
-    resources={"cpu": 4, "gpu": 1},
-)
+ok = pipeline.run_blockwise(resources={"cpu": 4, "gpu": 1})
 elapsed = time.perf_counter() - t_start
 assert ok
 print(f"\npipeline elapsed: {elapsed * 1e3:.0f} ms")

@@ -56,13 +56,6 @@ Scheduler = _rs.Scheduler
 Context = _rs.Context
 
 
-def _convert_tasks(tasks):
-    """Identity for `_rs.Task` instances; kept as a function so call
-    sites that historically called `_to_rs()` per task keep working
-    while the codebase converges on direct `_rs.Task` use."""
-    return list(tasks)
-
-
 _V1_UPSTREAM_ATTR = "_v1_upstream_tasks"
 
 
@@ -124,10 +117,12 @@ def _build_pipeline_from_tasks(tasks):
     for t in tasks:
         visit(t)
 
-    pipe = None
-    for t in seen.values():
-        s = _rs.Pipeline.from_task(t)
-        pipe = s if pipe is None else (pipe | s)
+    if not seen:
+        return _rs.Pipeline()
+    task_iter = iter(seen.values())
+    pipe = _rs.Pipeline.from_task(next(task_iter))
+    for t in task_iter:
+        pipe = pipe | _rs.Pipeline.from_task(t)
     for up_id, down_id in edges:
         up = seen[up_id]
         down = seen[down_id]

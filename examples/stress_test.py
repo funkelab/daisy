@@ -78,7 +78,7 @@ def process(block):
 # tasks start picking up blocks as soon as upstream produces them.
 
 # %%
-def make_task(task_id, upstream=None):
+def make_task(task_id):
     return daisy.Task(
         task_id=task_id,
         total_roi=daisy.Roi([0], [NUM_BLOCKS]),
@@ -89,13 +89,10 @@ def make_task(task_id, upstream=None):
         max_workers=MAX_WORKERS,
         max_retries=2,
         max_worker_restarts=MAX_WORKER_RESTARTS,
-        upstream_tasks=[upstream] if upstream is not None else None,
     )
 
 
-extract = make_task("extract")
-predict = make_task("predict", upstream=extract)
-label   = make_task("label",   upstream=predict)
+pipeline = make_task("extract") + make_task("predict") + make_task("label")
 
 # %% [markdown]
 # ## Run
@@ -104,7 +101,7 @@ label   = make_task("label",   upstream=predict)
 completed = False
 while not completed:
     t0 = time.perf_counter()
-    completed = daisy.run_blockwise([extract, predict, label])
+    completed = pipeline.run_blockwise()
     elapsed = time.perf_counter() - t0
     print(f"\nrun_blockwise returned completed={completed}, total elapsed = {elapsed:.2f} s")
 print(f"\nlogs and any failure tracebacks: {_TMP / 'logs'}")

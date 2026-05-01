@@ -22,6 +22,7 @@ All three are process-global; change them before calling
 
 from __future__ import annotations
 
+import typing
 import logging as _py_logging
 import re
 import sys
@@ -129,7 +130,7 @@ _slot_lock = threading.Lock()
 # (task_id, thread_id) -> worker slot index within the task.
 _thread_slots: dict[tuple[str, int], int] = {}
 # (task_id, slot) -> (out_file, err_file).
-_slot_files: dict[tuple[str, int], tuple[object, object]] = {}
+_slot_files: dict[tuple[str, int], tuple[typing.IO[str], typing.IO[str]]] = {}
 # Per-thread: which (task_id, slot) pair is currently active. Missing = no
 # worker slot bound; writes always go straight to the real stream.
 _active = threading.local()
@@ -213,7 +214,12 @@ def _assign_slot(task_id: str) -> int | None:
             return _thread_slots[key]
         slot = sum(1 for (t, _) in _thread_slots if t == task_id)
         _thread_slots[key] = slot
-        basename = get_worker_log_basename(slot, task_id)
+        # Reuse the already-narrowed `base` rather than re-querying (which
+        # could race with a `set_log_basedir(None)` between the early
+        # check above and now).
+        basename = (base / task_id / f"worker_{slot}") if task_id else (
+            base / f"worker_{slot}"
+        )
         basename.parent.mkdir(parents=True, exist_ok=True)
         # Truncate (mode "w") so each `run_blockwise` invocation gets a
         # clean log instead of stacking old runs on top of new ones.

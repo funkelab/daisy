@@ -49,6 +49,21 @@ exclude = [
     { path = "tests/**", format = "sdist" },
 ]
 
+[tool.ty.src]
+exclude = [
+    # v1.x compat tests deliberately pass v1-style `Block(task_id=int)` etc.
+    # to verify the v1 surface; type-checking them produces noisy false
+    # positives.
+    "tests/daisy_compat/**",
+]
+
+[tool.ty.rules]
+# Examples import optional scientific deps (numpy, matplotlib, lsd_lite,
+# mwatershed, zarr, scikit-image, scipy) that are in the `examples`
+# dependency group, not the default install. Suppress unresolved-import
+# rather than make ty fail in a fresh environment.
+unresolved-import = "ignore"
+
 [dependency-groups]
 dev = [
     "filelock>=3.29.0",

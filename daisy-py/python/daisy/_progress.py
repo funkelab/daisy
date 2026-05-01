@@ -5,75 +5,11 @@ Imports nothing from `_runner.py`; both `_runner.py` and the public
 `__init__.py` import from here.
 """
 
-import heapq
 import json
 import sys
 import time
 
 from daisy import logging as _worker_log
-
-
-def _topo_order(tasks):
-    """Topological order of `tasks` with alphabetical tiebreaker on
-    the *ready set*.
-
-    The rule: roots (no upstream) become candidates first, sorted
-    alphabetically. After printing a task, any of its children whose
-    upstream dependencies are now all printed become candidates.
-    From the candidate set, always pick the alphabetically smallest.
-
-    Example: `(A → B), (C → D), ((B, D) → E)` produces `[A, B, C, D, E]`
-    — B comes right after A because it has only A upstream and `B < C`,
-    then C is the next-smallest root, then D unlocks, then E unlocks
-    once both its parents are seen.
-    """
-    # Walk the task graph (handles upstream tasks not in the input list).
-    all_tasks = {}
-    upstream_map = {}
-
-    # `_rs.Task` no longer carries `upstream_tasks`; v2 expresses
-    # task DAGs via `Pipeline`. For users coming from daisy 1.x via
-    # `Task(upstream_tasks=[...])`, the v1_compat factory records the
-    # upstream list in a side-table that we read here.
-    from daisy._task import _get_task_upstream
-
-    def visit(t):
-        if t.task_id in all_tasks:
-            return
-        all_tasks[t.task_id] = t
-        ups = list(_get_task_upstream(t) or [])
-        upstream_map[t.task_id] = {u.task_id for u in ups}
-        for u in ups:
-            visit(u)
-
-    for t in tasks:
-        visit(t)
-
-    downstream_map = {tid: [] for tid in all_tasks}
-    for tid, ups in upstream_map.items():
-        for u in ups:
-            downstream_map[u].append(tid)
-
-    visited = set()
-    order = []
-    ready = []
-    for tid, ups in upstream_map.items():
-        if not ups:
-            heapq.heappush(ready, tid)
-
-    while ready:
-        tid = heapq.heappop(ready)
-        if tid in visited:
-            continue
-        visited.add(tid)
-        order.append(tid)
-        for child in downstream_map.get(tid, []):
-            if child in visited:
-                continue
-            if all(u in visited for u in upstream_map[child]):
-                heapq.heappush(ready, child)
-
-    return order
 
 
 def _ordered_states(states, task_order):
@@ -344,22 +280,6 @@ class JsonProgressObserver:
                 self._sink.close()
             except Exception:
                 pass
-
-
-def _resolve_progress(progress, task_order=None):
-    """Translate the user-facing `progress=` argument into a Rust-side
-    observer object, or `None` if disabled.
-
-    - `True` (default) → built-in `_TqdmObserver` seeded with
-      `task_order` (topological + alphabetical, see `_topo_order`).
-    - `False` / `None` → no observer (no progress bar).
-    - any object exposing `on_start`/`on_progress`/`on_finish` → used directly.
-    """
-    if progress is False or progress is None:
-        return None
-    if progress is True:
-        return _TqdmObserver(task_order=task_order)
-    return progress
 
 
 def _format_bytes(n):

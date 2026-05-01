@@ -114,7 +114,7 @@ class Task(_v2.Task):
 run_blockwise = _v2_run_blockwise
 
 
-class Scheduler:
+def Scheduler(tasks_or_pipeline) -> _v2.Scheduler:
     """v1.x-compatible `Scheduler` factory. Accepts a Pipeline, a
     Task, or a list of tasks (with `upstream_tasks=` declarations
     honoured) and returns an `_rs.Scheduler`.
@@ -122,10 +122,8 @@ class Scheduler:
     daisy v2 internalised the scheduler to consume a Pipeline only;
     this shim builds a Pipeline from the list-of-tasks form by
     walking the v1.x upstream side-table on each task."""
-
-    def __new__(cls, tasks_or_pipeline):
-        from daisy._task import _to_pipeline
-        return _v2.Scheduler(_to_pipeline(tasks_or_pipeline))
+    from daisy._task import _to_pipeline
+    return _v2.Scheduler(_to_pipeline(tasks_or_pipeline))
 
 
 class SerialServer:

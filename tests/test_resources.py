@@ -203,7 +203,7 @@ def test_num_workers_keyword_is_rejected():
     from daisy import v2
 
     with pytest.raises(TypeError):
-        v2.Task(
+        v2.Task(  # ty: ignore[unknown-argument]
             task_id="legacy",
             total_roi=v2.Roi([0], [20]),
             read_roi=v2.Roi([0], [10]),
