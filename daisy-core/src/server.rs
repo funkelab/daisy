@@ -120,6 +120,16 @@ impl Server {
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
             }
         }
+        // The caller may have passed only the leaf tasks (which is what
+        // the Python entry point does when materializing a Pipeline or
+        // a single chained task). `Scheduler::new` recursively pulls
+        // upstream tasks into `task_map`, but the rebalance / spawn
+        // loops below need the full closure so they spawn workers for
+        // every task in the DAG, not just the leaves. Build that
+        // closure once here.
+        let all_tasks: Vec<Arc<Task>> =
+            scheduler.task_map.values().cloned().collect();
+        let tasks: &[Arc<Task>] = &all_tasks;
         let mut bookkeeper = BlockBookkeeper::new();
 
         let (msg_tx, mut msg_rx) = mpsc::channel::<ClientMessage>(256);

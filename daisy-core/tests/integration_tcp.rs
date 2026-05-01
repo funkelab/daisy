@@ -51,6 +51,129 @@ async fn test_framing_roundtrip() {
     let _ = server_task.await;
 }
 
+/// Regression test: chained tasks (b depends on a) — leaf-only entry,
+/// i.e. caller passes `[b]` and trusts the scheduler to discover `a`
+/// via `b.upstream_tasks`. This is the shape the Python entry point
+/// produces, and previously hung because the rebalance loop iterated
+/// the input slice (just `[b]`) and never spawned a worker for `a`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_chained_tasks_leaf_only_distributed() {
+    let task_a = Arc::new(
+        Task::builder("a")
+            .total_roi(Roi::from_slices(&[0], &[40]))
+            .read_roi(Roi::from_slices(&[0], &[10]))
+            .write_roi(Roi::from_slices(&[0], &[10]))
+            .read_write_conflict(false)
+            .num_workers(1)
+            .build(),
+    );
+    let task_b = Arc::new(
+        Task::builder("b")
+            .total_roi(Roi::from_slices(&[0], &[40]))
+            .read_roi(Roi::from_slices(&[0], &[10]))
+            .write_roi(Roi::from_slices(&[0], &[10]))
+            .read_write_conflict(false)
+            .num_workers(1)
+            .upstream(task_a.clone())
+            .build(),
+    );
+    let leaf = vec![task_b];
+
+    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
+    let host = server.host().to_string();
+    let port = server.port();
+    let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
+
+    let h = host.clone();
+    let w_a = tokio::spawn(run_worker(h.clone(), port, "a".to_string()));
+    let w_b = tokio::spawn(run_worker(h, port, "b".to_string()));
+
+    let (states, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        server.run_blockwise(
+            listener,
+            &leaf,
+            &mut worker_pools,
+            ResourceBudget::empty(),
+            None,
+            None,
+            true,
+        ),
+    )
+    .await
+    .expect("leaf-only chained run timed out — upstream not picked up")
+    .unwrap();
+
+    assert_eq!(states["a"].completed_count, 4);
+    assert_eq!(states["b"].completed_count, 4);
+
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_a).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_b).await;
+}
+
+
+/// Regression test: chained tasks (b depends on a) should run cleanly
+/// in distributed mode. This previously hung because the worker for
+/// task "a" exited after consuming all its blocks but the rebalance
+/// for task "b" didn't fire, so no worker was ever spawned for it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_chained_tasks_distributed() {
+    let task_a = Arc::new(
+        Task::builder("a")
+            .total_roi(Roi::from_slices(&[0], &[40]))
+            .read_roi(Roi::from_slices(&[0], &[10]))
+            .write_roi(Roi::from_slices(&[0], &[10]))
+            .read_write_conflict(false)
+            .num_workers(1)
+            .build(),
+    );
+    let task_b = Arc::new(
+        Task::builder("b")
+            .total_roi(Roi::from_slices(&[0], &[40]))
+            .read_roi(Roi::from_slices(&[0], &[10]))
+            .write_roi(Roi::from_slices(&[0], &[10]))
+            .read_write_conflict(false)
+            .num_workers(1)
+            .upstream(task_a.clone())
+            .build(),
+    );
+    let tasks = vec![task_a, task_b];
+
+    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
+    let host = server.host().to_string();
+    let port = server.port();
+    let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
+
+    let h = host.clone();
+    let w_a = tokio::spawn(run_worker(h.clone(), port, "a".to_string()));
+    let w_b = tokio::spawn(run_worker(h, port, "b".to_string()));
+
+    let (states, _) = tokio::time::timeout(
+        std::time::Duration::from_secs(8),
+        server.run_blockwise(
+            listener,
+            &tasks,
+            &mut worker_pools,
+            ResourceBudget::empty(),
+            None,
+            None,
+            true,
+        ),
+    )
+    .await
+    .expect("chained-task run timed out — regression in worker rebalance for downstream tasks")
+    .unwrap();
+
+    assert_eq!(states["a"].total_block_count, 4);
+    assert_eq!(states["a"].completed_count, 4);
+    assert_eq!(states["b"].total_block_count, 4);
+    assert_eq!(states["b"].completed_count, 4);
+
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_a).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_b).await;
+}
+
+
 async fn run_worker(host: String, port: u16, task_id: String) {
     let mut client = Client::connect(&host, port, &task_id).await.unwrap();
     loop {

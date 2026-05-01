@@ -3,11 +3,113 @@ use daisy_core::task::{Fit, Task};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use std::collections::HashMap;
-use std::path::Path;
-use std::sync::Arc;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 
 use crate::py_callbacks::{PyCheckBlock, PyProcessBlock, PySpawnWorker};
 use crate::py_roi::PyRoi;
+
+/// Three-state done-marker spec: `Auto` resolves at convert time
+/// against the global basedir (or `daisy.logging.LOG_BASEDIR` as
+/// final fallback); `Disabled` opts out; `Path` is verbatim.
+#[derive(Clone, Debug)]
+pub enum DoneMarkerSpec {
+    Auto,
+    Disabled,
+    Path(String),
+}
+
+impl DoneMarkerSpec {
+    /// Resolve to a concrete path string. Precedence:
+    ///   1. `Disabled`           → None
+    ///   2. `Path(s)`            → Some(s)
+    ///   3. `Auto` + global Rust basedir set → `<basedir>/<task_id>`
+    ///   4. `Auto` + Python `daisy.logging.LOG_BASEDIR` set → `<log_basedir>/<task_id>`
+    ///   5. otherwise            → None
+    pub fn resolve(&self, py: Python<'_>, task_id: &str) -> Option<String> {
+        match self {
+            DoneMarkerSpec::Disabled => None,
+            DoneMarkerSpec::Path(s) => Some(s.clone()),
+            DoneMarkerSpec::Auto => {
+                if let Some(b) = get_basedir() {
+                    return Some(b.join(task_id).to_string_lossy().into_owned());
+                }
+                // Python LOG_BASEDIR fallback. Best-effort: any error
+                // (module not importable, attribute missing, value is
+                // None) just yields no marker.
+                let py_basedir: Option<String> = py
+                    .import("daisy.logging")
+                    .ok()
+                    .and_then(|m| m.getattr("LOG_BASEDIR").ok())
+                    .and_then(|v| if v.is_none() { None } else { v.str().ok() })
+                    .and_then(|s| s.extract::<String>().ok());
+                py_basedir.map(|b| {
+                    PathBuf::from(b)
+                        .join(task_id)
+                        .to_string_lossy()
+                        .into_owned()
+                })
+            }
+        }
+    }
+}
+
+/// Module-level done-marker basedir. `set_done_marker_basedir(path)`
+/// sets it; `get_done_marker_basedir()` reads it. Tasks with
+/// `done_marker_path=None` (Auto) resolve through this.
+static BASEDIR: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+fn get_basedir() -> Option<PathBuf> {
+    BASEDIR.read().unwrap().clone()
+}
+
+#[pyfunction]
+pub fn set_done_marker_basedir(path: Option<String>) -> PyResult<()> {
+    let mut g = BASEDIR.write().unwrap();
+    *g = path.map(PathBuf::from);
+    Ok(())
+}
+
+#[pyfunction]
+pub fn get_done_marker_basedir(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    match get_basedir() {
+        Some(p) => {
+            let pathlib = py.import("pathlib")?;
+            let path_class = pathlib.getattr("Path")?;
+            let s = p.to_string_lossy().into_owned();
+            Ok(path_class.call1((s,))?.unbind())
+        }
+        None => Ok(py.None()),
+    }
+}
+
+/// Coerce a Python None / False / str into a `DoneMarkerSpec`.
+/// Anything else is a TypeError.
+fn parse_done_marker_spec(v: Option<&Bound<'_, PyAny>>) -> PyResult<DoneMarkerSpec> {
+    let Some(v) = v else { return Ok(DoneMarkerSpec::Auto) };
+    if v.is_none() {
+        return Ok(DoneMarkerSpec::Auto);
+    }
+    if let Ok(b) = v.extract::<bool>() {
+        if !b {
+            return Ok(DoneMarkerSpec::Disabled);
+        }
+        return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+            "done_marker_path=True is not a valid value; use None (auto), \
+             False (disabled), or a str/Path",
+        ));
+    }
+    if let Ok(s) = v.extract::<String>() {
+        return Ok(DoneMarkerSpec::Path(s));
+    }
+    // Accept pathlib.Path by str()-coercing.
+    if let Ok(s) = v.str().and_then(|x| x.extract::<String>()) {
+        return Ok(DoneMarkerSpec::Path(s));
+    }
+    Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+        "done_marker_path must be None, False, or a str/Path",
+    ))
+}
 
 #[pyclass(name = "Task", skip_from_py_object)]
 pub struct PyTask {
@@ -23,8 +125,11 @@ pub struct PyTask {
     pub process_function: Option<Py<PyAny>>,
     /// Stored as Py references so they survive without Clone.
     pub upstream_tasks: Vec<Py<PyTask>>,
-    /// Path to the persistent done-marker directory; `None` disables.
-    pub done_marker_path: Option<String>,
+    /// Three-state done-marker spec (Auto / Disabled / explicit path).
+    /// Resolution against the global basedir / `LOG_BASEDIR` happens
+    /// in `convert_task_tree`, not at construction, so the same
+    /// `Task` instance picks up basedir changes between runs.
+    pub done_marker_path: DoneMarkerSpec,
     /// Per-worker resource cost; empty disables resource accounting.
     pub requires: HashMap<String, i64>,
     /// Cap on worker restarts before the task is abandoned. Default 10.
@@ -69,11 +174,12 @@ impl PyTask {
         num_workers: usize,
         max_retries: u32,
         upstream_tasks: Option<Bound<'_, PyList>>,
-        done_marker_path: Option<String>,
+        done_marker_path: Option<&Bound<'_, PyAny>>,
         requires: Option<Bound<'_, PyDict>>,
         max_worker_restarts: u32,
         timeout_secs: Option<f64>,
     ) -> PyResult<Self> {
+        let done_marker_path = parse_done_marker_spec(done_marker_path)?;
         let ups = if let Some(list) = upstream_tasks {
             let mut v = Vec::new();
             for item in list.iter() {
@@ -144,24 +250,43 @@ impl PyTask {
         self.max_retries
     }
 
+    #[getter]
+    fn upstream_tasks(&self, py: Python<'_>) -> PyResult<Py<PyList>> {
+        let list = PyList::empty(py);
+        for u in &self.upstream_tasks {
+            list.append(u.clone_ref(py))?;
+        }
+        Ok(list.unbind())
+    }
+
     /// Delete this task's done-marker so the next run starts fresh.
     /// Returns the path that was cleared, or None if no marker was
     /// configured / nothing existed at the resolved path.
-    fn reset(&self) -> PyResult<Option<String>> {
-        let Some(ref p) = self.done_marker_path else {
+    fn reset(&self, py: Python<'_>) -> PyResult<Option<String>> {
+        let Some(p) = self.done_marker_path.resolve(py, &self.task_id) else {
             return Ok(None);
         };
-        let path = Path::new(p);
+        let path = Path::new(&p);
         if !path.exists() {
             return Ok(None);
         }
         DoneMarker::clear(path).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "failed to clear done-marker at {}: {e}",
-                p
+                "failed to clear done-marker at {p}: {e}"
             ))
         })?;
-        Ok(Some(p.clone()))
+        Ok(Some(p))
+    }
+
+    /// Property: return the user-facing 3-state value (None / False /
+    /// str), matching what was passed at construction.
+    #[getter(done_marker_path)]
+    fn done_marker_path_get(&self, py: Python<'_>) -> Py<PyAny> {
+        match &self.done_marker_path {
+            DoneMarkerSpec::Auto => py.None(),
+            DoneMarkerSpec::Disabled => false.into_pyobject(py).unwrap().to_owned().unbind().into(),
+            DoneMarkerSpec::Path(s) => s.clone().into_pyobject(py).unwrap().into_any().unbind(),
+        }
     }
 }
 
@@ -184,7 +309,7 @@ impl PyTask {
             check_function: None,
             process_function: None,
             upstream_tasks: Vec::new(),
-            done_marker_path: None,
+            done_marker_path: DoneMarkerSpec::Disabled,
             requires: HashMap::new(),
             max_worker_restarts: 10,
             timeout_secs: None,
@@ -225,8 +350,11 @@ impl PyTask {
             .num_workers(borrow.num_workers)
             .max_retries(borrow.max_retries);
 
-        if let Some(ref path) = borrow.done_marker_path {
-            builder = builder.done_marker_path(path);
+        // Resolve the 3-state spec to a final path string. Auto pulls
+        // from the Rust-side basedir global, falling back to Python's
+        // `daisy.logging.LOG_BASEDIR`.
+        if let Some(path) = borrow.done_marker_path.resolve(py, &borrow.task_id) {
+            builder = builder.done_marker_path(&path);
         }
         if !borrow.requires.is_empty() {
             builder = builder.requires(borrow.requires.clone());

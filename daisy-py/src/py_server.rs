@@ -37,6 +37,202 @@ use crate::py_callbacks::PyProgressObserver;
 use crate::py_task::PyTask;
 use crate::py_task_state::PyTaskState;
 
+/// Topological order of `tasks` with alphabetical tiebreaker on the
+/// ready set. Roots first; a task becomes a candidate once every one
+/// of its upstream dependencies has been emitted; from the candidate
+/// set we always pick the alphabetically smallest. This is the order
+/// used to render the post-run execution summary.
+#[pyfunction]
+pub fn _topo_order(tasks: Bound<'_, PyList>) -> PyResult<Vec<String>> {
+    use std::collections::{BinaryHeap, HashMap, HashSet};
+
+    let mut all_tasks: HashSet<String> = HashSet::new();
+    let mut upstream_map: HashMap<String, HashSet<String>> = HashMap::new();
+    let mut downstream_map: HashMap<String, Vec<String>> = HashMap::new();
+
+    fn visit(
+        t: &Bound<'_, PyAny>,
+        all_tasks: &mut HashSet<String>,
+        upstream_map: &mut HashMap<String, HashSet<String>>,
+        downstream_map: &mut HashMap<String, Vec<String>>,
+    ) -> PyResult<()> {
+        let tid: String = t.getattr("task_id")?.extract()?;
+        if all_tasks.contains(&tid) {
+            return Ok(());
+        }
+        all_tasks.insert(tid.clone());
+        let ups_obj = t.getattr("upstream_tasks")?;
+        let ups: Vec<Bound<'_, PyAny>> = ups_obj.try_iter()?.collect::<PyResult<_>>()?;
+        let mut up_ids: HashSet<String> = HashSet::new();
+        for u in &ups {
+            let uid: String = u.getattr("task_id")?.extract()?;
+            up_ids.insert(uid.clone());
+            downstream_map.entry(uid).or_default().push(tid.clone());
+        }
+        upstream_map.insert(tid, up_ids);
+        for u in &ups {
+            visit(u, all_tasks, upstream_map, downstream_map)?;
+        }
+        Ok(())
+    }
+
+    for t in tasks.iter() {
+        visit(&t, &mut all_tasks, &mut upstream_map, &mut downstream_map)?;
+    }
+
+    // Min-heap by alphabetical order: BinaryHeap is a max-heap, so we
+    // wrap with `std::cmp::Reverse`.
+    use std::cmp::Reverse;
+    let mut ready: BinaryHeap<Reverse<String>> = BinaryHeap::new();
+    for (tid, ups) in &upstream_map {
+        if ups.is_empty() {
+            ready.push(Reverse(tid.clone()));
+        }
+    }
+
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut order: Vec<String> = Vec::new();
+    while let Some(Reverse(tid)) = ready.pop() {
+        if visited.contains(&tid) {
+            continue;
+        }
+        visited.insert(tid.clone());
+        order.push(tid.clone());
+        if let Some(children) = downstream_map.get(&tid).cloned() {
+            for child in children {
+                if visited.contains(&child) {
+                    continue;
+                }
+                let child_ups = &upstream_map[&child];
+                if child_ups.iter().all(|u| visited.contains(u)) {
+                    ready.push(Reverse(child));
+                }
+            }
+        }
+    }
+
+    Ok(order)
+}
+
+/// Top-level orchestrator. Receives already-converted Rust tasks
+/// (`_rs.Task` instances), computes the topological display order in
+/// Rust, dispatches to the serial or distributed runner, and calls
+/// back into Python for the execution summary printing (which lives
+/// in Python because it shares the per-worker logging / stdout
+/// machinery — see the user's "logging" carve-out for the all-Rust
+/// rewrite). Returns `True` only if every block of every task either
+/// completed successfully or was skipped from a prior run.
+#[pyfunction]
+#[pyo3(signature = (
+    tasks,
+    multiprocessing = true,
+    resources = None,
+    progress = None,
+    block_tracking = true,
+))]
+pub fn _run_blockwise_orchestrator(
+    py: Python<'_>,
+    tasks: Bound<'_, PyList>,
+    multiprocessing: bool,
+    resources: Option<Bound<'_, PyDict>>,
+    progress: Option<Py<PyAny>>,
+    block_tracking: bool,
+) -> PyResult<bool> {
+    // Compute the display topological order.
+    let order = _topo_order(tasks.clone())?;
+    let order_py = pyo3::types::PyList::new(py, &order)?;
+
+    // Resolve progress argument:
+    //   - Python True (or omitted in distributed mode) → _TqdmObserver(task_order)
+    //   - Python False / None → no observer
+    //   - object → use as-is
+    // Always disabled in serial mode regardless of arg.
+    let progress_obj: Option<Py<PyAny>> = if multiprocessing {
+        match progress {
+            None => None,
+            Some(p) => {
+                let bound = p.bind(py);
+                if bound.is_none() {
+                    None
+                } else if let Ok(b) = bound.extract::<bool>() {
+                    if b {
+                        let progress_mod = py.import("daisy._progress")?;
+                        let tqdm_class = progress_mod.getattr("_TqdmObserver")?;
+                        Some(tqdm_class.call1((order_py.clone(),))?.unbind())
+                    } else {
+                        None
+                    }
+                } else {
+                    Some(p)
+                }
+            }
+        }
+    } else {
+        None
+    };
+
+    // Dispatch to the appropriate runner. Both paths return a Python
+    // dict of `task_id → PyTaskState` plus optional run stats.
+    let (states_obj, run_stats_obj): (Py<PyAny>, Option<Py<PyAny>>) = if multiprocessing {
+        let result = _run_distributed_server(
+            py,
+            tasks,
+            resources,
+            progress_obj,
+            "127.0.0.1",
+            block_tracking,
+        )?;
+        let tup = result.bind(py);
+        let states: Py<PyAny> = tup.get_item(0)?.into_pyobject(py)?.into_any().unbind();
+        let stats: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
+        (states, Some(stats))
+    } else {
+        let states_map = _run_serial(py, tasks, block_tracking)?;
+        let dict = pyo3::types::PyDict::new(py);
+        for (k, v) in states_map {
+            dict.set_item(k, v.into_pyobject(py)?)?;
+        }
+        (dict.into_any().unbind(), None)
+    };
+
+    // Call back into Python for the formatted post-run report.
+    // Printing lives in Python because the per-worker stdout proxy is
+    // Python-implemented and the formatting is share-printed cleanly.
+    let progress_mod = py.import("daisy._progress")?;
+    progress_mod.call_method1(
+        "_print_execution_summary",
+        (&states_obj, &order_py),
+    )?;
+    if let Some(stats) = &run_stats_obj {
+        progress_mod.call_method1(
+            "_print_resource_utilization",
+            (stats, &order_py),
+        )?;
+    } else {
+        progress_mod.call_method1(
+            "_print_resource_utilization",
+            (py.None(), &order_py),
+        )?;
+    }
+
+    // Bool result: True iff every block of every task was completed
+    // (skipped blocks are folded into completed_count by the
+    // scheduler).
+    let states_dict = states_obj.bind(py);
+    let mut all_succeeded = true;
+    for (_k, v) in states_dict.try_iter()?.zip(states_dict.call_method0("values")?.try_iter()?) {
+        let _ = _k?;
+        let state = v?;
+        let completed: i64 = state.getattr("completed_count")?.extract()?;
+        let total: i64 = state.getattr("total_block_count")?.extract()?;
+        if completed != total {
+            all_succeeded = false;
+            break;
+        }
+    }
+    Ok(all_succeeded)
+}
+
 fn rt_err(e: impl std::fmt::Display) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{e}"))
 }

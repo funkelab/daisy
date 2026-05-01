@@ -21,27 +21,25 @@ from daisy import logging as _worker_log
 logger = logging.getLogger(__name__)
 
 
-# Global default base directory for per-task done-marker arrays. When set,
-# any `Task(..., done_marker_path=None)` (the default) resolves to
-# `<basedir>/<task_id>`. Set to `None` to disable (no auto-marker).
-_DONE_MARKER_BASEDIR: Path | None = None
-
-
 def set_done_marker_basedir(path) -> None:
     """Set the global base directory for per-task done-marker arrays.
 
     When a `Task` is constructed with `done_marker_path=None` (the
     default) and a basedir is set, the marker for that task lives at
-    `<basedir>/<task_id>`. Set to `None` to disable auto-resolution —
-    tasks without an explicit `done_marker_path` will then run without
-    a marker.
+    `<basedir>/<task_id>`. Set to `None` to disable auto-resolution
+    against this basedir — `daisy.logging.LOG_BASEDIR` is then the
+    final fallback before "no marker".
+
+    Thin wrapper over `_rs.set_done_marker_basedir`; the storage
+    lives in Rust so all paths (Python wrappers, raw `_rs.Task`,
+    Pipeline materialization) see the same value.
     """
-    global _DONE_MARKER_BASEDIR
-    _DONE_MARKER_BASEDIR = Path(path) if path is not None else None
+    _rs.set_done_marker_basedir(str(path) if path is not None else None)
 
 
 def get_done_marker_basedir() -> Path | None:
-    return _DONE_MARKER_BASEDIR
+    p = _rs.get_done_marker_basedir()
+    return p if p is None else Path(p)
 
 
 # Types with identical API — no wrapping needed.
@@ -121,33 +119,12 @@ class Task:
         cleared = self._to_rs().reset()
         return Path(cleared) if cleared is not None else None
 
-    def _resolve_done_marker_path(self) -> str | None:
-        """Resolve the effective marker path string (or None to disable).
-
-        Precedence:
-          1. `done_marker_path=False`        → disabled.
-          2. `done_marker_path=<path>`       → that path verbatim.
-          3. global basedir (set via `set_done_marker_basedir`) → `<basedir>/<task_id>`.
-          4. otherwise                       → `<log_basedir>/<task_id>`,
-             so markers live next to the per-task logs by default.
-             Falls through to None only if there's no log basedir either.
-        """
-        if self.done_marker_path is False:
-            return None
-        if self.done_marker_path is not None:
-            return str(self.done_marker_path)
-        basedir = get_done_marker_basedir()
-        if basedir is None:
-            from daisy.logging import LOG_BASEDIR as _log_basedir
-            if _log_basedir is None:
-                return None
-            basedir = _log_basedir
-        return str(Path(basedir) / self.task_id)
-
     def _to_rs(self):
+        # Pass `done_marker_path` through verbatim — `_rs.Task` handles
+        # the 3-state spec (None/False/str) and resolves Auto against
+        # the global basedir / `daisy.logging.LOG_BASEDIR` at convert
+        # time inside `convert_task_tree`.
         upstream_rs = [t._to_rs() if isinstance(t, Task) else t for t in self.upstream_tasks]
-        # `timeout` may be a float seconds, an int, a `datetime.timedelta`,
-        # or None. Normalize to float seconds for the FFI boundary.
         timeout_secs = None
         if self.timeout is not None:
             if hasattr(self.timeout, "total_seconds"):
@@ -166,7 +143,7 @@ class Task:
             num_workers=self.max_workers,
             max_retries=self.max_retries,
             upstream_tasks=upstream_rs if upstream_rs else None,
-            done_marker_path=self._resolve_done_marker_path(),
+            done_marker_path=self.done_marker_path,
             requires=self.requires if self.requires else None,
             max_worker_restarts=self.max_worker_restarts,
             timeout_secs=timeout_secs,
@@ -176,24 +153,14 @@ class Task:
         return self.upstream_tasks
 
     def __add__(self, other):
-        """`a + b` — sequential: `b`'s blocks depend on `a`'s outputs.
-        Returns a `Pipeline`. See `daisy._pipeline.Pipeline`."""
-        from daisy._pipeline import Pipeline
-        return Pipeline.from_task(self) + other
+        """`a + b` — sequential pipeline composition. Delegates to
+        the Rust `_rs.Pipeline`; `b`'s blocks depend on `a`'s outputs."""
+        return _rs.Pipeline.from_task(self).__add__(other)
 
     def __or__(self, other):
-        """`a | b` — parallel: union, no inter-pipeline edges. Returns
-        a `Pipeline`."""
-        from daisy._pipeline import Pipeline
-        return Pipeline.from_task(self) | other
-
-    def __radd__(self, other):
-        from daisy._pipeline import Pipeline
-        return other + Pipeline.from_task(self)
-
-    def __ror__(self, other):
-        from daisy._pipeline import Pipeline
-        return other | Pipeline.from_task(self)
+        """`a | b` — parallel pipeline composition. Delegates to
+        the Rust `_rs.Pipeline`; union of two DAGs with no new edges."""
+        return _rs.Pipeline.from_task(self).__or__(other)
 
 
 def _convert_tasks(tasks):
@@ -221,44 +188,10 @@ class Scheduler:
         return self._inner.dependency_graph
 
 
-class Context:
-    """Env-var encoding for passing server address to worker processes."""
-
-    ENV_VARIABLE = "DAISY_CONTEXT"
-
-    def __init__(self, **kwargs):
-        self._dict = dict(**kwargs)
-
-    def copy(self):
-        return copy.deepcopy(self)
-
-    def to_env(self):
-        return ":".join(f"{k}={v}" for k, v in self._dict.items())
-
-    def __setitem__(self, k, v):
-        self._dict[str(k)] = str(v)
-
-    def __getitem__(self, k):
-        return self._dict[k]
-
-    def get(self, k, v=None):
-        return self._dict.get(k, v)
-
-    def __repr__(self):
-        return self.to_env()
-
-    @staticmethod
-    def from_env():
-        try:
-            tokens = os.environ[Context.ENV_VARIABLE].split(":")
-        except KeyError:
-            logger.error("%s not found!", Context.ENV_VARIABLE)
-            raise
-        context = Context()
-        for token in tokens:
-            k, v = token.split("=")
-            context[k] = v
-        return context
+# `Context` is implemented in Rust as `_rs.Context`. Exposed as a
+# top-level alias for the same dict-like env-var encoder the Python
+# class used to provide.
+Context = _rs.Context
 
 
 class Client:

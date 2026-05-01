@@ -1,5 +1,7 @@
 # Refactor and feature recommendations
 
+
+
 A review of the daisy codebase as it stands. The library is feature-complete for its core mission (block-wise distributed processing with abandonment, resource budgeting, persistent done markers, and Python compat). This document flags places where the implementation has settled into complexity worth cleaning up, plus features that would slot into the existing architecture for clear user wins.
 
 The recommendations are sized by approximate effort: **S** (one sitting), **M** (a focused PR), **L** (multi-day with design discussion). Effort estimates assume one engineer who already knows the codebase.

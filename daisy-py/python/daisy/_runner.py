@@ -1,51 +1,55 @@
 """Run-loop entry points.
 
-`Server` is the user-facing coordinator class; `_run_serial` is the
-private serial path. The top-level `run_blockwise` here is the
-helper most users actually call.
+The orchestration (topo order, dispatch, execution-summary printing,
+bool result computation) lives in Rust as `_rs._run_blockwise_orchestrator`.
+This module contains thin Python shims that handle the one piece that
+genuinely belongs in Python: applying `_wrap_for_worker_logging` to
+each user-supplied process function so per-worker stdout/stderr
+routing and traceback emission go through the existing Python logging
+machinery.
 """
 
 import daisy._daisy as _rs
 from daisy import logging as _worker_log
 
 from daisy._task import Task, _convert_tasks, _wrap_for_worker_logging
-from daisy._progress import (
-    _print_execution_summary,
-    _print_resource_utilization,
-    _resolve_progress,
-    _topo_order,
-)
+
+
+def _prepare(tasks):
+    """Materialize a Pipeline if needed, wrap process_functions for
+    per-worker logging, and convert to `_rs.Task` for the runner."""
+    if isinstance(tasks, _rs.Pipeline):
+        tasks = tasks.materialize()
+    wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
+               for t in tasks]
+    return _convert_tasks(wrapped)
 
 
 class Server:
-    """Coordinator. Spawns and manages Rust worker threads internally.
+    """Coordinator. Thin shim over `_rs._run_distributed_server` that
+    wraps process functions with per-worker logging context first.
 
-    Most users go through the top-level `daisy.run_blockwise(...)`
-    helper. Instantiate this class directly when you want access to
-    `last_run_stats` or `last_task_order` after the run, or when
-    you're embedding daisy in a larger orchestrator.
+    Most users go through `daisy.run_blockwise(...)`. Instantiate this
+    class directly when you want access to `last_run_stats` or
+    `last_task_order` after the run.
     """
 
     def __init__(self, stop_event=None):
         self._stop_event = stop_event
         self.hostname = None
         self.port = None
+        self.last_run_stats = None
+        self.last_task_order = None
 
     def run_blockwise(self, tasks, resources=None, progress=True, block_tracking=True):
-        from daisy._pipeline import Pipeline
-        if isinstance(tasks, Pipeline):
-            tasks = tasks.materialize()
-        wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
-                   for t in tasks]
-        order = _topo_order(tasks)
+        rs_tasks = _prepare(tasks)
+        order = _rs._topo_order(rs_tasks)
         self.last_task_order = order
-        observer = _resolve_progress(progress, task_order=order)
+        # Resolve progress observer (Python class for tqdm).
+        observer = _resolve_observer(progress, order)
         try:
             states, run_stats = _rs._run_distributed_server(
-                _convert_tasks(wrapped),
-                resources,
-                observer,
-                block_tracking=block_tracking,
+                rs_tasks, resources, observer, block_tracking=block_tracking,
             )
             self.last_run_stats = run_stats
             return states
@@ -56,15 +60,23 @@ class Server:
 def _run_serial(tasks, block_tracking=True):
     """Single-threaded execution path (no TCP, no workers). Used
     when `daisy.run_blockwise(..., multiprocessing=False)`."""
-    from daisy._pipeline import Pipeline
-    if isinstance(tasks, Pipeline):
-        tasks = tasks.materialize()
-    wrapped = [_wrap_for_worker_logging(t) if isinstance(t, Task) else t
-               for t in tasks]
+    rs_tasks = _prepare(tasks)
     try:
-        return _rs._run_serial(_convert_tasks(wrapped), block_tracking=block_tracking)
+        return _rs._run_serial(rs_tasks, block_tracking=block_tracking)
     finally:
         _worker_log.close_all_log_files()
+
+
+def _resolve_observer(progress, task_order):
+    """Map `progress` arg to a Python observer object (or None).
+    `True` → `_TqdmObserver(task_order)`. `False`/`None` → None.
+    Anything else is used verbatim."""
+    if progress is None or progress is False:
+        return None
+    if progress is True:
+        from daisy._progress import _TqdmObserver
+        return _TqdmObserver(task_order=task_order)
+    return progress
 
 
 def run_blockwise(
@@ -78,58 +90,38 @@ def run_blockwise(
 
     Returns `True` only if every block of every task either completed
     successfully in this run or was skipped because a prior run already
-    marked it done. Any permanently failed or orphaned blocks (i.e.
-    blocks that ran out of retries, or whose upstream dependencies
-    failed) cause this to return `False` — even if the runner itself
-    finished cleanly. Inspect the per-task `TaskState` returned from
-    `Server.run_blockwise` for the full counter breakdown, or read the
-    "Execution Summary" printed to stderr after each run.
+    marked it done. Any permanently failed or orphaned blocks cause
+    this to return `False`. Inspect the per-task `TaskState` returned
+    from `Server.run_blockwise` for the full counter breakdown.
 
-    `resources` is an optional `dict[str, int]` global budget consumed by
-    tasks whose `requires=...` declares non-empty entries. Tasks with
-    empty `requires` are bounded only by their own `max_workers` cap.
-    Hard-errors at startup if any task's `requires` exceeds the budget.
-    Ignored in serial mode.
+    `resources`: optional `dict[str, int]` global budget consumed by
+    tasks whose `requires=...` declares non-empty entries. Ignored in
+    serial mode.
 
     `progress`:
-
-      - `True` (default in multiprocessing mode): show a `tqdm.auto`
-        progress bar per task, with live counts in the postfix.
+      - `True` (default): show a `tqdm.auto` progress bar per task.
       - `False` / `None`: disable.
-      - object with `on_start`/`on_progress`/`on_finish` methods: a
-        custom observer (e.g. for logging into a file or pushing to a
-        dashboard).
-
+      - object with `on_start`/`on_progress`/`on_finish`: custom observer.
       Always disabled in serial mode.
 
     `block_tracking`: when True (default), per-task done markers are
-    enabled. The marker location is resolved per task in this order:
-    explicit `done_marker_path` on the task → global basedir set via
-    `set_done_marker_basedir` → the daisy log basedir
-    (`./daisy_logs`, or whatever `daisy.logging.set_log_basedir` was
-    given). With markers on, re-running the same tasks after an
-    aborted or partial run skips already-completed blocks via the
-    scheduler pre-check. When False, marker tracking is disabled for
-    this run regardless of any per-task or global configuration —
-    every block is processed afresh.
+    enabled. Resolution: explicit `done_marker_path` → global basedir
+    (`set_done_marker_basedir`) → `daisy.logging.LOG_BASEDIR`. When
+    False, marker tracking is disabled for this run.
+
+    Orchestration (topo order, dispatch, summary printing, bool result)
+    runs in Rust via `_rs._run_blockwise_orchestrator`. This Python
+    shim only wraps process functions for per-worker logging before
+    handing off.
     """
-    from daisy._pipeline import Pipeline
-    if isinstance(tasks, Pipeline):
-        tasks = tasks.materialize()
-    order = _topo_order(tasks)
-    if multiprocessing:
-        server = Server()
-        states = server.run_blockwise(
-            tasks, resources=resources, progress=progress,
+    rs_tasks = _prepare(tasks)
+    try:
+        return _rs._run_blockwise_orchestrator(
+            rs_tasks,
+            multiprocessing=multiprocessing,
+            resources=resources,
+            progress=progress,
             block_tracking=block_tracking,
         )
-        run_stats = getattr(server, "last_run_stats", None)
-    else:
-        states = _run_serial(tasks, block_tracking=block_tracking)
-        run_stats = None
-    _print_execution_summary(states, task_order=order)
-    _print_resource_utilization(run_stats, task_order=order)
-    return all(
-        s.completed_count == s.total_block_count
-        for s in states.values()
-    )
+    finally:
+        _worker_log.close_all_log_files()

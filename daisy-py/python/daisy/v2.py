@@ -19,7 +19,6 @@ Typical use::
 from importlib.metadata import PackageNotFoundError, version as _version
 
 import daisy._daisy as _rs
-from daisy._pipeline import Pipeline
 from daisy._progress import JsonProgressObserver
 from daisy._runner import Server, run_blockwise
 from daisy._task import (
@@ -30,6 +29,10 @@ from daisy._task import (
     get_done_marker_basedir,
     set_done_marker_basedir,
 )
+
+# Pipeline is implemented entirely in Rust; the operators on Python
+# `Task` delegate to it. Exposed directly here.
+Pipeline = _rs.Pipeline
 
 # Pure value / algorithmic types from Rust — no Python ergonomics
 # needed, expose them directly:
