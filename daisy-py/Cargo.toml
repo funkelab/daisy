@@ -19,3 +19,4 @@ daisy-core = { path = "../daisy-core" }
 pyo3 = { version = "0.28", features = ["extension-module"] }
 tokio = { version = "1", features = ["full"] }
 libc = "0.2"
+petgraph = "0.6"

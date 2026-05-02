@@ -72,8 +72,16 @@ impl SerialRunner {
                         }
                     }
                     Err(e) => {
-                        debug!(block_id = %block.block_id, error = %e, "block processing failed");
-                        block.status = BlockStatus::Failed;
+                        // Serial mode is the debugging path — surface
+                        // the user's exception immediately rather than
+                        // catching it, marking the block `Failed`, and
+                        // running through `max_retries` more attempts.
+                        // The original Python exception is preserved
+                        // via the per-thread stash in
+                        // `daisy-py/src/py_callbacks.rs`; the caller
+                        // (`_run_serial`) re-raises it.
+                        debug!(block_id = %block.block_id, error = %e, "serial mode: aborting on block error");
+                        return Err(e);
                     }
                 }
             } else {

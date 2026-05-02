@@ -5,9 +5,29 @@ use daisy_core::task::{CheckBlock, ProcessBlock, SpawnWorker};
 use daisy_core::task_state::TaskCounters;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use crate::py_block::PyBlock;
 use crate::py_task_state::PyTaskState;
+
+// Per-thread stash for the most recent Python exception raised by a
+// `process_function`. Serial mode (`_run_serial`) clears this before
+// the run starts and consults it on `Err` return so the original
+// `PyErr` (with its full traceback chain) propagates back to the user
+// instead of a string-formatted `RuntimeError` wrapper. Multiprocessing
+// workers run on tokio threads, each with its own thread-local — they
+// don't interfere with the main thread's stash.
+thread_local! {
+    static LAST_PROCESS_PYERR: RefCell<Option<PyErr>> = const { RefCell::new(None) };
+}
+
+pub fn clear_last_process_pyerr() {
+    LAST_PROCESS_PYERR.with(|c| *c.borrow_mut() = None);
+}
+
+pub fn take_last_process_pyerr() -> Option<PyErr> {
+    LAST_PROCESS_PYERR.with(|c| c.borrow_mut().take())
+}
 
 /// Wraps a Python callable as a `CheckBlock` implementation.
 /// Acquires the GIL on each call to invoke the Python function.
@@ -59,7 +79,13 @@ impl ProcessBlock for PyProcessBlock {
                     block.status = py_block.inner.status;
                     Ok(())
                 }
-                Err(e) => Err(DaisyError::ProcessFailed(format!("{e}"))),
+                Err(e) => {
+                    let formatted = format!("{e}");
+                    // Stash the original PyErr so serial mode can
+                    // re-raise it with its full traceback intact.
+                    LAST_PROCESS_PYERR.with(|c| *c.borrow_mut() = Some(e));
+                    Err(DaisyError::ProcessFailed(formatted))
+                }
             }
         })
     }

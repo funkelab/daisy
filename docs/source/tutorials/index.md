@@ -7,14 +7,11 @@ Each tutorial below is an executable Jupyter notebook generated from a `# %%`-ce
 After `uv sync --group docs`, run `uv run sphinx-build -b html docs/source docs/_build/html`. The first build executes every tutorial; subsequent builds reuse cached output via `jupyter-cache` and only re-run cells that changed.
 :::
 
-## Mutex watershed pipelines
+## Mutex watershed pipeline
 
-The block-function vs. worker-function distinction comes up often, so we show the same pipeline in both modes plus their fault-tolerance counterparts.
+A single tour through daisy's two dispatch modes (block-function and worker-function), the multiprocessing vs. serial runners, and the persistent done-marker behaviour that resumes partial runs.
 
-- **{doc}`Block-function mode <mws_block_function>`** — one callable per block. Lowest overhead, no per-worker state.
-- **{doc}`Worker-function mode <mws_worker_function>`** — zero-arg worker that drives its own `Client.acquire_block()` loop. Use when you have setup (model load, mmap, DB handle) to amortise across many blocks.
-- **{doc}`Block-function mode with deliberate failure <mws_block_function_with_error>`** — same pipeline as block mode, with one block raising. Demonstrates retries, the post-run failure summary, and `.err` log files under `daisy_logs/`.
-- **{doc}`Worker-function mode with deliberate failure <mws_worker_function_with_error>`** — same demo on the worker-function path.
+- **{doc}`Mutex watershed walkthrough <mws>`** — four runs of the same task: clean execution, no-op re-run via the done-marker, deliberate block failure with retries, and resume-after-fix where only the previously-failing tile re-executes. Top-of-file flags (or `--mode` / `--multiprocessing` from the CLI) select between block- and worker-function dispatch.
 
 ## Multi-task pipelines
 

@@ -71,7 +71,17 @@ logger.setLevel(_py_logging.WARNING)
 def set_log_basedir(path):
     """Set the base directory for per-worker log files. `None` disables
     file logging; regardless of mode, worker output will then fall
-    through to the terminal."""
+    through to the terminal.
+
+    Note: this directory also doubles as the fallback location for
+    auto-resolved done-markers — tasks with `done_marker_path=None`
+    (the default) and no explicit `set_done_marker_basedir(...)` will
+    write their markers under `<LOG_BASEDIR>/<task_id>/`. After a run
+    completes, those markers cause subsequent `run_blockwise` calls to
+    skip already-done blocks. Call `task.reset()` between runs (or
+    pass `done_marker_path=False` at construction) if you want a
+    second invocation to re-execute everything.
+    """
     global LOG_BASEDIR
     LOG_BASEDIR = Path(path) if path is not None else None
 

@@ -241,7 +241,10 @@ fn rt_err(e: impl std::fmt::Display) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{e}"))
 }
 
-/// Run a pipeline (or singleton-promoted task) serially.
+/// Run a pipeline (or singleton-promoted task) serially. Serial mode
+/// is for debugging — block-processing exceptions are not caught and
+/// retried; the original Python exception is re-raised immediately
+/// with its full traceback intact.
 #[pyfunction]
 #[pyo3(signature = (input, block_tracking=true))]
 pub fn _run_serial(
@@ -251,7 +254,20 @@ pub fn _run_serial(
 ) -> PyResult<HashMap<String, PyTaskState>> {
     let pipeline = coerce_pipeline_or_task(py, input)?;
     let core_pipeline = pipeline.borrow(py).to_core(py)?;
-    let states = SerialRunner::run(&core_pipeline, block_tracking).map_err(rt_err)?;
+    crate::py_callbacks::clear_last_process_pyerr();
+    let result = SerialRunner::run(&core_pipeline, block_tracking);
+    let states = match result {
+        Ok(s) => s,
+        Err(e) => {
+            // If a Python exception was stashed by `PyProcessBlock`,
+            // re-raise the original PyErr (preserving its type and
+            // traceback) instead of the string-wrapped version.
+            return match crate::py_callbacks::take_last_process_pyerr() {
+                Some(pyerr) => Err(pyerr),
+                None => Err(rt_err(e)),
+            };
+        }
+    };
     Ok(states
         .into_iter()
         .map(|(k, v)| (k, PyTaskState { inner: v }))

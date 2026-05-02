@@ -8,6 +8,8 @@ flow correctly through the scheduler/server path and that the protocol
 handles all message types.
 """
 
+import threading
+
 from daisy import Task, Roi, Block, BlockStatus, Scheduler, run_blockwise
 import pytest
 
@@ -83,14 +85,19 @@ def test_block_failure_recovery():
 
     Daisy's test has a worker crash via SystemExit, then a replacement
     worker completes the blocks. We test the same retry logic through
-    the Scheduler directly.
+    the multiprocessing path. Serial mode is the debugging path and
+    fails fast on exceptions instead of retrying — see
+    `test_serial.py::test_serial_fails_fast_on_exception`.
     """
     attempt_count = {}
+    lock = threading.Lock()
 
     def flaky_process(block):
         bid = block.block_id
-        attempt_count[bid] = attempt_count.get(bid, 0) + 1
-        if attempt_count[bid] == 1 and bid[1] == 0:
+        with lock:
+            attempt_count[bid] = attempt_count.get(bid, 0) + 1
+            n = attempt_count[bid]
+        if n == 1 and bid[1] == 0:
             # Simulate crash on first attempt of block 0
             raise RuntimeError("simulated crash")
 
@@ -104,7 +111,7 @@ def test_block_failure_recovery():
         max_retries=3,
     )
 
-    result = run_blockwise([task], multiprocessing=False)
+    result = run_blockwise([task], multiprocessing=True, progress=False)
     assert result is True
 
     # Block 0 should have been retried

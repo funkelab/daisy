@@ -11,3 +11,4 @@ Cargo.lock
 docs/_build/
 docs/source/.jupyter_cache/
 docs/source/jupyter_execute/
+.coverage
