@@ -103,6 +103,21 @@ def test_invalid_operand_type():
         a | "not a task"
 
 
+def test_pipeline_rejects_cycles(tmp_path):
+    """Acyclicity is enforced in `daisy_core::Pipeline::new` via
+    `petgraph::is_cyclic_directed`. A cyclic edge list (only
+    constructible via the explicit `Pipeline(tasks, edges)`
+    constructor — `+` / `|` can't produce one) raises at conversion
+    time when the pipeline is handed to a runner."""
+    import daisy.logging as gl
+    gl.set_log_basedir(tmp_path / "logs")
+
+    a, b = _task("a"), _task("b")
+    cyclic = Pipeline(tasks=[a, b], edges=[(a, b), (b, a)])
+    with pytest.raises(Exception, match="cycle"):
+        cyclic.run_blockwise(progress=False)
+
+
 # -- Materialization & non-mutation -----------------------------------
 
 

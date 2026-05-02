@@ -39,16 +39,19 @@ In Rust (`daisy-core/src/pipeline.rs`):
 ```rust
 pub struct Pipeline {
     pub tasks: Vec<Arc<Task>>,
-    pub edges: Vec<(String, String)>,   // (upstream_task_id, downstream_task_id)
+    graph: petgraph::DiGraph<(), ()>,   // NodeIndex(i) ↔ tasks[i]
 }
 ```
 
-Two invariants enforced by `Pipeline::new`:
+The graph is a `petgraph::DiGraph` whose `NodeIndex(i)` matches the position of `tasks[i]`. Edges carry no weight; the structure is purely topological.
+
+Three invariants enforced by `Pipeline::new`:
 
 1. Task ids are unique within the pipeline.
 2. Every edge endpoint is one of the listed tasks.
+3. The resulting graph is acyclic (`petgraph::algo::is_cyclic_directed`).
 
-Sources (no incoming edges) and outputs (no outgoing edges) are derived from the edge structure on demand — no separate fields.
+Sources (no incoming edges) and outputs (no outgoing edges) are derived on demand via `graph.externals(Direction::Incoming/Outgoing)` — no separate fields. The `edges()` method returns an iterator of `(upstream_task_id, downstream_task_id)` pairs derived from `graph.edge_indices()`.
 
 In Python (`daisy-py/src/py_pipeline.rs`), `Pipeline` is a `#[pyclass]` that holds `Vec<Py<PyAny>>` (the original Python `Task` references) plus an edge list of index pairs:
 
@@ -165,7 +168,7 @@ The Python operators on `Task` (`__add__`, `__or__`) are PyO3 methods that promo
 
 ## Tests
 
-- `tests/test_pipeline.py` — composition operator semantics: sequential, parallel, fan-in, fan-out, diamond, non-mutation of sub-pipelines.
+- `tests/test_pipeline.py` — composition operator semantics: sequential, parallel, fan-in, fan-out, diamond, non-mutation of sub-pipelines, cycle rejection.
 - `tests/test_topo_order.py` — topological order over composed pipelines (alphabetical tiebreaker on the ready set).
 - `tests/daisy_compat/test_scheduler.py` and friends — the v1.x list-of-tasks path with `Task(upstream_tasks=[…])`.
 

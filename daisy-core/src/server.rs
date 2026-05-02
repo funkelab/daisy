@@ -716,13 +716,11 @@ impl Server {
         let mut transitively_abandoned: HashSet<String> = HashSet::new();
         let mut frontier: Vec<String> = directly_abandoned.iter().cloned().collect();
         while let Some(t) = frontier.pop() {
-            if let Some(downs) = dg.downstream_tasks.get(&t) {
-                for d in downs {
-                    if !directly_abandoned.contains(d)
-                        && transitively_abandoned.insert(d.clone())
-                    {
-                        frontier.push(d.clone());
-                    }
+            for d in dg.downstream_task_ids(&t) {
+                if !directly_abandoned.contains(d)
+                    && transitively_abandoned.insert(d.to_string())
+                {
+                    frontier.push(d.to_string());
                 }
             }
         }

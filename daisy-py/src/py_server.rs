@@ -68,8 +68,11 @@ fn coerce_pipeline_or_task(
 pub fn _topo_order(input: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<Vec<String>> {
     let pipeline_obj = coerce_pipeline_or_task(py, input)?;
     let pipeline = pipeline_obj.borrow(py);
+
+    use petgraph::Direction;
+    use petgraph::graph::{DiGraph, NodeIndex};
     use std::cmp::Reverse;
-    use std::collections::{BinaryHeap, HashMap, HashSet};
+    use std::collections::BinaryHeap;
 
     // Pull task ids in pipeline order.
     let task_ids: Vec<String> = pipeline
@@ -78,46 +81,38 @@ pub fn _topo_order(input: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<Vec<Str
         .map(|t| t.getattr(py, "task_id")?.extract::<String>(py))
         .collect::<PyResult<_>>()?;
 
-    let mut upstream_map: HashMap<String, HashSet<String>> =
-        task_ids.iter().map(|t| (t.clone(), HashSet::new())).collect();
-    let mut downstream_map: HashMap<String, Vec<String>> =
-        task_ids.iter().map(|t| (t.clone(), Vec::new())).collect();
-
+    // Build a DiGraph whose NodeIndex matches the pipeline's task order.
+    let mut graph: DiGraph<(), ()> =
+        DiGraph::with_capacity(task_ids.len(), pipeline.edges.len());
+    for _ in 0..task_ids.len() {
+        graph.add_node(());
+    }
     for &(u_idx, d_idx) in &pipeline.edges {
-        let up = &task_ids[u_idx];
-        let down = &task_ids[d_idx];
-        upstream_map.get_mut(down).unwrap().insert(up.clone());
-        downstream_map.get_mut(up).unwrap().push(down.clone());
+        graph.add_edge(NodeIndex::new(u_idx), NodeIndex::new(d_idx), ());
     }
 
-    let mut ready: BinaryHeap<Reverse<String>> = BinaryHeap::new();
-    for (tid, ups) in &upstream_map {
-        if ups.is_empty() {
-            ready.push(Reverse(tid.clone()));
-        }
-    }
-
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut order: Vec<String> = Vec::new();
-    while let Some(Reverse(tid)) = ready.pop() {
-        if visited.contains(&tid) {
-            continue;
-        }
-        visited.insert(tid.clone());
-        order.push(tid.clone());
-        if let Some(children) = downstream_map.get(&tid).cloned() {
-            for child in children {
-                if visited.contains(&child) {
-                    continue;
-                }
-                let child_ups = &upstream_map[&child];
-                if child_ups.iter().all(|u| visited.contains(u)) {
-                    ready.push(Reverse(child));
-                }
+    // Kahn's algorithm with alphabetical tiebreaker on the ready set.
+    let mut in_degree: Vec<usize> = (0..task_ids.len())
+        .map(|i| {
+            graph
+                .neighbors_directed(NodeIndex::new(i), Direction::Incoming)
+                .count()
+        })
+        .collect();
+    let mut ready: BinaryHeap<Reverse<(String, NodeIndex)>> = graph
+        .externals(Direction::Incoming)
+        .map(|n| Reverse((task_ids[n.index()].clone(), n)))
+        .collect();
+    let mut order: Vec<String> = Vec::with_capacity(task_ids.len());
+    while let Some(Reverse((tid, n))) = ready.pop() {
+        order.push(tid);
+        for child in graph.neighbors_directed(n, Direction::Outgoing) {
+            in_degree[child.index()] -= 1;
+            if in_degree[child.index()] == 0 {
+                ready.push(Reverse((task_ids[child.index()].clone(), child)));
             }
         }
     }
-
     Ok(order)
 }
 

@@ -2,6 +2,8 @@ use crate::block::Block;
 use crate::coordinate::Coordinate;
 use crate::roi::Roi;
 use crate::task::{Fit, Task};
+use petgraph::Direction;
+use petgraph::graph::{DiGraph, NodeIndex};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::debug;
@@ -493,68 +495,82 @@ impl BlockwiseDependencyGraph {
     }
 }
 
-/// Multi-task dependency graph. Wraps one `BlockwiseDependencyGraph` per task
-/// and adds inter-task dependencies (task A's write ROI feeds task B's read
-/// ROI).
+/// Multi-task dependency graph. Wraps one `BlockwiseDependencyGraph`
+/// per task and adds inter-task dependencies (task A's write ROI feeds
+/// task B's read ROI). The task DAG itself is a `petgraph::DiGraph`
+/// over task ids.
 pub struct DependencyGraph {
-    pub upstream_tasks: HashMap<String, HashSet<String>>,
-    pub downstream_tasks: HashMap<String, HashSet<String>>,
-    task_map: HashMap<String, Arc<Task>>,
     task_graphs: HashMap<String, BlockwiseDependencyGraph>,
+    task_dag: DiGraph<String, ()>,
+    task_dag_index: HashMap<String, NodeIndex>,
 }
 
 impl DependencyGraph {
-    /// Build the inter-task dep graph from a `Pipeline` — tasks plus
-    /// an explicit edge list. Tasks no longer carry an
-    /// `upstream_tasks` field; the Pipeline is the canonical
-    /// dependency carrier.
+    /// Build the inter-task dep graph from a `Pipeline`. Tasks no
+    /// longer carry an `upstream_tasks` field; the Pipeline is the
+    /// canonical dependency carrier.
     pub fn from_pipeline(pipeline: &crate::pipeline::Pipeline) -> Self {
-        let mut graph = Self {
-            upstream_tasks: HashMap::new(),
-            downstream_tasks: HashMap::new(),
-            task_map: HashMap::new(),
-            task_graphs: HashMap::new(),
-        };
+        let mut task_dag: DiGraph<String, ()> = DiGraph::new();
+        let mut task_dag_index: HashMap<String, NodeIndex> = HashMap::new();
+        let mut task_graphs: HashMap<String, BlockwiseDependencyGraph> = HashMap::new();
+
         for task in &pipeline.tasks {
             let task_id = task.task_id.clone();
-            graph.task_map.insert(task_id.clone(), task.clone());
-            graph.upstream_tasks.entry(task_id.clone()).or_default();
-            graph.downstream_tasks.entry(task_id).or_default();
+            let n = task_dag.add_node(task_id.clone());
+            task_dag_index.insert(task_id.clone(), n);
+            task_graphs.insert(task_id, BlockwiseDependencyGraph::from_task(task));
         }
-        for (up, down) in &pipeline.edges {
-            graph
-                .upstream_tasks
-                .entry(down.clone())
-                .or_default()
-                .insert(up.clone());
-            graph
-                .downstream_tasks
-                .entry(up.clone())
-                .or_default()
-                .insert(down.clone());
+        for (up, down) in pipeline.edges() {
+            let u = task_dag_index[up];
+            let d = task_dag_index[down];
+            task_dag.add_edge(u, d, ());
         }
-        for task in graph.task_map.values() {
-            let dep_graph = BlockwiseDependencyGraph::from_task(task);
-            graph.task_graphs.insert(task.task_id.clone(), dep_graph);
-        }
-        graph
+
+        Self { task_graphs, task_dag, task_dag_index }
     }
 
     pub fn num_blocks(&self, task_id: &str) -> i64 {
         self.task_graphs[task_id].num_blocks()
     }
 
+    /// Task ids upstream of `task_id` (one hop, not transitive).
+    pub fn upstream_task_ids<'a>(
+        &'a self,
+        task_id: &str,
+    ) -> Box<dyn Iterator<Item = &'a str> + 'a> {
+        match self.task_dag_index.get(task_id).copied() {
+            Some(n) => Box::new(
+                self.task_dag
+                    .neighbors_directed(n, Direction::Incoming)
+                    .map(move |nbr| self.task_dag[nbr].as_str()),
+            ),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
+    /// Task ids downstream of `task_id` (one hop, not transitive).
+    pub fn downstream_task_ids<'a>(
+        &'a self,
+        task_id: &str,
+    ) -> Box<dyn Iterator<Item = &'a str> + 'a> {
+        match self.task_dag_index.get(task_id).copied() {
+            Some(n) => Box::new(
+                self.task_dag
+                    .neighbors_directed(n, Direction::Outgoing)
+                    .map(move |nbr| self.task_dag[nbr].as_str()),
+            ),
+            None => Box::new(std::iter::empty()),
+        }
+    }
+
     /// Get all upstream blocks for a given block, including inter-task deps.
     pub fn upstream(&self, block: &Block) -> Vec<Block> {
         let task_id = block.task_id();
         let mut upstream = self.task_graphs[task_id].upstream(block);
-        if let Some(up_tasks) = self.upstream_tasks.get(task_id) {
-            for up_task_id in up_tasks {
-                upstream.extend(
-                    self.task_graphs[up_task_id]
-                        .get_subgraph_blocks(&block.read_roi, false),
-                );
-            }
+        for up_task_id in self.upstream_task_ids(task_id) {
+            upstream.extend(
+                self.task_graphs[up_task_id].get_subgraph_blocks(&block.read_roi, false),
+            );
         }
         upstream.sort_by_key(|b| b.block_id.spatial_id);
         upstream
@@ -564,23 +580,19 @@ impl DependencyGraph {
     pub fn downstream(&self, block: &Block) -> Vec<Block> {
         let task_id = block.task_id();
         let mut downstream = self.task_graphs[task_id].downstream(block);
-        if let Some(down_tasks) = self.downstream_tasks.get(task_id) {
-            for down_task_id in down_tasks {
-                downstream.extend(
-                    self.task_graphs[down_task_id]
-                        .get_subgraph_blocks(&block.write_roi, true),
-                );
-            }
+        for down_task_id in self.downstream_task_ids(task_id) {
+            downstream.extend(
+                self.task_graphs[down_task_id].get_subgraph_blocks(&block.write_roi, true),
+            );
         }
         downstream.sort_by_key(|b| b.block_id.spatial_id);
         downstream
     }
 
     pub fn root_tasks(&self) -> Vec<String> {
-        self.upstream_tasks
-            .iter()
-            .filter(|(_, ups)| ups.is_empty())
-            .map(|(id, _)| id.clone())
+        self.task_dag
+            .externals(Direction::Incoming)
+            .map(|n| self.task_dag[n].clone())
             .collect()
     }
 
@@ -602,7 +614,6 @@ impl DependencyGraph {
             })
             .collect()
     }
-
 }
 
 /// Compute the Cartesian product of a list of per-dimension value lists.

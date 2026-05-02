@@ -103,16 +103,17 @@ pub struct PyDependencyGraph {
 
 impl PyDependencyGraph {
     pub fn from_scheduler(scheduler: &Scheduler) -> Self {
-        // Build a fresh DependencyGraph from the scheduler's task_map +
-        // its already-resolved upstream/downstream maps. We can't clone
-        // the scheduler's existing graph (no Clone impl), so we
+        // Build a fresh DependencyGraph from the scheduler's task_map
+        // and its already-resolved task DAG. We can't clone the
+        // scheduler's existing graph (no Clone impl), so we
         // reconstruct via `Pipeline::new`.
         use daisy_core::pipeline::Pipeline;
         let tasks: Vec<_> = scheduler.task_map.values().cloned().collect();
+        let dg = scheduler.dependency_graph();
         let mut edges: Vec<(String, String)> = Vec::new();
-        for (down, ups) in scheduler.dependency_graph().upstream_tasks.iter() {
-            for up in ups {
-                edges.push((up.clone(), down.clone()));
+        for task in &tasks {
+            for up in dg.upstream_task_ids(&task.task_id) {
+                edges.push((up.to_string(), task.task_id.clone()));
             }
         }
         let pipeline = Pipeline::new(tasks, edges).expect("scheduler invariant");

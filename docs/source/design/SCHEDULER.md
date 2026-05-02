@@ -39,7 +39,9 @@ The eager `cartesian_product` function is still used for the small per-call site
 
 ### Inter-task dependencies
 
-`DependencyGraph::from_pipeline(&Pipeline)` (daisy-core/src/dependency_graph.rs:511) layers task-to-task edges on top of the per-task `BlockwiseDependencyGraph`s. Each `(upstream_task_id, downstream_task_id)` edge in the `Pipeline` becomes a block-level dependency: every downstream block whose read ROI overlaps an upstream block's write ROI depends on that upstream block. Tasks themselves carry no DAG fields — `Pipeline` is the single source of truth for inter-task structure (see [PIPELINES.md](PIPELINES.md)).
+`DependencyGraph::from_pipeline(&Pipeline)` (daisy-core/src/dependency_graph.rs) layers task-to-task edges on top of the per-task `BlockwiseDependencyGraph`s. The task DAG itself is a `petgraph::DiGraph<String, ()>` over task ids; edges from the input `Pipeline` become directed edges in this graph, and the per-task block dependency graphs are layered on top. Tasks themselves carry no DAG fields — `Pipeline` is the single source of truth for inter-task structure (see [PIPELINES.md](PIPELINES.md)).
+
+Adjacency lookup (`upstream_task_ids(task_id)` / `downstream_task_ids(task_id)`) is `petgraph::neighbors_directed`; root discovery (`root_tasks()`) is `petgraph::externals(Direction::Incoming)`.
 
 `downstream(block)` returns blocks downstream of `block` *across* tasks. `upstream(block)` is the inverse. Both are exposed to `ReadySurface` via closures that capture an `Arc<DependencyGraph>`. The scheduler stores the same `Arc` as its `dependency_graph` field — one allocation, shared between the field and the closures.
 
