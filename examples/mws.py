@@ -233,11 +233,48 @@ def make_task(process_fn):
 # %% [markdown]
 # ## Run helpers
 #
-# A small wrapper that invokes `run_blockwise`, snapshots `OUTPUT`, and
-# reports the per-task counters so the four runs below stay tight.
+# `run` invokes `run_blockwise`, snapshots `OUTPUT`, and prints the
+# per-task counters. `show_run` plots the output snapshot alongside
+# the on-disk done-marker so you can see what each run actually did
+# (or didn't do) to both the in-memory output and the persistent
+# state.
 
 # %%
 RUNS: list[dict] = []
+
+
+def show_run(run_info):
+    """Two-panel plot: output snapshot left, marker grid right. The
+    failing tile is outlined in red on the output panel for visual
+    reference."""
+    fig, axes = plt.subplots(1, 2, figsize=(9, 4.5))
+
+    axes[0].imshow(label_to_rgb(run_info["snapshot"]), interpolation="nearest")
+    axes[0].add_patch(mpatches.Rectangle(
+        (fc * BLOCK - 0.5, fr * BLOCK - 0.5), BLOCK, BLOCK,
+        fill=False, edgecolor="red", linewidth=2.0,
+    ))
+    axes[0].set_title(
+        f"output after {run_info['label']}\n"
+        f"executed={run_info['executed']} skipped={run_info['skipped']} "
+        f"failed={run_info['failed']}"
+    )
+    axes[0].axis("off")
+
+    marker = np.asarray(zarr.open(str(MARKER_PATH), mode="r")[:]).reshape(
+        H // BLOCK, W // BLOCK,
+    )
+    axes[1].imshow(marker, cmap="Greens", vmin=0, vmax=1, interpolation="nearest")
+    axes[1].set_title(f"done-marker  ({int(marker.sum())}/{marker.size} tiles done)")
+    axes[1].set_xlabel("block col")
+    axes[1].set_ylabel("block row")
+    for (r, c), v in np.ndenumerate(marker):
+        axes[1].text(
+            c, r, str(int(v)), ha="center", va="center",
+            color="white" if v else "black",
+        )
+
+    fig.tight_layout()
 
 
 def run(label, task):
@@ -284,6 +321,7 @@ clean_task = make_task(process_block)
 run("1: clean", clean_task)
 assert RUNS[-1]["executed"] == 16
 assert RUNS[-1]["skipped"] == 0
+show_run(RUNS[-1])
 
 # %% [markdown]
 # ## Run 2 — re-run without resetting
@@ -299,6 +337,10 @@ assert RUNS[-1]["skipped"] == 0
 run("2: re-run, no reset", clean_task)
 assert RUNS[-1]["skipped"] == 16
 assert RUNS[-1]["executed"] == 0
+show_run(RUNS[-1])
+# Output panel is all background colour: `OUTPUT.fill(0)` zeroed it
+# before the run, and no `process_block` ran. Marker is unchanged
+# from run 1 (still 16/16) — that's the whole point of the skip.
 
 # %% [markdown]
 # ## Run 3 — reset, then run a buggy process function
@@ -326,6 +368,10 @@ if MULTIPROCESSING:
     run("3: buggy, after reset", buggy_task)
     assert RUNS[-1]["failed"] == 1
     assert RUNS[-1]["executed"] == 15
+    show_run(RUNS[-1])
+    # The output panel has 15 tiles populated and one black square at
+    # the failing tile (red outline). The marker shows 15/16 done —
+    # the failed tile is still 0 so a future run will retry it.
 else:
     try:
         run("3: buggy, after reset", buggy_task)
@@ -351,36 +397,14 @@ if MULTIPROCESSING:
     run("4: fixed, resume", fixed_task)
     assert RUNS[-1]["executed"] == 1
     assert RUNS[-1]["skipped"] == 15
+    show_run(RUNS[-1])
+    # The marker is now 16/16: the previously-failing tile got marked
+    # done by run 4. The output panel, by contrast, only shows the one
+    # newly-executed tile filled in — `OUTPUT` is an in-memory numpy
+    # array that we zero before each run, and skipped blocks (by
+    # definition) never re-run their `process_block`. In a real
+    # pipeline the output is usually a persistent zarr array so the
+    # 15 already-written tiles survive across runs and a resume
+    # produces a complete result.
 
-# %% [markdown]
-# ## Summary
-#
-# One output snapshot per completed run, then the persistent done-marker
-# array (16 cells, one byte per tile, 1 = done). Run 2's snapshot is
-# all zeros because `OUTPUT.fill(0)` ran before the no-op invocation.
-# In multiprocessing mode, run 3's snapshot shows the failing tile as
-# a black square, and run 4 fills it back in.
-
-# %%
-n_runs = len(RUNS)
-fig, axes = plt.subplots(1, n_runs + 1, figsize=(4 * (n_runs + 1), 4.5))
-for ax, run_info in zip(axes[:n_runs], RUNS):
-    ax.imshow(label_to_rgb(run_info["snapshot"]), interpolation="nearest")
-    ax.set_title(
-        f"{run_info['label']}\n"
-        f"executed={run_info['executed']} skipped={run_info['skipped']} "
-        f"failed={run_info['failed']}"
-    )
-    ax.axis("off")
-
-marker = np.asarray(zarr.open(str(MARKER_PATH), mode="r")[:])
-axes[-1].imshow(
-    marker.reshape(H // BLOCK, W // BLOCK),
-    cmap="Greens", vmin=0, vmax=1, interpolation="nearest",
-)
-axes[-1].set_title(f"final marker  ({int(marker.sum())}/{marker.size} done)")
-axes[-1].set_xlabel("block col")
-axes[-1].set_ylabel("block row")
-
-fig.tight_layout()
 plt.show()
