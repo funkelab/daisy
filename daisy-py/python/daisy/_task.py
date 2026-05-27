@@ -147,6 +147,16 @@ class Client:
     def __init__(self, context=None):
         if context is None:
             context = Context.from_env()
+        # daisy 1.x callers reach for `client.context["logdir"]` to set up
+        # per-worker logging themselves. v2 owns logging internally and no
+        # longer puts logdir in the worker context, so fall back to the
+        # process-global `get_log_basedir()` (which fork-inheriting workers
+        # see as the value the master set) when the key is missing.
+        if "logdir" not in context:
+            from daisy.logging import get_log_basedir
+            basedir = get_log_basedir()
+            if basedir is not None:
+                context["logdir"] = str(basedir)
         self.context = context
         self.host = context["hostname"]
         self.port = int(context["port"])

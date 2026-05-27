@@ -13,6 +13,7 @@ Two explicit alternatives:
   explicit about depending on the compat layer.
 """
 
+from daisy.logging import get_worker_log_basename
 from daisy.v1_compat import (
     Block,
     BlockStatus,
@@ -53,6 +54,7 @@ __all__ = [
     "TaskState",
     "__version__",
     "get_done_marker_basedir",
+    "get_worker_log_basename",
     "run_blockwise",
     "set_done_marker_basedir",
 ]

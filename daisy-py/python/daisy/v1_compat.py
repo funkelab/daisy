@@ -51,6 +51,160 @@ from daisy.v2 import (
 from daisy.v2 import run_blockwise as _v2_run_blockwise
 
 
+def _coerce_roi(value):
+    """Coerce funlib.geometry.Roi (or anything with .offset/.shape) into
+    a daisy.Roi. Pass-through for daisy.Roi and None."""
+    if value is None or isinstance(value, _v2.Roi):
+        return value
+    offset = getattr(value, "offset", None)
+    shape = getattr(value, "shape", None)
+    if offset is not None and shape is not None:
+        return _v2.Roi(tuple(offset), tuple(shape))
+    return value
+
+
+def _coerce_coord(value):
+    """Coerce funlib.geometry.Coordinate (an iterable of ints) into a
+    daisy.Coordinate. Pass-through for daisy.Coordinate and None."""
+    if value is None or isinstance(value, _v2.Coordinate):
+        return value
+    try:
+        return _v2.Coordinate(tuple(value))
+    except TypeError:
+        return value
+
+
+def _install_funlib_compat():
+    """daisy 1.x callers passed `funlib.geometry.Roi` / `funlib.geometry.Coordinate`
+    to `funlib.persistence.Array` indexing methods. funlib's `isinstance(key, Roi)`
+    /  `isinstance(key, Coordinate)` checks reject daisy 2.x's Rust types (they
+    aren't subclasses), so the access falls through to the numpy/zarr indexing
+    path and dies. Monkey-patch the funlib entry points to convert at the
+    boundary. No-op if funlib isn't installed."""
+    try:
+        from funlib.persistence.arrays.array import Array
+        from funlib.geometry import Roi as _FRoi, Coordinate as _FCoord
+    except ImportError:
+        return
+
+    def _to_funlib(x):
+        if isinstance(x, _v2.Roi):
+            return _FRoi(tuple(x.offset), tuple(x.shape))
+        if isinstance(x, _v2.Coordinate):
+            return _FCoord(tuple(x))
+        return x
+
+    _orig_setitem = Array.__setitem__
+    _orig_getitem = Array.__getitem__
+    _orig_to_ndarray = Array.to_ndarray
+    _orig_to_pixel = Array.to_pixel_space
+    _orig_to_world = Array.to_world_space
+
+    def setitem(self, key, value):
+        return _orig_setitem(self, _to_funlib(key), value)
+
+    def getitem(self, key):
+        return _orig_getitem(self, _to_funlib(key))
+
+    def to_ndarray(self, roi=None, **kwargs):
+        return _orig_to_ndarray(self, roi=_to_funlib(roi), **kwargs)
+
+    def to_pixel_space(self, world_loc):
+        return _orig_to_pixel(self, _to_funlib(world_loc))
+
+    def to_world_space(self, pixel_loc):
+        return _orig_to_world(self, _to_funlib(pixel_loc))
+
+    Array.__setitem__ = setitem
+    Array.__getitem__ = getitem
+    Array.to_ndarray = to_ndarray
+    Array.to_pixel_space = to_pixel_space
+    Array.to_world_space = to_world_space
+
+
+_install_funlib_compat()
+
+
+class _BlockProxy:
+    """Wraps a v2 `_rs.Block` so user code (e.g. daisy 1.x `process_function`s
+    like volara's `process_block`) sees `block.write_roi` / `block.read_roi`
+    as `funlib.geometry.Roi` instances rather than daisy's Rust `Roi`.
+
+    All other attribute reads/writes proxy through to the underlying block.
+    Status mutations (set by daisy's own `acquire_block` context manager
+    after process_function returns) are forwarded to the inner block so
+    daisy's bookkeeping is unaffected."""
+
+    __slots__ = ("_block",)
+
+    def __init__(self, block):
+        object.__setattr__(self, "_block", block)
+
+    def _to_funlib_roi(self, r):
+        if r is None:
+            return None
+        try:
+            from funlib.geometry import Roi as _FRoi
+        except ImportError:
+            return r
+        return _FRoi(tuple(r.offset), tuple(r.shape))
+
+    @property
+    def write_roi(self):
+        return self._to_funlib_roi(self._block.write_roi)
+
+    @property
+    def read_roi(self):
+        return self._to_funlib_roi(self._block.read_roi)
+
+    @property
+    def status(self):
+        return self._block.status
+
+    @status.setter
+    def status(self, value):
+        self._block.status = value
+
+    @property
+    def block_id(self):
+        return self._block.block_id
+
+    def __getattr__(self, name):
+        return getattr(self._block, name)
+
+    def __repr__(self):
+        return f"_BlockProxy({self._block!r})"
+
+
+def _install_block_proxy():
+    """Monkey-patch `daisy.Client.acquire_block` to yield blocks wrapped in a
+    `_BlockProxy`. Volara and other daisy 1.x callers only ever obtain blocks
+    through `Client.acquire_block`, so this single boundary is enough to keep
+    daisy's Rust Roi/Coordinate types out of user code — they always see
+    funlib.geometry types instead.
+
+    With this in place, the daisy v2 Rust Roi/Coordinate can stay strict (no
+    duck-typing, no shape setters, no arithmetic shims) and v1.x consumers
+    keep working."""
+    from contextlib import contextmanager
+    from daisy._task import Client
+
+    _orig_acquire = Client.acquire_block
+
+    @contextmanager
+    def acquire_block(self):
+        with _orig_acquire(self) as block:
+            if block is None:
+                yield None
+            else:
+                yield _BlockProxy(block)
+
+    Client.acquire_block = acquire_block
+
+
+_install_block_proxy()
+
+
 class Task(_v2.Task):
     """v1.x-compatible `Task` — a Python subclass of `_rs.Task` that
     accepts the daisy 1.x kwargs `num_workers=N` (alias for
@@ -73,6 +227,11 @@ class Task(_v2.Task):
         upstream_tasks=None,
         **kwargs,
     ):
+        # daisy 1.x callers pass funlib.geometry Roi / Coordinate; daisy
+        # v2's Rust Task constructor requires its own native types.
+        for k in ("total_roi", "read_roi", "write_roi"):
+            if k in kwargs:
+                kwargs[k] = _coerce_roi(kwargs[k])
         if num_workers is not None and max_workers is not None:
             raise TypeError(
                 "pass either max_workers (v2) or num_workers (v1.x), not both"
