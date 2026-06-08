@@ -4,6 +4,7 @@ from .coordinate import Coordinate
 from .roi import Roi
 
 import numpy as np
+from tqdm import tqdm
 
 from itertools import product
 import logging
@@ -93,9 +94,16 @@ class BlockwiseDependencyGraph:
         fit: str,
         total_read_roi: Optional[Roi] = None,
         total_write_roi: Optional[Roi] = None,
+        block_filter=None,
     ):
         self.block_read_roi = block_read_roi
         self.block_write_roi = block_write_roi
+        self.block_filter = block_filter
+        # When a block_filter is provided, the surviving blocks per level are
+        # materialized once during __init__ (see _apply_block_filter) so that
+        # subsequent num_blocks / level_blocks / num_roots calls see only the
+        # filtered set. Stored as a list[list[Block]] indexed by level.
+        self._filtered_blocks_by_level = None
         self.read_write_context = (
             block_write_roi.begin - block_read_roi.begin,
             block_read_roi.end - block_write_roi.end,
@@ -144,12 +152,63 @@ class BlockwiseDependencyGraph:
         self._level_offsets = self.compute_level_offsets()
         self._level_conflicts = self.compute_level_conflicts()
 
+        # Eagerly prune blocks if a filter was supplied.
+        if self.block_filter is not None:
+            self._apply_block_filter()
+
+    def _apply_block_filter(self):
+        """Materialize every level's blocks once and keep only those passing
+        ``block_filter``. After this, ``num_blocks``, ``num_roots``, and
+        ``level_blocks`` all reflect the surviving set.
+
+        Walks all blocks across all levels with a tqdm progress bar so callers
+        can see how the eager filter is advancing.
+        """
+        num_levels = len(self._level_offsets)
+        # Analytical per-level counts let tqdm show a real total without
+        # exhausting the underlying generator.
+        per_level_totals = [self._num_level_blocks(level) for level in range(num_levels)]
+        total = int(sum(per_level_totals))
+
+        logger.info(
+            "Task %s: starting block_filter on %d candidate blocks across %d levels...",
+            self.task_id,
+            total,
+            num_levels,
+        )
+
+        kept = []
+        with tqdm(
+            total=total,
+            desc=f"block_filter({self.task_id})",
+            unit="block",
+        ) as pbar:
+            for level in range(num_levels):
+                level_kept = []
+                for b in self._unfiltered_level_blocks(level):
+                    if self.block_filter(b):
+                        level_kept.append(b)
+                    pbar.update(1)
+                kept.append(level_kept)
+
+        self._filtered_blocks_by_level = kept
+        surviving = sum(len(k) for k in kept)
+        logger.info(
+            "Task %s: block_filter kept %d / %d blocks (%.2f%%) — workers will only see these.",
+            self.task_id,
+            surviving,
+            total,
+            (100.0 * surviving / total) if total else 0.0,
+        )
+
     @property
     def num_levels(self):
         return len(self._level_offsets)
 
     @property
     def num_blocks(self):
+        if self._filtered_blocks_by_level is not None:
+            return sum(len(b) for b in self._filtered_blocks_by_level)
         num_blocks = 0
         for level in range(self.num_levels):
             num_blocks += self._num_level_blocks(level)
@@ -177,6 +236,8 @@ class BlockwiseDependencyGraph:
         return fit_block
 
     def num_roots(self):
+        if self._filtered_blocks_by_level is not None:
+            return len(self._filtered_blocks_by_level[0])
         return self._num_level_blocks(0)
 
     def _num_level_blocks(self, level):
@@ -206,6 +267,12 @@ class BlockwiseDependencyGraph:
         return num_blocks
 
     def level_blocks(self, level):
+        if self._filtered_blocks_by_level is not None:
+            yield from self._filtered_blocks_by_level[level]
+            return
+        yield from self._unfiltered_level_blocks(level)
+
+    def _unfiltered_level_blocks(self, level):
         for block_offset in self._compute_level_block_offsets(level):
             block = Block(
                 self.total_read_roi,
@@ -641,6 +708,7 @@ class DependencyGraph:
             task.read_write_conflict,
             task.fit,
             total_read_roi=task.total_roi,
+            block_filter=getattr(task, "block_filter", None),
         )
 
     def __enumerate_all_dependencies(self):

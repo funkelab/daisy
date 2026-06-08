@@ -54,6 +54,25 @@ class Task:
             to check if the block needs to be run, and if so, the second one
             will be called after it was run to check if the run succeeded.
 
+        block_filter (function, optional):
+
+            A function that will be called once per block at graph-construction
+            time, in the master process, before any worker is spawned::
+
+                block_filter(block) -> bool
+
+            Return ``True`` to keep the block and ``False`` to drop it from the
+            graph entirely. Dropped blocks never count toward the task's block
+            total and are never offered to a worker. Use this to prune blocks
+            whose work can be decided up-front (e.g. blocks that fall outside
+            an inference mask), so that ``num_workers`` workers are only spawned
+            when there is actual work to do.
+
+            This differs from ``check_function``: ``check_function`` runs
+            lazily, per block, each time a worker tries to acquire one, and
+            marks blocks as already-done; ``block_filter`` runs eagerly, once,
+            and removes blocks from the graph before scheduling begins.
+
         init_callback_fn (function, optional):
 
             A function that Daisy will call once when the task is started.
@@ -133,6 +152,7 @@ class Task:
         write_roi,
         process_function,
         check_function=None,
+        block_filter=None,
         init_callback_fn=None,
         read_write_conflict=True,
         num_workers=1,
@@ -152,6 +172,7 @@ class Task:
         )
         self.process_function = process_function
         self.check_function = check_function
+        self.block_filter = block_filter
         self.read_write_conflict = read_write_conflict
         self.fit = fit
         self.num_workers = num_workers

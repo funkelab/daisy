@@ -542,3 +542,74 @@ def test_orphan_double_counting():
         task_state.failed_count + task_state.orphaned_count
         == task_state.total_block_count
     ), task_state
+
+
+def test_block_filter_prunes_blocks_eagerly():
+    """A block_filter passed to Task should remove blocks from the graph at
+    construction time, before scheduling begins. The scheduler should never
+    see filtered-out blocks and total_block_count should reflect the
+    surviving set.
+    """
+    # No filter: a 1D task over 6 blocks (block_ids 1..6 with write_roi
+    # offsets at 1, 2, 3, 4, 5, 6).
+    unfiltered = Task(
+        task_id="filter_off",
+        total_roi=Roi((0,), (8,)),
+        read_roi=Roi((0,), (3,)),
+        write_roi=Roi((1,), (1,)),
+        process_function=process_block,
+        check_function=None,
+        read_write_conflict=False,
+    )
+    unfiltered_sched = Scheduler([unfiltered])
+    unfiltered_total = unfiltered_sched.task_states[unfiltered.task_id].total_block_count
+    assert unfiltered_total == 6
+
+    # With filter: keep only blocks whose write_roi begins at an even offset.
+    def even_offset_only(block):
+        return block.write_roi.begin[0] % 2 == 0
+
+    filtered = Task(
+        task_id="filter_on",
+        total_roi=Roi((0,), (8,)),
+        read_roi=Roi((0,), (3,)),
+        write_roi=Roi((1,), (1,)),
+        process_function=process_block,
+        check_function=None,
+        block_filter=even_offset_only,
+        read_write_conflict=False,
+    )
+    sched = Scheduler([filtered])
+    assert (
+        sched.task_states[filtered.task_id].total_block_count == 3
+    ), "filter should leave 3 blocks (write_roi begins at 2, 4, 6)"
+
+    seen_offsets = []
+    while True:
+        block = sched.acquire_block(filtered.task_id)
+        if block is None:
+            break
+        seen_offsets.append(block.write_roi.begin[0])
+        block.status = BlockStatus.SUCCESS
+        sched.release_block(block)
+
+    assert sorted(seen_offsets) == [2, 4, 6], seen_offsets
+
+
+def test_block_filter_all_dropped_yields_no_work():
+    """A block_filter that rejects every block leaves the task with zero
+    blocks; acquire_block returns None immediately.
+    """
+    task = Task(
+        task_id="filter_all_out",
+        total_roi=Roi((0,), (8,)),
+        read_roi=Roi((0,), (3,)),
+        write_roi=Roi((1,), (1,)),
+        process_function=process_block,
+        check_function=None,
+        block_filter=lambda b: False,
+        read_write_conflict=False,
+    )
+    sched = Scheduler([task])
+    assert sched.task_states[task.task_id].total_block_count == 0
+    assert sched.acquire_block(task.task_id) is None
