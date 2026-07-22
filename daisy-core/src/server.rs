@@ -132,6 +132,8 @@ impl Server {
                 match listener.accept().await {
                     Ok((stream, addr)) => {
                         debug!(%addr, "new client connection");
+                        // Disable Nagle so per-block replies aren't delayed.
+                        let _ = stream.set_nodelay(true);
                         let (mut reader, writer) = stream.into_split();
                         let (reply_tx, mut reply_rx) = mpsc::channel::<Message>(32);
 

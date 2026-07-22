@@ -19,6 +19,9 @@ impl Client {
         let addr = format!("{host}:{port}");
         debug!(%addr, task_id, "connecting to server");
         let stream = TcpStream::connect(&addr).await?;
+        // Disable Nagle: per-block acquire/release are tiny request/response
+        // messages; Nagle + delayed-ACK adds ~40ms stalls each way.
+        stream.set_nodelay(true)?;
         let (reader, writer) = stream.into_split();
         Ok(Self {
             reader,
