@@ -42,6 +42,28 @@ We hash the relevant parameters into the array's metadata as a custom Zarr exten
 
 The hash uses SHA-256 over `(total_roi, read_roi, write_roi, fit)` serialized canonically. Block-ID-affecting changes flip the hash; cosmetic changes (task_id, num_workers) don't.
 
+### Known limitation / planned enhancement: resuming a grown volume
+
+The whole-layout hash is deliberately conservative, and today that
+conservatism has a sharp corner: **extending `total_roi`** — the canonical
+"the microscope wrote more data, process the rest" workflow — invalidates
+the entire marker even though every previously-done block is still valid.
+The run aborts with `LayoutMismatch` and the only offered remedy is deleting
+the marker, i.e. discarding all resume state and reprocessing everything.
+
+The fix is scoped and known, just not implemented yet: store the
+*structural* parameters (grid base offset, write stride, read/write context,
+`fit`) instead of one opaque hash. On reopen, if stride/offset/context match
+but the grid merely **grew**, migrate in place — allocate the new
+single-chunk array and copy the old bytes across with a C-order index remap
+(one pass, one byte per block; milliseconds even for millions of blocks).
+Shrinking or stride/context changes would still hard-fail as they do now.
+
+Until then: if your dataset grows over time, prefer one marker per
+acquisition round (e.g. suffix the marker path or task_id with the round),
+or size `total_roi` to the final expected extent up front — blocks outside
+the currently-written region can be skipped by the process function.
+
 ## Skip path in the scheduler
 
 `Scheduler::acquire_block` (daisy-core/src/scheduler.rs:140) calls `precheck` after pulling a block from the ready queue:

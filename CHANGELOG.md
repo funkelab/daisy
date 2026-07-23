@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Done markers: documented the layout-hash limitation for grown volumes
+  (extending `total_roi` currently invalidates the whole marker) and the
+  planned in-place migration enhancement, with interim workarounds.
+  (adversarial suite case f05)
+
 ## [2.0.0] — 2026-04-27
 
 ### Overview
