@@ -51,9 +51,64 @@ BlockStatus = _rs.BlockStatus
 BlockwiseDependencyGraph = _rs.BlockwiseDependencyGraph
 DependencyGraph = _rs.DependencyGraph
 TaskState = _rs.TaskState
-Task = _rs.Task
 Scheduler = _rs.Scheduler
 Context = _rs.Context
+
+# positional indices in the `_rs.Task` constructor signature (task_id,
+# total_roi, read_roi, write_roi, process_function, check_function,
+# read_write_conflict, fit, max_workers, max_retries, timeout, ...)
+_PROCESS_FN_ARG_INDEX = 4
+_TIMEOUT_ARG_INDEX = 10
+
+
+class Task(_rs.Task):
+    """`_rs.Task` plus the Python-side ``worker_processes`` option.
+
+    ``Task(process_function=fn, worker_processes=True, max_workers=N)``
+    runs the 1-arg block function in N real worker *subprocesses*
+    (via ``daisy._worker_processes``) instead of the default GIL-sharing
+    threads — real CPU parallelism for lambdas and closures, without
+    hand-writing a worker script and spawn function. Everything else
+    delegates to the Rust constructor unchanged.
+    """
+
+    def __new__(cls, *args, worker_processes=False, **kwargs):
+        if worker_processes:
+            from daisy._worker_processes import make_spawn_function
+
+            if len(args) > _PROCESS_FN_ARG_INDEX:
+                fn = args[_PROCESS_FN_ARG_INDEX]
+            else:
+                fn = kwargs.get("process_function")
+            nargs = None
+            if callable(fn):
+                fn_args = inspect.getfullargspec(fn).args
+                nargs = len([a for a in fn_args if a != "self"])
+            if nargs != 1:
+                raise TypeError(
+                    "worker_processes=True requires a 1-argument (block) "
+                    "process_function; 0-argument spawn functions already "
+                    "manage their own worker processes"
+                )
+            if len(args) > _TIMEOUT_ARG_INDEX:
+                timeout = args[_TIMEOUT_ARG_INDEX]
+            else:
+                timeout = kwargs.get("timeout")
+            spawn = make_spawn_function(fn, timeout=timeout)
+            if len(args) > _PROCESS_FN_ARG_INDEX:
+                args = (
+                    args[:_PROCESS_FN_ARG_INDEX]
+                    + (spawn,)
+                    + args[_PROCESS_FN_ARG_INDEX + 1:]
+                )
+            else:
+                kwargs["process_function"] = spawn
+        return super().__new__(cls, *args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        # PyO3 constructs via __new__; override so object.__init__
+        # doesn't reject the constructor kwargs.
+        pass
 
 
 _V1_UPSTREAM_ATTR = "_v1_upstream_tasks"

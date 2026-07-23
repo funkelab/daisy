@@ -28,6 +28,12 @@ dependencies = [
     "tqdm>=4.65",
 ]
 
+[project.optional-dependencies]
+# full function support (lambdas, closures) for Task(worker_processes=True)
+worker-processes = [
+    "dill",
+]
+
 [project.urls]
 Homepage = "https://github.com/funkelab/daisy"
 Repository = "https://github.com/funkelab/daisy"
