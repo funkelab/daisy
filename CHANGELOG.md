@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Wheel-building CI (`publish.yaml`): manylinux/musllinux x86_64 + aarch64,
+  macOS x86_64 + arm64, Windows x64, plus sdist; a built wheel is
+  smoke-tested (install without a Rust toolchain, run a tiny blockwise
+  task) before any publish; publishes to PyPI on version tags.
+
 ### Changed
 
 - **Done-marker tracking is now opt-in.** `Task(done_marker_path=None)` only
