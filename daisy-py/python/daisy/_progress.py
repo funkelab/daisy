@@ -102,6 +102,21 @@ def _print_execution_summary(states, task_order=None):
         p(f"    {first}  {total:>7}  {completed:>10}  "
           f"{skipped:>7}  {failed:>6}  {orphaned:>8}")
 
+    # Show the FIRST failure's traceback inline — one traceback, not N;
+    # the root cause is almost always the first error, and the rest are
+    # in the worker logs.
+    for tid in failed_tasks:
+        tb = getattr(states[tid], "first_worker_error", None)
+        if tb:
+            n_more = states[tid].failed_count - 1
+            p()
+            p(f"    First failure in task '{tid}':")
+            for line in tb.splitlines():
+                p(f"      {line}")
+            if n_more > 0:
+                p(f"      (+ {n_more} more failed blocks — see worker logs)")
+            break
+
     log_basedir = _worker_log.get_log_basedir()
     files_written = log_basedir is not None and _worker_log.get_log_mode() != "console"
     if failed_tasks and files_written:

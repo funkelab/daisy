@@ -139,7 +139,7 @@ def make_spawn_function(process_function, timeout=None):
         if err_text:
             sys.stderr.write(err_text)
             sys.stderr.flush()
-        tail = "\n".join(err_text.strip().splitlines()[-15:])
+        tail = "\n".join(err_text.strip().splitlines()[-50:])
         if returncode == EXIT_BLOCK_TIMEOUT:
             raise RuntimeError(
                 f"daisy worker subprocess killed after a block exceeded "
