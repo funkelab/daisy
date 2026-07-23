@@ -86,11 +86,12 @@ def test_closure_and_def_side_effects(tmp_path):
 
 
 @pytest.mark.timeout(60)
-def test_crashing_worker_is_a_dirty_exit():
-    """A process_function that raises must crash the worker subprocess ->
-    non-zero exit -> the spawn function raises -> the server sees a dirty
-    exit and the restart cap terminates the run (no infinite respawn, no
-    swallowed check=False-style success)."""
+def test_raising_block_function_is_a_dirty_exit():
+    """A process_function that raises crashes its worker subprocess ->
+    dirty exit -> restart cap -> abandonment. Matches thread-worker
+    semantics (see tests/test_worker_restarts.py): persistent block-
+    function bugs surface as worker failures, not an endless slog
+    through every block's retries."""
 
     def boom(block):
         raise ValueError("simulated crash")
@@ -147,3 +148,99 @@ def test_v1_compat_surface_accepts_worker_processes(tmp_path):
     )
     assert daisy.run_blockwise([task], progress=False)
     assert len([f for f in tmp_path.iterdir() if f.name.isdigit()]) == 4
+
+
+@pytest.mark.timeout(60)
+def test_subprocess_workers_are_the_default(tmp_path):
+    """1-arg process functions run in worker subprocesses BY DEFAULT:
+    blocks are processed by multiple distinct pids, none of which is the
+    server process."""
+    import os
+
+    out = str(tmp_path)
+
+    def record_pid(block):
+        import time as _time
+        from pathlib import Path
+        import os as _os
+
+        Path(out, f"pid-{_os.getpid()}-{block.block_id[1]}").touch()
+        _time.sleep(0.05)  # keep blocks around long enough for all workers
+
+    task = daisy.Task(
+        task_id="wp-default",
+        total_roi=daisy.Roi([0], [160]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=record_pid,
+        read_write_conflict=False,
+        max_workers=4,
+        # NOTE: no worker_processes kwarg — this tests the default
+    )
+    assert daisy.run_blockwise([task], progress=False)
+    pids = {
+        int(f.name.split("-")[1])
+        for f in tmp_path.iterdir()
+        if f.name.startswith("pid-")
+    }
+    assert os.getpid() not in pids, "blocks ran in the server process"
+    assert len(pids) > 1, f"expected multiple worker processes, got {pids}"
+
+
+@pytest.mark.timeout(60)
+def test_worker_processes_false_runs_in_server_process(tmp_path):
+    """Thread mode remains available as the explicit opt-out."""
+    import os
+
+    out = str(tmp_path)
+
+    def record_pid(block):
+        from pathlib import Path
+        import os as _os
+
+        Path(out, f"pid-{_os.getpid()}-{block.block_id[1]}").touch()
+
+    task = daisy.Task(
+        task_id="wp-threads",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=record_pid,
+        read_write_conflict=False,
+        max_workers=2,
+        worker_processes=False,
+    )
+    assert daisy.run_blockwise([task], progress=False)
+    pids = {
+        int(f.name.split("-")[1])
+        for f in tmp_path.iterdir()
+        if f.name.startswith("pid-")
+    }
+    assert pids == {os.getpid()}
+
+
+@pytest.mark.timeout(60)
+def test_serial_mode_unaffected_by_default(tmp_path):
+    """multiprocessing=False runs the ORIGINAL function in-process — even
+    an unserializable one — regardless of the subprocess default."""
+    import os
+    import threading
+
+    lock = threading.Lock()  # unserializable closure capture
+    seen_pids = []
+
+    def unserializable(block):
+        with lock:
+            seen_pids.append(os.getpid())
+
+    task = daisy.Task(
+        task_id="wp-serial",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=unserializable,
+        read_write_conflict=False,
+        max_workers=2,
+    )
+    assert daisy.run_blockwise([task], multiprocessing=False, progress=False)
+    assert seen_pids and set(seen_pids) == {os.getpid()}

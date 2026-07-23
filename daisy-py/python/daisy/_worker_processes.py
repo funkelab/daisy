@@ -1,14 +1,19 @@
-"""Subprocess-worker shim: run a 1-arg ``process_function`` in real OS
-processes instead of GIL-sharing threads (``Task(worker_processes=True)``).
+"""Subprocess workers: run a 1-arg ``process_function`` in real OS
+processes. This is the DEFAULT execution mode for block functions on the
+distributed run paths; ``Task(worker_processes=False)`` opts into
+GIL-sharing thread workers instead.
 
-daisy v2's default "multiprocessing" mode executes block functions on Rust
-threads that each take the GIL per block — CPU-bound python work therefore
-does not parallelize (and typically slows down) as ``max_workers`` grows.
-This shim recovers daisy 1.x's headline convenience — a locally defined
-lambda or closure saturating as many cores as you ask for — on top of the
-v2 server: the function is serialized once at Task construction and each
-worker slot launches ``python -m daisy._subprocess_worker``, which
-deserializes it and runs the standard ``Client.acquire_block()`` loop.
+Thread workers execute block functions on Rust threads that each take the
+GIL per block — CPU-bound python work therefore does not parallelize (and
+typically slows down) as ``max_workers`` grows. Benchmarks across workload
+mixes show threads win only when the block function releases the GIL for
+essentially its entire runtime (pure I/O waits, single-threaded C-library
+calls), and then only by ~15%; with just 10% pure-python glue threads are
+1.7x slower, at 30% python 8x slower, at 100% python 28x slower. Subprocess
+workers are flat across every mix, hence the default. The function is
+serialized once per run and each worker slot launches
+``python -m daisy._subprocess_worker``, which deserializes it and runs the
+standard ``Client.acquire_block()`` loop.
 
 Transport is an anonymous stdin pipe, deliberately not a temp file: the
 payload never touches the filesystem, so there is nothing another process
@@ -60,10 +65,14 @@ def _serialize(obj) -> bytes:
         except Exception as e:
             raise RuntimeError(
                 "daisy could not serialize this process_function for "
-                "worker_processes=True: stdlib pickle supports module-level "
-                "functions only. Install dill (`pip install dill`, or "
-                "`pip install daisy[worker-processes]`) to use lambdas and "
-                f"closures. Underlying error: {e!r}"
+                "subprocess workers (the default execution mode): stdlib "
+                "pickle supports module-level functions only. Either install "
+                "dill for lambda/closure support (`pip install dill`, or "
+                "`pip install daisy[worker-processes]`), or opt into "
+                "GIL-sharing thread workers with "
+                "`Task(..., worker_processes=False)` (only sensible for "
+                "block functions that release the GIL for essentially their "
+                f"entire runtime). Underlying error: {e!r}"
             ) from e
     else:
         body = dill.dumps(obj, recurse=True)

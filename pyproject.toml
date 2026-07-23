@@ -72,6 +72,7 @@ unresolved-import = "ignore"
 
 [dependency-groups]
 dev = [
+    "dill>=0.3",  # lambda/closure support for the worker_processes default
     "filelock>=3.29.0",
     "pytest>=8",
     "pytest-timeout>=2",

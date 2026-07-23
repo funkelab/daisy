@@ -93,8 +93,14 @@ daisy/
         │                                                       checks SIGINT)
         │
         └─ worker threads   ────────►   std::thread per worker
-                                          ├─ for 1-arg fn: tokio Client + loop
+                                          ├─ for 1-arg fn (worker_processes=False):
+                                          │    tokio Client + GIL-held call per block
                                           └─ for 0-arg fn: GIL acquire + call
+                                               (the default for 1-arg fns: the Python
+                                                layer converts them into a 0-arg spawn
+                                                of `python -m daisy._subprocess_worker`,
+                                                so block functions run in real worker
+                                                processes — see daisy/_worker_processes.py)
                                                             once, user runs loop
 ```
 

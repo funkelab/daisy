@@ -46,6 +46,13 @@ def _run():
             return
         raise
 
+    # NOTE on failure semantics: an exception from process_function
+    # propagates out of acquire_block (which has already marked the block
+    # failed and released it for retry) and crashes this worker process —
+    # a dirty exit that counts against max_worker_restarts. This matches
+    # v2's thread-worker semantics, where a failing block function kills
+    # its worker so persistent bugs drive restart-cap abandonment instead
+    # of silently slogging through every block's retries.
     while True:
         with client.acquire_block() as block:
             if block is None:
@@ -56,9 +63,9 @@ def _run():
 
                 def _preempt(block_id=block.block_id):
                     print(
-                        f"daisy worker {client.worker_id}: block {block_id} "
-                        f"still running after timeout={timeout}s; killing "
-                        "worker process",
+                        f"daisy worker {client.worker_id}: block "
+                        f"{block_id} still running after "
+                        f"timeout={timeout}s; killing worker process",
                         file=sys.stderr,
                         flush=True,
                     )

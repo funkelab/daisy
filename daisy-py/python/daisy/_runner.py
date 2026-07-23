@@ -13,7 +13,11 @@ import daisy._daisy as _rs
 from daisy import logging as _worker_log
 
 from daisy._progress import _log_resume_summary
-from daisy._task import _to_pipeline, _wrap_for_worker_logging
+from daisy._task import (
+    _to_pipeline,
+    _wrap_for_worker_logging,
+    _wrap_for_worker_processes,
+)
 
 
 def _coerce_pipeline(pipeline_or_tasks):
@@ -21,11 +25,19 @@ def _coerce_pipeline(pipeline_or_tasks):
     return _to_pipeline(pipeline_or_tasks)
 
 
-def _prepare(pipeline):
-    """Wrap every task in the pipeline with per-worker logging,
-    returning a new Pipeline with the same edge structure but
-    process-functions wrapped through `_wrap_for_worker_logging`."""
-    wrapped = [_wrap_for_worker_logging(t) for t in pipeline.tasks]
+def _prepare(pipeline, distributed=True):
+    """Wrap every task in the pipeline for execution, returning a new
+    Pipeline with the same edge structure.
+
+    On distributed paths, 1-arg process functions are first converted
+    to subprocess workers (`_wrap_for_worker_processes`, the
+    ``worker_processes`` default) unless the task opted for thread mode;
+    serial execution (`distributed=False`) always runs the original
+    function in-process. Both paths then get `_wrap_for_worker_logging`."""
+    tasks = list(pipeline.tasks)
+    if distributed:
+        tasks = [_wrap_for_worker_processes(t) for t in tasks]
+    wrapped = [_wrap_for_worker_logging(t) for t in tasks]
     # Edges are exposed as (Task, Task) pairs of the original tasks;
     # remap them to the wrapped clones (same index in the new task list).
     index = {id(orig): wrapped[i] for i, orig in enumerate(pipeline.tasks)}
@@ -65,8 +77,9 @@ class Server:
 
 
 def _run_serial(pipeline, block_tracking=True):
-    """Single-threaded execution path (no TCP, no workers)."""
-    pipeline = _prepare(_coerce_pipeline(pipeline))
+    """Single-threaded execution path (no TCP, no workers). Runs the
+    original process functions in-process — no subprocess wrapping."""
+    pipeline = _prepare(_coerce_pipeline(pipeline), distributed=False)
     try:
         states = _rs._run_serial(pipeline, block_tracking=block_tracking)
         _log_resume_summary(states)
@@ -107,7 +120,7 @@ def run_blockwise(
     already marked it done. Permanently failed or orphaned blocks
     cause this to return `False`.
     """
-    pipeline = _prepare(_coerce_pipeline(pipeline))
+    pipeline = _prepare(_coerce_pipeline(pipeline), distributed=multiprocessing)
     try:
         return _rs._run_blockwise_orchestrator(
             pipeline,
