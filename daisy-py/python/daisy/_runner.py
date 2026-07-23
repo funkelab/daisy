@@ -100,12 +100,21 @@ def _resolve_observer(progress, task_order):
     return progress
 
 
+def _all_succeeded(states) -> bool:
+    """True iff every block of every task completed (skipped blocks are
+    folded into completed_count by the scheduler)."""
+    return all(
+        s.completed_count == s.total_block_count for s in states.values()
+    )
+
+
 def run_blockwise(
     pipeline,
     multiprocessing=True,
     resources=None,
     progress=True,
     block_tracking=True,
+    return_states=False,
 ):
     """Run the given pipeline to completion.
 
@@ -119,10 +128,17 @@ def run_blockwise(
     successfully in this run or was skipped because a prior run
     already marked it done. Permanently failed or orphaned blocks
     cause this to return `False`.
+
+    With ``return_states=True``, returns the ``task_id -> TaskState``
+    dict instead of the bool — per-task counters plus ``abandoned``,
+    ``abandon_reason`` and ``last_worker_error`` — so partial failures
+    can be inspected programmatically without the lower-level
+    ``Server`` class. Abandonment (worker restart cap exhausted)
+    raises ``RuntimeError`` either way.
     """
     pipeline = _prepare(_coerce_pipeline(pipeline), distributed=multiprocessing)
     try:
-        return _rs._run_blockwise_orchestrator(
+        states = _rs._run_blockwise_orchestrator(
             pipeline,
             multiprocessing=multiprocessing,
             resources=resources,
@@ -131,3 +147,6 @@ def run_blockwise(
         )
     finally:
         _worker_log.close_all_log_files()
+    if return_states:
+        return states
+    return _all_succeeded(states)

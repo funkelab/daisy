@@ -122,8 +122,9 @@ pub fn _topo_order(input: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<Vec<Str
 /// back into Python for the execution summary printing (which lives
 /// in Python because it shares the per-worker logging / stdout
 /// machinery — see the user's "logging" carve-out for the all-Rust
-/// rewrite). Returns `True` only if every block of every task either
-/// completed successfully or was skipped from a prior run.
+/// rewrite). Returns the `task_id -> TaskState` dict; the public
+/// `daisy.run_blockwise` computes its bool result from it (or hands
+/// it to the caller verbatim under `return_states=True`).
 #[pyfunction]
 #[pyo3(signature = (
     input,
@@ -139,7 +140,7 @@ pub fn _run_blockwise_orchestrator(
     resources: Option<Bound<'_, PyDict>>,
     progress: Option<Py<PyAny>>,
     block_tracking: bool,
-) -> PyResult<bool> {
+) -> PyResult<Py<PyAny>> {
     let pipeline = coerce_pipeline_or_task(py, input)?;
     let pipeline_any = pipeline.clone_ref(py).into_any();
     // Compute the display topological order.
@@ -269,21 +270,7 @@ pub fn _run_blockwise_orchestrator(
         ));
     }
 
-    // Bool result: True iff every block of every task was completed
-    // (skipped blocks are folded into completed_count by the
-    // scheduler).
-    let mut all_succeeded = true;
-    for (_k, v) in states_dict.try_iter()?.zip(states_dict.call_method0("values")?.try_iter()?) {
-        let _ = _k?;
-        let state = v?;
-        let completed: i64 = state.getattr("completed_count")?.extract()?;
-        let total: i64 = state.getattr("total_block_count")?.extract()?;
-        if completed != total {
-            all_succeeded = false;
-            break;
-        }
-    }
-    Ok(all_succeeded)
+    Ok(states_obj)
 }
 
 fn rt_err(e: impl std::fmt::Display) -> PyErr {
