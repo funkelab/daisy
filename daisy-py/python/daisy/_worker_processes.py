@@ -31,6 +31,7 @@ import os
 import pickle
 import struct
 import subprocess
+import tempfile
 import sys
 
 #: exit code the worker child uses when it self-terminates because a block
@@ -113,28 +114,43 @@ def make_spawn_function(process_function, timeout=None):
         # thing to minimize the window in which a concurrently spawning
         # worker could overwrite it.
         env = dict(os.environ)
-        proc = subprocess.Popen(
-            [sys.executable, "-m", "daisy._subprocess_worker"],
-            stdin=subprocess.PIPE,
-            env=env,
-        )
-        try:
-            proc.stdin.write(payload)
-            proc.stdin.close()
-        except BrokenPipeError:
-            # child died before reading the payload; the exit-code check
-            # below turns that into a dirty worker exit
-            pass
-        returncode = proc.wait()
+        # Capture the child's stderr (to a spooled file, not a pipe — no
+        # reader-deadlock for chatty workers) so a crashing block function's
+        # actual traceback can ride along in the raised error, where the
+        # server records it as the task's last_worker_error. Everything
+        # captured is re-emitted on our stderr so logs stay complete.
+        with tempfile.SpooledTemporaryFile(max_size=1 << 20) as errbuf:
+            proc = subprocess.Popen(
+                [sys.executable, "-m", "daisy._subprocess_worker"],
+                stdin=subprocess.PIPE,
+                stderr=errbuf,
+                env=env,
+            )
+            try:
+                proc.stdin.write(payload)
+                proc.stdin.close()
+            except BrokenPipeError:
+                # child died before reading the payload; the exit-code check
+                # below turns that into a dirty worker exit
+                pass
+            returncode = proc.wait()
+            errbuf.seek(0)
+            err_text = errbuf.read().decode(errors="replace")
+        if err_text:
+            sys.stderr.write(err_text)
+            sys.stderr.flush()
+        tail = "\n".join(err_text.strip().splitlines()[-15:])
         if returncode == EXIT_BLOCK_TIMEOUT:
             raise RuntimeError(
                 f"daisy worker subprocess killed after a block exceeded "
                 f"timeout={timeout}s (true preemption; the server retries "
                 "the block under max_retries)"
+                + (f"\nworker stderr tail:\n{tail}" if tail else "")
             )
         if returncode != 0:
             raise RuntimeError(
                 f"daisy worker subprocess exited with code {returncode}"
+                + (f"\nworker stderr tail:\n{tail}" if tail else "")
             )
 
     _spawn_worker_process.__name__ = "spawn_" + getattr(
