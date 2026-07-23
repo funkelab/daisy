@@ -22,6 +22,26 @@ from daisy import logging as _worker_log
 
 logger = logging.getLogger(__name__)
 
+# Traceback strings that ride in BlockFailed messages are capped so a
+# pathological stack (recursion, huge locals in repr) can't bloat the
+# wire message or the run summary. Keep the END of the traceback — the
+# raise site is the useful part.
+_TB_MAX_LINES = 50
+_TB_MAX_BYTES = 8192
+
+
+def _capped_traceback() -> str:
+    import traceback
+
+    tb = traceback.format_exc()
+    lines = tb.splitlines()
+    if len(lines) > _TB_MAX_LINES:
+        lines = ["... (traceback truncated) ..."] + lines[-_TB_MAX_LINES:]
+        tb = "\n".join(lines)
+    if len(tb) > _TB_MAX_BYTES:
+        tb = "... (traceback truncated) ...\n" + tb[-_TB_MAX_BYTES:]
+    return tb
+
 
 def set_done_marker_basedir(path) -> None:
     """Set the global base directory for per-task done-marker arrays.
@@ -275,6 +295,7 @@ class Client:
         if block is None:
             yield None
             return
+        reported = False
         try:
             yield block
             if block.status == BlockStatus.PROCESSING:
@@ -293,11 +314,21 @@ class Client:
                 )
             except Exception:
                 pass
+            # Send the failure WITH its formatted traceback so the
+            # server (and the run summary / abandonment error) can show
+            # the cause without a trip to the worker logs. BlockFailed
+            # is a complete block return — do not also release below.
+            try:
+                self._client.report_failure(block, _capped_traceback())
+                reported = True
+            except Exception:
+                pass
             raise
         finally:
             if block.status != BlockStatus.SUCCESS:
                 block.status = BlockStatus.FAILED
-            self._client.release_block(block)
+            if not reported:
+                self._client.release_block(block)
 
     def __del__(self):
         try:

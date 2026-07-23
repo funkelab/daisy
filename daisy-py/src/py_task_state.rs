@@ -90,6 +90,13 @@ impl PyTaskState {
         self.inner.last_worker_error.clone()
     }
 
+    /// The first worker error observed for this task (usually the
+    /// root cause; later errors are often echoes), or None.
+    #[getter]
+    fn first_worker_error(&self) -> Option<String> {
+        self.inner.first_worker_error.clone()
+    }
+
     #[getter]
     fn worker_start_count(&self) -> u32 {
         self.inner.worker_start_count

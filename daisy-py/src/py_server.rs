@@ -253,6 +253,16 @@ pub fn _run_blockwise_orchestrator(
             total,
         );
         match last_error {
+            Some(err) if err.contains('\n') => {
+                // multi-line = a formatted traceback; set it off as an
+                // indented block so the summary line stays scannable
+                let indented = err
+                    .lines()
+                    .map(|l| format!("    {l}"))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                msg.push_str(&format!(" Last worker error:\n{indented}"));
+            }
             Some(err) => msg.push_str(&format!(" Last worker error: {err}")),
             None => msg.push_str(" No worker error was captured."),
         }

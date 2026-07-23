@@ -4,6 +4,32 @@ use daisy_core::server::ProgressObserver;
 use daisy_core::task::{CheckBlock, ProcessBlock, SpawnWorker};
 use daisy_core::task_state::TaskCounters;
 use pyo3::prelude::*;
+
+/// Cap a (possibly multi-line) traceback string: keep the tail — the
+/// raise site — and mark the cut. Mirrors the python-side cap in
+/// `daisy._task._capped_traceback`.
+pub(crate) fn cap_traceback(s: &str) -> String {
+    const MAX_LINES: usize = 50;
+    const MAX_BYTES: usize = 8192;
+    let lines: Vec<&str> = s.lines().collect();
+    let mut out = if lines.len() > MAX_LINES {
+        let mut v = vec!["... (traceback truncated) ..."];
+        v.extend(&lines[lines.len() - MAX_LINES..]);
+        v.join("\n")
+    } else {
+        s.to_string()
+    };
+    if out.len() > MAX_BYTES {
+        let cut = out.len() - MAX_BYTES;
+        // find a char boundary at or after the cut point
+        let mut idx = cut;
+        while !out.is_char_boundary(idx) {
+            idx += 1;
+        }
+        out = format!("... (traceback truncated) ...\n{}", &out[idx..]);
+    }
+    out
+}
 use pyo3::types::PyDict;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -80,7 +106,14 @@ impl ProcessBlock for PyProcessBlock {
                     Ok(())
                 }
                 Err(e) => {
-                    let formatted = format!("{e}");
+                    // Include the formatted python traceback (capped)
+                    // so the failure cause survives to the run summary
+                    // and abandonment error, not just the worker log.
+                    let tb = e
+                        .traceback(py)
+                        .and_then(|t| t.format().ok())
+                        .unwrap_or_default();
+                    let formatted = cap_traceback(&format!("{tb}{e}"));
                     // Stash the original PyErr so serial mode can
                     // re-raise it with its full traceback intact.
                     LAST_PROCESS_PYERR.with(|c| *c.borrow_mut() = Some(e));
@@ -158,9 +191,15 @@ impl SpawnWorker for PySpawnWorker {
                 .set_item("DAISY_CONTEXT", env_context)
                 .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
 
-            self.py_fn
-                .call0(py)
-                .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
+            self.py_fn.call0(py).map_err(|e| {
+                // include the formatted python traceback (capped), as
+                // for block functions — see PyProcessBlock::process
+                let tb = e
+                    .traceback(py)
+                    .and_then(|t| t.format().ok())
+                    .unwrap_or_default();
+                DaisyError::ProcessFailed(cap_traceback(&format!("{tb}{e}")))
+            })?;
             Ok(())
         })
     }

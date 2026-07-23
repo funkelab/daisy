@@ -33,6 +33,10 @@ pub struct RunningTask {
     /// Kept so that when the task is abandoned, the *cause* survives
     /// to the caller instead of existing only in tracing logs.
     pub last_worker_error: Option<String>,
+    /// The first worker error observed for this task. With many
+    /// failures the first one is usually the root cause and the rest
+    /// are echoes; the run summary prints this one in full.
+    pub first_worker_error: Option<String>,
 
     /// Total workers ever started for this task. Workers are expected
     /// to be long-running (they may hold large models in memory), so
@@ -110,6 +114,9 @@ impl RunningTask {
     }
 
     pub fn note_worker_error(&mut self, error: String) {
+        if self.first_worker_error.is_none() {
+            self.first_worker_error = Some(error.clone());
+        }
         self.last_worker_error = Some(error);
     }
 
@@ -140,6 +147,8 @@ pub struct TaskCounters {
     pub worker_restart_count: u32,
     /// Most recent worker error observed for this task, if any.
     pub last_worker_error: Option<String>,
+    /// First worker error observed for this task, if any.
+    pub first_worker_error: Option<String>,
     /// `Some(reason)` iff the snapshot was taken from an Abandoned
     /// task. Lifecycle info rides with the counters because the FFI
     /// boundary only hands out counter snapshots.
@@ -188,6 +197,7 @@ impl From<&RunningTask> for TaskCounters {
             worker_failure_count: t.worker_failure_count,
             worker_restart_count: t.worker_restart_count,
             last_worker_error: t.last_worker_error.clone(),
+            first_worker_error: t.first_worker_error.clone(),
             abandon_reason: None,
 
             worker_start_count: t.worker_start_count,
