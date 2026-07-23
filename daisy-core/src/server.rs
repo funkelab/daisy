@@ -63,6 +63,14 @@ struct WorkerSpec {
     worker_id: u64,
     host: String,
     port: u16,
+    /// Task-level progress (completed + skipped) when this worker was
+    /// spawned. Used at join time to detect workers that exited cleanly
+    /// without their task making ANY forward progress — those count
+    /// toward the restart cap just like dirty exits, so a spawn
+    /// function that silently fails to start a worker (e.g.
+    /// `subprocess.run(..., check=False)` around a broken command)
+    /// cannot respawn forever.
+    progress_at_spawn: i64,
 }
 
 enum WorkerThread {
@@ -648,11 +656,52 @@ impl Server {
                     {
                         match handle.join() {
                             Ok(true) => {
-                                debug!(
-                                    worker_id = spec.worker_id,
-                                    task_id = %spec.task_id,
-                                    "worker exited cleanly",
-                                );
+                                // A clean exit is still a failure for cap
+                                // purposes if the task made NO forward
+                                // progress during this worker's lifetime
+                                // while ready work remained: that's the
+                                // signature of a spawn function whose
+                                // worker never starts (e.g. subprocess.run
+                                // with check=False around a broken
+                                // command) — without this, such workers
+                                // respawn forever. Task-level progress is
+                                // deliberate: any progress at all means
+                                // the run is not stuck, and healthy
+                                // worker-recycling patterns (exit after N
+                                // blocks) stay exempt.
+                                let unproductive = scheduler
+                                    .task_states
+                                    .get(&spec.task_id)
+                                    .map(|state| {
+                                        let c = state.counters();
+                                        c.ready_count > 0
+                                            && c.completed_count + c.skipped_count
+                                                == spec.progress_at_spawn
+                                    })
+                                    .unwrap_or(false);
+                                if unproductive {
+                                    warn!(
+                                        worker_id = spec.worker_id,
+                                        task_id = %spec.task_id,
+                                        "worker exited cleanly without \
+                                         contributing progress while blocks \
+                                         were ready; counting toward the \
+                                         restart cap",
+                                    );
+                                    if let Some(state) =
+                                        scheduler.task_states.get_mut(&spec.task_id)
+                                    {
+                                        if let Some(rt) = state.as_running_mut() {
+                                            rt.note_worker_died();
+                                        }
+                                    }
+                                } else {
+                                    debug!(
+                                        worker_id = spec.worker_id,
+                                        task_id = %spec.task_id,
+                                        "worker exited cleanly",
+                                    );
+                                }
                             }
                             Ok(false) | Err(_) => {
                                 warn!(
@@ -850,6 +899,7 @@ impl Server {
                     worker_id: *next_id,
                     host: host.to_string(),
                     port,
+                    progress_at_spawn: counters.completed_count + counters.skipped_count,
                 };
                 let handle = Self::spawn_worker(&spec, exit_tx.clone());
                 workers.push((spec, WorkerThread::Running(handle)));
