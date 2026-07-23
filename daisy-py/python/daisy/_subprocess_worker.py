@@ -31,20 +31,11 @@ def _run():
 
     process_function, timeout = read_payload(sys.stdin.buffer)
 
-    try:
-        client = Client()
-    except (ConnectionRefusedError, RuntimeError) as e:
-        if "Connection refused" in str(e):
-            # end-of-run race: the server finished (all blocks done) and
-            # shut down before this straggler worker came up. That's a
-            # normal shutdown, not a worker failure — exit clean so it
-            # isn't counted against max_worker_restarts.
-            print(
-                "daisy worker: server already gone at startup; exiting",
-                file=sys.stderr,
-            )
-            return
-        raise
+    # A server that is already gone (end-of-run straggler race) leaves the
+    # Client disconnected: acquire_block() yields None immediately and this
+    # function returns normally — exit 0, so the straggler is not counted
+    # against max_worker_restarts. Client itself logs the WARNING.
+    client = Client()
 
     # NOTE on failure semantics: an exception from process_function
     # propagates out of acquire_block (which has already marked the block
