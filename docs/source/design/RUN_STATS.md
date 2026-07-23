@@ -44,6 +44,35 @@ The channel send is best-effort (`let _ = ...`) — if the receiver has already 
 - macOS: `thread_info(THREAD_BASIC_INFO)` Mach syscall.
 - Other: returns `None`, CPU time isn't reported.
 
+## Known gap: spawn-mode blocks are invisible to worker stats
+
+`WorkerStats.blocks_processed` (and the derived mean-ms / cpu-busy / slope
+figures) is incremented only in the in-process worker thread's block loop.
+In worker-function (spawn) mode the blocks are processed by *external*
+subprocesses the stats layer never observes, so the per-task panel reports
+`blocks 0` — and a per-task "wall" that is the sum of idle worker-thread
+lifetimes — while the execution summary (fed by the scheduler's release
+accounting) is correct.
+
+### Planned enhancement: `daisy.profile_block`
+
+The intended fix is to stop assuming the server has insight into worker
+internals and instead let profiling data travel *with the block*:
+
+- a `daisy.profile_block(block)` context manager usable in any worker code
+  (including hand-rolled workers on cluster nodes) that records wall time,
+  CPU time, and peak-RSS delta around the wrapped code and attaches the
+  result to the block;
+- the `ReleaseBlock` / `BlockFailed` messages carry the optional profile
+  payload back to the server, which feeds run stats from it — identical
+  accounting for thread-mode, shim (`worker_processes=True`), and fully
+  external workers;
+- 1-arg process functions get wrapped in `profile_block` automatically, so
+  the default experience needs no user code.
+
+Until then, treat the per-task worker-stats panel as meaningful only for
+block-function (thread) mode.
+
 ## Per-block durations
 
 The bookkeeper records `Instant::now()` when a block is sent to a worker. When the block is returned, `notify_block_returned` returns the elapsed `Duration`. The scheduler pushes this into a per-task `Vec<f64>` of millisecond durations as releases come in.
