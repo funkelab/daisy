@@ -5,8 +5,11 @@ allows a single block to spend in `processing` before reclaiming it.
 The reclaimed block goes through the normal lost-block path: released
 as Failed, eligible for retry under `max_retries`.
 
-Timeout doesn't preempt the worker — daisy can't kill a thread
-that's busy in Python code. The slow worker keeps running; its
+These tests exercise THREAD workers (worker_processes=False), where
+timeout reclaims but does not preempt — daisy can't kill a thread
+that's busy in Python code. The subprocess default (see
+tests/test_worker_process_timeout.py) kills the stuck worker process
+instead. The slow worker keeps running; its
 eventual late `release_block` is silently dropped (the bookkeeper
 no longer recognizes the block as in-flight). This is the cleanest
 semantic threading allows; users who need hard preemption should
@@ -38,6 +41,7 @@ def test_slow_block_is_reclaimed_and_succeeds_on_retry():
         process_function=maybe_slow,
         read_write_conflict=False,
         max_workers=1,
+        worker_processes=False,  # these tests document THREAD-mode timeout semantics
         max_retries=2,
         timeout=0.5,  # block deadline well under the slow path's sleep
     )
@@ -67,6 +71,7 @@ def test_persistently_slow_blocks_eventually_fail():
         process_function=always_slow,
         read_write_conflict=False,
         max_workers=1,
+        worker_processes=False,  # these tests document THREAD-mode timeout semantics
         max_retries=1,
         timeout=0.2,
         # Generous worker-restart cap so we exit via permanent failure
@@ -99,6 +104,7 @@ def test_no_timeout_lets_block_run_indefinitely():
         process_function=slow,
         read_write_conflict=False,
         max_workers=1,
+        worker_processes=False,  # these tests document THREAD-mode timeout semantics
         max_retries=0,
         # no timeout
     )

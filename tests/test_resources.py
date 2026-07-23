@@ -46,6 +46,10 @@ def _make_task(task_id, *, max_workers, requires=None, blocks=8, hold_ms=20,
         max_workers=max_workers,
         max_retries=0,
         requires=requires,
+        # these tests measure concurrency via in-process closure counters,
+        # which requires thread workers; the resource allocator under test
+        # is orthogonal to the worker execution mode
+        worker_processes=False,
     ), counts
 
 

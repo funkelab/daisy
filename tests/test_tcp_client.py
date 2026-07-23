@@ -8,6 +8,7 @@ flow correctly through the scheduler/server path and that the protocol
 handles all message types.
 """
 
+import tempfile
 import threading
 
 from daisy import Task, Roi, Block, BlockStatus, Scheduler, run_blockwise
@@ -89,15 +90,18 @@ def test_block_failure_recovery():
     fails fast on exceptions instead of retrying — see
     `test_serial.py::test_serial_fails_fast_on_exception`.
     """
-    attempt_count = {}
-    lock = threading.Lock()
+    # subprocess workers (the default) don't share closures with this
+    # process; count attempts via O_APPEND writes, atomic across processes
+    attempts_dir = tempfile.mkdtemp()
 
     def flaky_process(block):
+        import os as _os
+
         bid = block.block_id
-        with lock:
-            attempt_count[bid] = attempt_count.get(bid, 0) + 1
-            n = attempt_count[bid]
-        if n == 1 and bid[1] == 0:
+        path = _os.path.join(attempts_dir, str(bid[1]))
+        with open(path, "ab") as f:
+            f.write(b"x")
+        if _os.path.getsize(path) == 1 and bid[1] == 0:
             # Simulate crash on first attempt of block 0
             raise RuntimeError("simulated crash")
 
@@ -115,7 +119,9 @@ def test_block_failure_recovery():
     assert result is True
 
     # Block 0 should have been retried
-    assert attempt_count[("test_recovery", 0)] >= 2
+    import os as _os
+
+    assert _os.path.getsize(_os.path.join(attempts_dir, "0")) >= 2
 
 
 def test_no_message_after_shutdown():

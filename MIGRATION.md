@@ -50,6 +50,34 @@ A few things v2 added that have no 1.x equivalent:
 - **Worker restart cap** with proper abandonment + transitive downstream orphan propagation.
 - **Run statistics** (per-worker, per-task, process-wide) surfaced after each run.
 
+## Worker execution modes (and the subprocess default)
+
+A 1-arg `process_function` on the distributed run paths executes in **worker
+subprocesses by default** — the function is serialized (with `dill` when
+installed, giving daisy 1.x's lambda/closure support back) and each worker
+slot runs `python -m daisy._subprocess_worker`. This is the mode that
+behaves like daisy 1.x: CPU-bound python scales with `max_workers`, and
+`Task(timeout=…)` truly preempts a stuck block by killing its worker
+process.
+
+`Task(worker_processes=False)` opts into **thread workers** (one Rust
+thread per slot, sharing the server process's GIL). Be aware this is only
+faster for a *very narrow* use case: block functions that release the GIL
+for essentially their entire runtime — pure I/O waits or single-threaded
+C-library calls — and even then only by ~15% (no interpreter startup, no
+serialization). It is also the mode to use when workers must share large
+read-only in-process memory. Any meaningful pure-python fraction makes
+threads dramatically slower: measured at 16 workers, 1.7× slower with just
+10% python glue, 8× at 30%, 28× at 100% python. Thread workers also cannot
+be preempted by `timeout=` (the reclaimed block's thread keeps running).
+
+Serial execution (`run_blockwise(…, multiprocessing=False)`) always calls
+your original function in-process and is unaffected by `worker_processes`.
+
+**Resource note:** with the subprocess default, `max_workers=N` means N
+python interpreter processes (each importing your function's modules), not
+N threads in one process.
+
 ## Removed APIs
 
 These 1.x names are not exposed by daisy v2 (neither in `daisy` nor `daisy.v2`):

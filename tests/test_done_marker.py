@@ -61,15 +61,35 @@ def test_resume_skips_already_done_blocks(tmp_path):
 
 def test_resume_with_multiprocessing_server(tmp_path):
     marker_path = tmp_path / "done_mp"
+    # subprocess workers (the default) don't share closures with this
+    # process, so record calls through the filesystem instead
+    calls_dir = tmp_path / "calls"
+    calls_dir.mkdir()
 
-    task1, calls1 = make_task("tmp", marker_path)
-    daisy.Server().run_blockwise([task1])
-    assert len(calls1) == 16
+    def make_mp_task(run):
+        def process(block):
+            from pathlib import Path
 
-    task2, calls2 = make_task("tmp", marker_path)
-    daisy.Server().run_blockwise([task2])
+            Path(calls_dir, f"{run}-{block.block_id[1]}").touch()
+
+        return daisy.Task(
+            task_id="tmp",
+            total_roi=daisy.Roi([0, 0], [400, 400]),
+            read_roi=daisy.Roi([0, 0], [100, 100]),
+            write_roi=daisy.Roi([0, 0], [100, 100]),
+            process_function=process,
+            read_write_conflict=False,
+            max_workers=2,
+            max_retries=0,
+            done_marker_path=str(marker_path),
+        )
+
+    daisy.Server().run_blockwise([make_mp_task(1)])
+    assert len(list(calls_dir.glob("1-*"))) == 16
+
+    daisy.Server().run_blockwise([make_mp_task(2)])
     # Marker did its job; the multiprocessing path should also skip.
-    assert len(calls2) == 0
+    assert len(list(calls_dir.glob("2-*"))) == 0
 
 
 def test_layout_mismatch_errors_with_rm_instructions(tmp_path):
