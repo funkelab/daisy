@@ -46,6 +46,13 @@ pub struct RunningTask {
     /// productive exits. Starts beyond the first `max_workers` count
     /// as restarts.
     pub worker_start_count: u32,
+    /// Block attempts reclaimed because they exceeded the task's block
+    /// timeout. Lets failure surfaces distinguish "blocks are slow"
+    /// (raise `Task(timeout=...)`) from genuine crashes.
+    pub timeout_reclaim_count: u32,
+    /// The task's block timeout in seconds, recorded at registration so
+    /// failure surfaces can report the configured value.
+    pub timeout_secs: Option<f64>,
 }
 
 impl RunningTask {
@@ -124,6 +131,10 @@ impl RunningTask {
         self.worker_start_count = self.worker_start_count.saturating_add(1);
     }
 
+    pub fn note_timeout_reclaim(&mut self) {
+        self.timeout_reclaim_count = self.timeout_reclaim_count.saturating_add(1);
+    }
+
     pub fn note_worker_restarted(&mut self) {
         self.worker_restart_count = self.worker_restart_count.saturating_add(1);
     }
@@ -155,6 +166,8 @@ pub struct TaskCounters {
     pub abandon_reason: Option<AbandonReason>,
 
     pub worker_start_count: u32,
+    pub timeout_reclaim_count: u32,
+    pub timeout_secs: Option<f64>,
 }
 
 impl TaskCounters {
@@ -201,6 +214,8 @@ impl From<&RunningTask> for TaskCounters {
             abandon_reason: None,
 
             worker_start_count: t.worker_start_count,
+            timeout_reclaim_count: t.timeout_reclaim_count,
+            timeout_secs: t.timeout_secs,
         }
     }
 }

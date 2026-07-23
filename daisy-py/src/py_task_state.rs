@@ -102,6 +102,18 @@ impl PyTaskState {
         self.inner.worker_start_count
     }
 
+    /// Block attempts reclaimed for exceeding the block timeout.
+    #[getter]
+    fn timeout_reclaim_count(&self) -> u32 {
+        self.inner.timeout_reclaim_count
+    }
+
+    /// The task's configured block timeout in seconds.
+    #[getter]
+    fn timeout_secs(&self) -> Option<f64> {
+        self.inner.timeout_secs
+    }
+
     fn is_done(&self) -> bool {
         // For a counter snapshot, "done" means the counters balance.
         // Frozen snapshots from terminal variants (Done/Abandoned)

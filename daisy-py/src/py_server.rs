@@ -253,6 +253,28 @@ pub fn _run_blockwise_orchestrator(
             orphaned,
             total,
         );
+        let reclaims: u32 = state
+            .getattr("timeout_reclaim_count")
+            .and_then(|v| v.extract())
+            .unwrap_or(0);
+        if reclaims > 0 {
+            let t: Option<f64> = state
+                .getattr("timeout_secs")
+                .and_then(|v| v.extract())
+                .unwrap_or(None);
+            let is_default =
+                t == Some(crate::py_task::DEFAULT_BLOCK_TIMEOUT_SECS);
+            let shown = t
+                .map(|v| format!("{v}s"))
+                .unwrap_or_else(|| "the configured timeout".to_string());
+            msg.push_str(&format!(
+                " {} block attempt(s) exceeded the block timeout ({}{}; \
+                 pass Task(timeout=...) to raise it for slow blocks).",
+                reclaims,
+                shown,
+                if is_default { " — the default" } else { "" },
+            ));
+        }
         match last_error {
             Some(err) if err.contains('\n') => {
                 // multi-line = a formatted traceback; set it off as an

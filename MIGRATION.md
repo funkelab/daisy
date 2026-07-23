@@ -52,6 +52,16 @@ A few things v2 added that have no 1.x equivalent:
 
 ## Worker execution modes (and the subprocess default)
 
+> **Behavior change: blocks always time out.** `Task(timeout=...)` now
+> defaults to **600 seconds (10 minutes)** and cannot be disabled —
+> `timeout=None` means the default, and non-positive values raise
+> `ValueError`. In 1.x the parameter existed but was never enforced (a
+> wedged block hung the run forever). In v2 a block that exceeds its
+> deadline is reclaimed and retried, its worker process is killed, and
+> when a task fails on timeouts both the run summary and the abandonment
+> error say so and point at `Task(timeout=...)`. Raise the value
+> explicitly for genuinely slow blocks.
+
 A 1-arg `process_function` on the distributed run paths executes in **worker
 subprocesses by default** — the function is serialized (with `dill` when
 installed, giving daisy 1.x's lambda/closure support back) and each worker

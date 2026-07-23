@@ -102,8 +102,9 @@ class Task(_rs.Task):
       ~15%; any meaningful pure-python fraction makes threads
       dramatically slower (measured: 1.7x slower at 10% python glue,
       28x at 100%). Also the mode to use when workers must share large
-      read-only in-process memory. No timeout preemption: a stuck
-      block's thread cannot be killed.
+      read-only in-process memory. No timeout preemption: the block
+      timeout still bounds RETRIES of a slow block, but the stuck
+      thread itself cannot be killed and may run until process exit.
     - ``True``: subprocesses, requested explicitly — construction
       fails loudly for a 0-arg spawn function instead of ignoring the
       flag.

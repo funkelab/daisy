@@ -88,6 +88,9 @@ class Block:
 
 # -- Task state ---------------------------------------------------------
 
+DEFAULT_BLOCK_TIMEOUT_SECS: float
+
+
 class TaskState:
     @property
     def started(self) -> bool: ...
@@ -121,6 +124,10 @@ class TaskState:
     def first_worker_error(self) -> str | None: ...
 
     def worker_start_count(self) -> int: ...
+    @property
+    def timeout_reclaim_count(self) -> int: ...
+    @property
+    def timeout_secs(self) -> float | None: ...
     def is_done(self) -> bool: ...
 
 
