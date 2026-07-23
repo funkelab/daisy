@@ -43,7 +43,7 @@ If you have 1.x scripts that branched on `if run_blockwise(...):` to detect "did
 
 A few things v2 added that have no 1.x equivalent:
 
-- **Done markers as a built-in** (`Task(done_marker_path=…)` or via `set_done_marker_basedir(…)`). Per-task on-disk record of which blocks completed, used to skip already-done work on resume. `Task.reset()` clears a task's marker for an explicit re-run.
+- **Done markers as a built-in** (`Task(done_marker_path=…)` or via `set_done_marker_basedir(…)`). Per-task on-disk record of which blocks completed, used to skip already-done work on resume. `Task.reset()` clears a task's marker for an explicit re-run. Note: a marker is currently bound to the exact task layout — changing any ROI (including growing `total_roi` for a dataset that acquired more data) invalidates it entirely; in-place migration for grown volumes is a planned enhancement (see `docs/source/design/DONE_MARKERS.md`).
 - **`block_tracking` flag on `run_blockwise`** to disable done-marker tracking entirely for a run.
 - **`JsonProgressObserver`** — line-delimited JSON progress events, useful for piping into log aggregators or external dashboards.
 - **Per-task resource budgets** (`requires` per task + global `resources` dict) — coordinate worker concurrency across tasks competing for shared resources (CPU, GPU, etc.).
