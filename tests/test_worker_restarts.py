@@ -356,3 +356,85 @@ def test_clean_run_does_not_count_failures():
     assert states["clean"].is_done()
     assert states["clean"].completed_count == 4
     assert states["clean"].worker_failure_count == 0
+
+
+def test_abandonment_raises_from_run_blockwise_with_cause():
+    """The convenience `run_blockwise` must raise on abandonment and the
+    message must carry the task id, restart accounting, and the original
+    worker error. `Server.run_blockwise` (tested above) stays non-raising
+    for introspection."""
+    import pytest
+
+    def crash(block):
+        raise ValueError("broken import on node xyz")
+
+    task = daisy.Task(
+        task_id="crashy_raise",
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=crash,
+        read_write_conflict=False,
+        max_workers=1,
+        max_retries=0,
+        max_worker_restarts=3,
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        daisy.run_blockwise([task], progress=False)
+
+    msg = str(excinfo.value)
+    assert "crashy_raise" in msg
+    assert "3 restarts" in msg
+    assert "broken import on node xyz" in msg
+    assert "max_worker_restarts" in msg  # actionable advice
+
+
+def test_abandonment_metadata_on_task_state():
+    """TaskState exposes abandoned/abandon_reason/last_worker_error."""
+
+    task = daisy.Task(
+        task_id="crashy_meta",
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=_always_crashing_worker,
+        read_write_conflict=False,
+        max_workers=1,
+        max_retries=0,
+        max_worker_restarts=1,
+    )
+    states = daisy.Server().run_blockwise([task], progress=False)
+    state = states["crashy_meta"]
+    assert state.abandoned
+    assert "restart cap" in state.abandon_reason
+    assert "simulated crash" in state.last_worker_error
+
+
+def test_successful_run_has_no_abandonment_metadata():
+    task = daisy.Task(
+        task_id="fine",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=2,
+    )
+    states = daisy.Server().run_blockwise([task], progress=False)
+    state = states["fine"]
+    assert not state.abandoned
+    assert state.abandon_reason is None
+    assert state.last_worker_error is None
+    assert daisy.run_blockwise(
+        daisy.Task(
+            task_id="fine2",
+            total_roi=daisy.Roi([0], [40]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: None,
+            read_write_conflict=False,
+            max_workers=2,
+        ),
+        progress=False,
+    )

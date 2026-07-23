@@ -222,10 +222,56 @@ pub fn _run_blockwise_orchestrator(
         )?;
     }
 
+    // Abandoned tasks fail loudly: silently returning False loses the
+    // reason a run produced no output (the classic v1 failure mode was
+    // the opposite — respawning crashed workers forever). Raise after
+    // the summary has printed so users still see the table.
+    let states_dict = states_obj.bind(py);
+    let mut abandoned_msgs: Vec<String> = Vec::new();
+    for kv in states_dict.call_method0("items")?.try_iter()? {
+        let kv = kv?;
+        let task_id: String = kv.get_item(0)?.extract()?;
+        let state = kv.get_item(1)?;
+        let is_abandoned: bool = state.getattr("abandoned")?.extract()?;
+        if !is_abandoned {
+            continue;
+        }
+        let reason: Option<String> = state.getattr("abandon_reason")?.extract()?;
+        let failures: u32 = state.getattr("worker_failure_count")?.extract()?;
+        let restarts: u32 = state.getattr("worker_restart_count")?.extract()?;
+        let orphaned: i64 = state.getattr("orphaned_count")?.extract()?;
+        let total: i64 = state.getattr("total_block_count")?.extract()?;
+        let last_error: Option<String> = state.getattr("last_worker_error")?.extract()?;
+        let mut msg = format!(
+            "task '{}' was abandoned ({}): workers failed {} times, {} restarts performed; \
+             {} of {} blocks were orphaned.",
+            task_id,
+            reason.as_deref().unwrap_or("unknown reason"),
+            failures,
+            restarts,
+            orphaned,
+            total,
+        );
+        match last_error {
+            Some(err) => msg.push_str(&format!(" Last worker error: {err}")),
+            None => msg.push_str(" No worker error was captured."),
+        }
+        abandoned_msgs.push(msg);
+    }
+    if !abandoned_msgs.is_empty() {
+        abandoned_msgs.push(
+            "Fix the worker error or increase Task(max_worker_restarts=...); \
+             use Server().run_blockwise(...) to inspect task states without raising."
+                .to_string(),
+        );
+        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+            abandoned_msgs.join("\n"),
+        ));
+    }
+
     // Bool result: True iff every block of every task was completed
     // (skipped blocks are folded into completed_count by the
     // scheduler).
-    let states_dict = states_obj.bind(py);
     let mut all_succeeded = true;
     for (_k, v) in states_dict.try_iter()?.zip(states_dict.call_method0("values")?.try_iter()?) {
         let _ = _k?;

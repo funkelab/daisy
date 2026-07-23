@@ -28,6 +28,11 @@ pub struct RunningTask {
     /// displays. Initial-fill spawns and growth-after-budget-loosens
     /// spawns do not bump this counter.
     pub worker_restart_count: u32,
+    /// The most recent worker error observed for this task (spawn
+    /// function failure, dirty worker exit, or a BlockFailed report).
+    /// Kept so that when the task is abandoned, the *cause* survives
+    /// to the caller instead of existing only in tracing logs.
+    pub last_worker_error: Option<String>,
 }
 
 impl RunningTask {
@@ -95,6 +100,10 @@ impl RunningTask {
         self.worker_failure_count = self.worker_failure_count.saturating_add(1);
     }
 
+    pub fn note_worker_error(&mut self, error: String) {
+        self.last_worker_error = Some(error);
+    }
+
     pub fn note_worker_restarted(&mut self) {
         self.worker_restart_count = self.worker_restart_count.saturating_add(1);
     }
@@ -116,6 +125,12 @@ pub struct TaskCounters {
     pub orphaned_count: i64,
     pub worker_failure_count: u32,
     pub worker_restart_count: u32,
+    /// Most recent worker error observed for this task, if any.
+    pub last_worker_error: Option<String>,
+    /// `Some(reason)` iff the snapshot was taken from an Abandoned
+    /// task. Lifecycle info rides with the counters because the FFI
+    /// boundary only hands out counter snapshots.
+    pub abandon_reason: Option<AbandonReason>,
 }
 
 impl TaskCounters {
@@ -157,11 +172,13 @@ impl From<&RunningTask> for TaskCounters {
             orphaned_count: t.orphaned_count,
             worker_failure_count: t.worker_failure_count,
             worker_restart_count: t.worker_restart_count,
+            last_worker_error: t.last_worker_error.clone(),
+            abandon_reason: None,
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AbandonReason {
     /// Worker restart cap exhausted while blocks remained for this
     /// task itself.
@@ -169,6 +186,15 @@ pub enum AbandonReason {
     /// This task is downstream (transitively) of a directly
     /// abandoned task — its input will never arrive.
     UpstreamAbandoned,
+}
+
+impl fmt::Display for AbandonReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RestartCapExhausted => write!(f, "worker restart cap exhausted"),
+            Self::UpstreamAbandoned => write!(f, "upstream task abandoned"),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -301,7 +327,8 @@ impl TaskState {
         rt.orphaned_count += remaining;
         rt.ready_count = 0;
         rt.processing_count = 0;
-        let counters = TaskCounters::from(&rt);
+        let mut counters = TaskCounters::from(&rt);
+        counters.abandon_reason = Some(reason.clone());
         *self = Self::Abandoned(AbandonedTask { counters, reason });
         Some(remaining)
     }

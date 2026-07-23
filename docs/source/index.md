@@ -53,6 +53,7 @@ A **block function** receives one block at a time. A **worker function** takes z
 :caption: User guide
 
 tutorials/index
+failing_workers
 api
 :::
 

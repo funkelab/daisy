@@ -69,6 +69,27 @@ impl PyTaskState {
         self.inner.worker_restart_count
     }
 
+    /// True iff the task was abandoned (restart cap exhausted, or an
+    /// upstream task was abandoned) rather than run to completion.
+    #[getter]
+    fn abandoned(&self) -> bool {
+        self.inner.abandon_reason.is_some()
+    }
+
+    /// Human-readable abandonment reason, or None if not abandoned.
+    #[getter]
+    fn abandon_reason(&self) -> Option<String> {
+        self.inner.abandon_reason.as_ref().map(|r| r.to_string())
+    }
+
+    /// The most recent worker error observed for this task (spawn
+    /// function failure, dirty worker exit, or a reported block
+    /// failure), or None if no worker ever errored.
+    #[getter]
+    fn last_worker_error(&self) -> Option<String> {
+        self.inner.last_worker_error.clone()
+    }
+
     fn is_done(&self) -> bool {
         // For a counter snapshot, "done" means the counters balance.
         // Frozen snapshots from terminal variants (Done/Abandoned)
