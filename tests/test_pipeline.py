@@ -31,7 +31,7 @@ def _edge_ids(pipeline):
 
 def test_pipeline_class_lives_in_rust():
     """Pipeline is exposed as `_rs.Pipeline`, not a Python wrapper."""
-    assert Pipeline.__module__ == "builtins"
+    assert Pipeline.__module__ == "daisy._daisy"
 
 
 def test_task_plus_task_makes_sequential_pipeline():
