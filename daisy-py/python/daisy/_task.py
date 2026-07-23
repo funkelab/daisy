@@ -14,6 +14,7 @@ from contextlib import contextmanager
 import copy
 import inspect
 import logging
+import warnings
 from pathlib import Path
 
 import daisy._daisy as _rs
@@ -58,6 +59,7 @@ Context = _rs.Context
 # total_roi, read_roi, write_roi, process_function, check_function,
 # read_write_conflict, fit, max_workers, max_retries, timeout, ...)
 _PROCESS_FN_ARG_INDEX = 4
+_CHECK_FN_ARG_INDEX = 5
 _TIMEOUT_ARG_INDEX = 10
 
 
@@ -73,6 +75,24 @@ class Task(_rs.Task):
     """
 
     def __new__(cls, *args, worker_processes=False, **kwargs):
+        check_fn = kwargs.get("check_function")
+        if check_fn is None and len(args) > _CHECK_FN_ARG_INDEX:
+            check_fn = args[_CHECK_FN_ARG_INDEX]
+        if check_fn is not None:
+            warnings.warn(
+                "Task(check_function=...) runs your callable on the server "
+                "for EVERY block, and its result persists nowhere — every "
+                "rerun pays the full check cost again. For resuming "
+                "interrupted or repeated runs, prefer the built-in done "
+                "markers (Task(done_marker_path=...) or "
+                "daisy.set_done_marker_basedir(...)): one mmap'd byte per "
+                "block, written on completion, checked in ~microseconds. "
+                "Keep check_function only when the ground truth genuinely "
+                "lives in your output data (e.g. verifying non-empty zarr "
+                "chunks written by an earlier pipeline).",
+                UserWarning,
+                stacklevel=2,
+            )
         if worker_processes:
             from daisy._worker_processes import make_spawn_function
 
