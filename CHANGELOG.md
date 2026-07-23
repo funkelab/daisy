@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   planned in-place migration enhancement, with interim workarounds.
   (adversarial suite case f05)
 
+- Worker starts are now bounded by a hard per-task budget of `max_workers + max_worker_restarts`, regardless of how or why previous workers exited. Previously only dirty exits counted toward the restart cap, so a worker that exited cleanly without processing blocks (e.g. `subprocess.run(..., check=False)` around a command that fails to start) respawned forever and the run never terminated. Workers are expected to be long-running; the recycle-after-N-blocks pattern is not supported — size `max_worker_restarts` for expected worker deaths (preemption, walltime), or resume via done markers. See `docs/source/design/ABANDONMENT.md`.
+
 ## [2.0.0] — 2026-04-27
 
 ### Overview

@@ -63,14 +63,6 @@ struct WorkerSpec {
     worker_id: u64,
     host: String,
     port: u16,
-    /// Task-level progress (completed + skipped) when this worker was
-    /// spawned. Used at join time to detect workers that exited cleanly
-    /// without their task making ANY forward progress — those count
-    /// toward the restart cap just like dirty exits, so a spawn
-    /// function that silently fails to start a worker (e.g.
-    /// `subprocess.run(..., check=False)` around a broken command)
-    /// cannot respawn forever.
-    progress_at_spawn: i64,
 }
 
 enum WorkerThread {
@@ -656,52 +648,11 @@ impl Server {
                     {
                         match handle.join() {
                             Ok(true) => {
-                                // A clean exit is still a failure for cap
-                                // purposes if the task made NO forward
-                                // progress during this worker's lifetime
-                                // while ready work remained: that's the
-                                // signature of a spawn function whose
-                                // worker never starts (e.g. subprocess.run
-                                // with check=False around a broken
-                                // command) — without this, such workers
-                                // respawn forever. Task-level progress is
-                                // deliberate: any progress at all means
-                                // the run is not stuck, and healthy
-                                // worker-recycling patterns (exit after N
-                                // blocks) stay exempt.
-                                let unproductive = scheduler
-                                    .task_states
-                                    .get(&spec.task_id)
-                                    .map(|state| {
-                                        let c = state.counters();
-                                        c.ready_count > 0
-                                            && c.completed_count + c.skipped_count
-                                                == spec.progress_at_spawn
-                                    })
-                                    .unwrap_or(false);
-                                if unproductive {
-                                    warn!(
-                                        worker_id = spec.worker_id,
-                                        task_id = %spec.task_id,
-                                        "worker exited cleanly without \
-                                         contributing progress while blocks \
-                                         were ready; counting toward the \
-                                         restart cap",
-                                    );
-                                    if let Some(state) =
-                                        scheduler.task_states.get_mut(&spec.task_id)
-                                    {
-                                        if let Some(rt) = state.as_running_mut() {
-                                            rt.note_worker_died();
-                                        }
-                                    }
-                                } else {
-                                    debug!(
-                                        worker_id = spec.worker_id,
-                                        task_id = %spec.task_id,
-                                        "worker exited cleanly",
-                                    );
-                                }
+                                debug!(
+                                    worker_id = spec.worker_id,
+                                    task_id = %spec.task_id,
+                                    "worker exited cleanly",
+                                );
                             }
                             Ok(false) | Err(_) => {
                                 warn!(
@@ -878,18 +829,28 @@ impl Server {
                 if alive >= task.max_workers {
                     continue;
                 }
-                // A spawn that *replaces* a previously-dead worker
-                // is a "restart"; one that fills an unfilled slot
-                // (initial fill, or growth after the resource budget
-                // loosens) is not. The differentiator: if the task
-                // has more dirty exits on the books than restarts
-                // performed, we're refilling a death.
-                let failures = counters.worker_failure_count;
-                let restarts = counters.worker_restart_count;
-                let is_restart = failures > restarts;
-                if is_restart && restarts >= task.max_worker_restarts {
+                // Hard start budget: a task may ever start at most
+                // `max_workers + max_worker_restarts` workers, TOTAL,
+                // regardless of how or why previous workers exited —
+                // clean, dirty, or productive alike. Workers are
+                // expected to be long-running (they may hold large
+                // models in memory); recycling workers mid-task is not
+                // a supported pattern, and exempting "good" exits
+                // would let a spawn function whose worker silently
+                // fails to start (e.g. `subprocess.run(...,
+                // check=False)` around a broken command) respawn
+                // forever. Starts beyond the first `max_workers` are
+                // accounted as restarts, which keeps the abandonment
+                // condition (`worker_restart_count >=
+                // max_worker_restarts`) and user-facing counters
+                // meaning what they always did.
+                let starts = state.worker_start_count() as u64;
+                let budget =
+                    task.max_workers as u64 + task.max_worker_restarts as u64;
+                if starts >= budget {
                     continue;
                 }
+                let is_restart = starts >= task.max_workers as u64;
                 if !allocator.try_allocate(task) {
                     continue;
                 }
@@ -899,14 +860,14 @@ impl Server {
                     worker_id: *next_id,
                     host: host.to_string(),
                     port,
-                    progress_at_spawn: counters.completed_count + counters.skipped_count,
                 };
                 let handle = Self::spawn_worker(&spec, exit_tx.clone());
                 workers.push((spec, WorkerThread::Running(handle)));
                 *next_id += 1;
-                if is_restart {
-                    if let Some(state) = scheduler.task_states.get_mut(&task.task_id) {
-                        if let Some(rt) = state.as_running_mut() {
+                if let Some(state) = scheduler.task_states.get_mut(&task.task_id) {
+                    if let Some(rt) = state.as_running_mut() {
+                        rt.note_worker_started();
+                        if is_restart {
                             rt.note_worker_restarted();
                         }
                     }

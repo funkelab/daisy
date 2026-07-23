@@ -72,11 +72,22 @@ Two worker shapes, both folded into the same death/restart cycle:
 In both cases, the dirty exit triggers the same downstream flow:
 
 1. `worker_exit_rx` fires on the server's `select!`.
-2. `check_thread_health` joins the thread, decrements `allocator.alive`, increments `worker_failure_count`.
-3. `rebalance_workers` decides whether to refill. A spawn is a *restart* iff `worker_failure_count > worker_restart_count` (we owe the task a refill for some past death). Refills bump `worker_restart_count`.
-4. If the cap is hit and `alive == 0`, `abandon_exhausted_tasks` transitions the task to `Abandoned` and BFS-propagates the same transition (with reason `UpstreamAbandoned`) to all transitively-downstream tasks.
+2. `check_thread_health` joins the thread, decrements `allocator.alive`, increments `worker_failure_count` (dirty exits only — it is a reporting stat).
+3. `rebalance_workers` decides whether to refill, governed by the **start budget** below.
+4. If the budget is exhausted and `alive == 0`, `abandon_exhausted_tasks` transitions the task to `Abandoned` and BFS-propagates the same transition (with reason `UpstreamAbandoned`) to all transitively-downstream tasks.
 
-`max_worker_restarts` caps refill spawns. Because each block-failure is a death, in 1-arg mode the cap also bounds total block failures: a buggy `process_function` will fail at most `max_worker_restarts + 1` blocks before the runner gives up.
+Because each block-failure is a death, in 1-arg mode the budget also bounds total block failures: a buggy `process_function` will fail at most `max_worker_restarts + 1` blocks before the runner gives up.
+
+## The worker-start budget
+
+A task may ever start at most **`max_workers + max_worker_restarts`** workers, total, regardless of how or why previous workers exited — dirty, clean, or productive alike (`worker_start_count` on `RunningTask`; enforced in `rebalance_workers`). Starts beyond the first `max_workers` are accounted as restarts (`worker_restart_count`), so the abandonment condition and the tqdm `♻=N` counter keep their meaning.
+
+Why no exemptions: daisy workers are expected to be **long-running** — they may hold large models in memory and process many blocks over their lifetime. Recycling workers mid-task (exit after N blocks, rely on respawn) is not a supported pattern; fix the leak, or size `max_worker_restarts` generously. Exempting "good" exits would also reopen an unbounded-respawn hole: a spawn function whose worker silently fails to start (e.g. `subprocess.run(..., check=False)` around a command that can't run on the node) exits cleanly with zero progress and would otherwise respawn forever.
+
+Two practical consequences:
+
+- Workers that exit because the queue drained consume no further budget — with no ready blocks, `rebalance_workers` never refills, so over-provisioning `max_workers` past the block count cannot abandon a completed task.
+- On preemptible or walltime-limited infrastructure, size `max_worker_restarts` to the number of worker deaths you expect over the run, or rely on done markers and simply start a fresh run to resume.
 
 ## Race windows the typestate closes
 

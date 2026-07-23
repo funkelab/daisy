@@ -440,14 +440,20 @@ def test_successful_run_has_no_abandonment_metadata():
     )
 
 def test_clean_exit_without_progress_counts_toward_cap():
+
+def test_worker_start_budget_bounds_clean_exit_churn():
     """A spawn function that returns cleanly without its worker ever
     processing a block (e.g. `subprocess.run(..., check=False)` around
-    a command that can't start) must count toward the restart cap —
-    otherwise it respawns forever and the run never terminates."""
+    a command that can't start) must not respawn forever: total worker
+    starts are hard-capped at max_workers + max_worker_restarts, no
+    matter how or why previous workers exited."""
     import subprocess
     import sys
 
+    starts = []
+
     def broken_spawn():
+        starts.append(1)
         subprocess.run(
             [sys.executable, "/nonexistent/worker.py"],
             check=False,
@@ -471,21 +477,22 @@ def test_clean_exit_without_progress_counts_toward_cap():
 
     state = states["clean_churn"]
     assert state.is_done(), "expected task to terminate, run loop hung"
-    # Every one of these clean exits was unproductive, so they all
-    # count as failures; the cap then stops respawning exactly as it
-    # does for dirty exits.
-    assert state.worker_failure_count > state.worker_restart_count
-    assert state.worker_restart_count <= 3
+    assert len(starts) == 5, f"budget is 2 + 3 = 5 starts, saw {len(starts)}"
+    assert state.worker_restart_count == 3
+    # clean exits are not failures — worker_failure_count reports
+    # dirty exits only
+    assert state.worker_failure_count == 0
     assert state.completed_count == 0
     assert state.orphaned_count > 0
     assert state.failed_count == 0
 
 
-def test_worker_recycling_stays_exempt_from_cap():
-    """Workers that exit cleanly AFTER contributing progress (the
-    daisy 1.x recycle-after-N-blocks pattern) must not trip the cap,
-    even when total worker starts far exceed max_workers +
-    max_worker_restarts."""
+def test_worker_recycling_consumes_the_start_budget():
+    """Workers are expected to be long-running: a worker that exits
+    cleanly after processing blocks still consumes start budget, and a
+    task whose workers recycle themselves runs out of starts. This is
+    intended semantics — fix the worker (or raise max_worker_restarts /
+    resume via done markers), don't recycle it."""
 
     def one_block_then_quit():
         client = daisy.Client()
@@ -502,15 +509,43 @@ def test_worker_recycling_stays_exempt_from_cap():
         read_write_conflict=False,
         max_workers=2,
         max_retries=0,
-        max_worker_restarts=3,  # 16 blocks needs ~16 starts >> 2 + 3
+        max_worker_restarts=3,  # start budget: 2 + 3 = 5
     )
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
 
     state = states["recycle"]
     assert state.is_done()
-    assert state.completed_count == 16, (
-        f"recycling workers should finish all blocks, got "
-        f"{state.completed_count} (failures={state.worker_failure_count})"
+    # 5 starts x 1 block each, then the task is abandoned with the
+    # remaining 11 blocks orphaned.
+    assert state.completed_count == 5, state.completed_count
+    assert state.worker_restart_count == 3
+    assert state.orphaned_count == 11, state.orphaned_count
+    assert state.failed_count == 0
+
+
+def test_queue_drained_exits_do_not_abandon():
+    """Workers that exit because the queue drained must not push a
+    completed task toward abandonment, even when far more workers were
+    requested than there was work for them."""
+    def fine(b):
+        pass
+
+    task = daisy.Task(
+        task_id="overprovisioned",
+        total_roi=daisy.Roi([0], [40]),  # 4 blocks
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=fine,
+        read_write_conflict=False,
+        max_workers=16,  # >> block count
+        max_retries=0,
+        max_worker_restarts=0,
     )
+    server = daisy.Server()
+    states = server.run_blockwise([task], progress=False)
+    state = states["overprovisioned"]
+    assert state.is_done()
+    assert state.completed_count == 4
     assert state.orphaned_count == 0
+    assert state.failed_count == 0
