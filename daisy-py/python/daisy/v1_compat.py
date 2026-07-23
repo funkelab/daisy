@@ -94,32 +94,26 @@ def _install_funlib_compat():
             return _FCoord(tuple(x))
         return x
 
-    _orig_setitem = Array.__setitem__
-    _orig_getitem = Array.__getitem__
-    _orig_to_ndarray = Array.to_ndarray
-    _orig_to_pixel = Array.to_pixel_space
-    _orig_to_world = Array.to_world_space
+    def _patch(name, make_wrapper):
+        # Patch defensively: funlib.persistence's Array API varies across
+        # versions (e.g. 0.6 dropped to_pixel_space/to_world_space).
+        # A missing method means there is nothing to adapt — never let
+        # `import daisy` crash over it.
+        orig = getattr(Array, name, None)
+        if orig is None:
+            return
+        setattr(Array, name, make_wrapper(orig))
 
-    def setitem(self, key, value):
-        return _orig_setitem(self, _to_funlib(key), value)
-
-    def getitem(self, key):
-        return _orig_getitem(self, _to_funlib(key))
-
-    def to_ndarray(self, roi=None, **kwargs):
-        return _orig_to_ndarray(self, roi=_to_funlib(roi), **kwargs)
-
-    def to_pixel_space(self, world_loc):
-        return _orig_to_pixel(self, _to_funlib(world_loc))
-
-    def to_world_space(self, pixel_loc):
-        return _orig_to_world(self, _to_funlib(pixel_loc))
-
-    Array.__setitem__ = setitem
-    Array.__getitem__ = getitem
-    Array.to_ndarray = to_ndarray
-    Array.to_pixel_space = to_pixel_space
-    Array.to_world_space = to_world_space
+    _patch("__setitem__", lambda orig: (
+        lambda self, key, value: orig(self, _to_funlib(key), value)))
+    _patch("__getitem__", lambda orig: (
+        lambda self, key: orig(self, _to_funlib(key))))
+    _patch("to_ndarray", lambda orig: (
+        lambda self, roi=None, **kw: orig(self, roi=_to_funlib(roi), **kw)))
+    _patch("to_pixel_space", lambda orig: (
+        lambda self, world_loc: orig(self, _to_funlib(world_loc))))
+    _patch("to_world_space", lambda orig: (
+        lambda self, pixel_loc: orig(self, _to_funlib(pixel_loc))))
 
 
 _install_funlib_compat()

@@ -272,7 +272,7 @@ pub fn _run_blockwise_orchestrator(
     if !abandoned_msgs.is_empty() {
         abandoned_msgs.push(
             "Fix the worker error or increase Task(max_worker_restarts=...); \
-             use Server().run_blockwise(...) to inspect task states without raising."
+             use run_blockwise(..., return_states=True) to inspect task states on non-abandonment failures, or Server().run_blockwise(...) to never raise."
                 .to_string(),
         );
         return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(

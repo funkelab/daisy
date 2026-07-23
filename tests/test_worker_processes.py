@@ -54,9 +54,14 @@ def test_lambda_gets_real_parallelism():
 
     def timed(workers):
         fn = lambda block: _busy(iters)  # noqa: E731 — the lambda IS the point
-        t0 = time.perf_counter()
-        assert daisy.run_blockwise([_task(fn, workers)], progress=False)
-        return time.perf_counter() - t0
+        # best of two: a single sample is noisy when the whole suite's
+        # worker churn loads the machine
+        walls = []
+        for _ in range(2):
+            t0 = time.perf_counter()
+            assert daisy.run_blockwise([_task(fn, workers)], progress=False)
+            walls.append(time.perf_counter() - t0)
+        return min(walls)
 
     t_serial = timed(1)
     t_parallel = timed(8)

@@ -41,31 +41,14 @@ _LOG_MODE: str = "file"
 
 _VALID_MODES = ("console", "file", "both")
 
-class _DynamicStderrHandler(_py_logging.Handler):
-    """StreamHandler equivalent that resolves `sys.stderr` on every emit
-    instead of caching it at construction time, so it honours the
-    per-thread proxy `_install_proxies` later sets up."""
-
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            sys.stderr.write(msg + "\n")
-        except Exception:
-            self.handleError(record)
-
-
 logger = _py_logging.getLogger("daisy")
-# A default handler so our warnings have somewhere to go even if the host
-# application hasn't configured logging. Users can replace or remove it.
-if not logger.handlers:
-    _default_handler = _DynamicStderrHandler()
-    _default_handler.setFormatter(_py_logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    ))
-    logger.addHandler(_default_handler)
-    logger.propagate = False
-logger.setLevel(_py_logging.WARNING)
+# Standard library-logging convention: daisy emits through `daisy.*`
+# loggers and configures NO handlers, level, or propagation of its own.
+# Unconfigured applications still see WARNING+ on stderr via python's
+# built-in `logging.lastResort` handler; applications that configure
+# logging keep full control (a handler here with propagate=False would
+# hijack their configuration and hide `daisy` records from pytest's
+# caplog and log aggregators alike).
 
 
 def set_log_basedir(path):
