@@ -205,6 +205,30 @@ def _install_block_proxy():
 _install_block_proxy()
 
 
+def _wrap_block_fn(fn):
+    """Wrap a 1-arg (block-taking) process function so it receives
+    `_BlockProxy`-wrapped blocks. 0-arg spawn functions and anything whose
+    signature can't be inspected pass through unchanged. The wrapper is a
+    plain 1-arg `def` so the Rust side's getfullargspec-based arity
+    detection still classifies it as a block processor."""
+    import inspect
+
+    if fn is None:
+        return None
+    try:
+        argspec = inspect.getfullargspec(fn)
+    except TypeError:
+        return fn
+    nargs = len([a for a in argspec.args if a != "self"])
+    if nargs != 1:
+        return fn
+
+    def _compat_block_fn(block):
+        return fn(_BlockProxy(block))
+
+    return _compat_block_fn
+
+
 class Task(_v2.Task):
     """v1.x-compatible `Task` — a Python subclass of `_rs.Task` that
     accepts the daisy 1.x kwargs `num_workers=N` (alias for
@@ -232,6 +256,15 @@ class Task(_v2.Task):
         for k in ("total_roi", "read_roi", "write_roi"):
             if k in kwargs:
                 kwargs[k] = _coerce_roi(kwargs[k])
+        # 1-arg (block-taking) process functions on the compat surface
+        # receive `_BlockProxy`-wrapped blocks (funlib-typed ROIs), matching
+        # what spawn-mode workers get from the patched Client.acquire_block.
+        # Without this, the Rust block-fn path hands v1.x user code native
+        # ROIs that fail isinstance/equality against funlib types.
+        if "process_function" in kwargs:
+            kwargs["process_function"] = _wrap_block_fn(kwargs["process_function"])
+        elif len(args) >= 5 and args[4] is not None:
+            args = (*args[:4], _wrap_block_fn(args[4]), *args[5:])
         if num_workers is not None and max_workers is not None:
             raise TypeError(
                 "pass either max_workers (v2) or num_workers (v1.x), not both"
