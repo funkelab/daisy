@@ -37,7 +37,7 @@ fn expect_native_roi(obj: &Bound<'_, PyAny>) -> PyResult<Roi> {
     )))
 }
 
-#[pyclass(name = "Coordinate", frozen, from_py_object)]
+#[pyclass(name = "Coordinate", frozen, from_py_object, module = "daisy._daisy")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyCoordinate {
     pub inner: Coordinate,
@@ -98,7 +98,7 @@ impl PyCoordinate {
     }
 }
 
-#[pyclass(name = "Roi", frozen, from_py_object)]
+#[pyclass(name = "Roi", frozen, from_py_object, module = "daisy._daisy")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyRoi {
     pub inner: Roi,

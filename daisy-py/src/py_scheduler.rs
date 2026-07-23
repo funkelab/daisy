@@ -7,7 +7,7 @@ use crate::py_pipeline::PyPipeline;
 use crate::py_task_state::PyTaskState;
 use std::collections::HashMap;
 
-#[pyclass(name = "Scheduler", skip_from_py_object, unsendable)]
+#[pyclass(name = "Scheduler", skip_from_py_object, unsendable, module = "daisy._daisy")]
 pub struct PyScheduler {
     inner: Scheduler,
 }

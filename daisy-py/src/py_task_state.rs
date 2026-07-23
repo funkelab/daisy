@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 /// (`Running`/`Done`/`Abandoned`), but observers and post-run
 /// consumers only care about the counter values, so we hand them a
 /// frozen snapshot at the FFI boundary.
-#[pyclass(name = "TaskState", skip_from_py_object)]
+#[pyclass(name = "TaskState", skip_from_py_object, module = "daisy._daisy")]
 #[derive(Clone)]
 pub struct PyTaskState {
     pub inner: TaskCounters,

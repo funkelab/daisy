@@ -99,7 +99,7 @@ fn parse_done_marker_spec(v: Option<&Bound<'_, PyAny>>) -> PyResult<DoneMarkerSp
     ))
 }
 
-#[pyclass(name = "Task", skip_from_py_object, subclass)]
+#[pyclass(name = "Task", skip_from_py_object, subclass, module = "daisy._daisy")]
 pub struct PyTask {
     pub task_id: String,
     pub total_roi: PyRoi,

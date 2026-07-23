@@ -7,7 +7,7 @@ use std::sync::Arc;
 use crate::py_block::PyBlock;
 use crate::py_roi::PyRoi;
 
-#[pyclass(name = "BlockwiseDependencyGraph", skip_from_py_object)]
+#[pyclass(name = "BlockwiseDependencyGraph", skip_from_py_object, module = "daisy._daisy")]
 pub struct PyBlockwiseDepGraph {
     inner: BlockwiseDependencyGraph,
 }
@@ -96,7 +96,7 @@ impl PyBlockwiseDepGraph {
     }
 }
 
-#[pyclass(name = "DependencyGraph", skip_from_py_object)]
+#[pyclass(name = "DependencyGraph", skip_from_py_object, module = "daisy._daisy")]
 pub struct PyDependencyGraph {
     inner: DependencyGraph,
 }

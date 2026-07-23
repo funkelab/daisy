@@ -6,7 +6,7 @@ use crate::py_block::PyBlock;
 
 /// Synchronous Python-facing client. Creates its own tokio runtime
 /// so worker processes can use it without an async event loop.
-#[pyclass(name = "SyncClient", unsendable)]
+#[pyclass(name = "SyncClient", unsendable, module = "daisy._daisy")]
 pub struct PySyncClient {
     rt: tokio::runtime::Runtime,
     client: Option<Client>,

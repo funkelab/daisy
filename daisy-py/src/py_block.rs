@@ -3,7 +3,7 @@ use pyo3::prelude::*;
 
 use crate::py_roi::PyRoi;
 
-#[pyclass(name = "BlockStatus", skip_from_py_object)]
+#[pyclass(name = "BlockStatus", skip_from_py_object, module = "daisy._daisy")]
 #[derive(Clone)]
 pub struct PyBlockStatus {
     pub inner: BlockStatus,
@@ -26,7 +26,7 @@ impl PyBlockStatus {
 }
 
 /// Block pyclass. Not frozen (status is mutable), so eq/hash are manual.
-#[pyclass(name = "Block", from_py_object)]
+#[pyclass(name = "Block", from_py_object, module = "daisy._daisy")]
 #[derive(Clone)]
 pub struct PyBlock {
     pub inner: Block,

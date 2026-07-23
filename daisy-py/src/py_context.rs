@@ -13,7 +13,7 @@ const ENV_VARIABLE: &str = "DAISY_CONTEXT";
 /// Construct from kwargs (`Context(hostname="...", port=12345)`)
 /// or from `Context.from_env()` to read back the env var on the
 /// worker side. Keys and values are always coerced to `str`.
-#[pyclass(name = "Context")]
+#[pyclass(name = "Context", module = "daisy._daisy")]
 pub struct PyContext {
     inner: HashMap<String, String>,
 }

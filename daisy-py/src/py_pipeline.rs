@@ -23,7 +23,7 @@ use crate::py_task::PyTask;
 /// references (Python identity); edges are index pairs into that
 /// list, so the entire structure is small and cheap to clone /
 /// compose.
-#[pyclass(name = "Pipeline", skip_from_py_object)]
+#[pyclass(name = "Pipeline", skip_from_py_object, module = "daisy._daisy")]
 pub struct PyPipeline {
     pub tasks: Vec<Py<PyAny>>,
     pub edges: Vec<(usize, usize)>,
