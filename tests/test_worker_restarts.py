@@ -547,3 +547,72 @@ def test_queue_drained_exits_do_not_abandon():
     assert state.completed_count == 4
     assert state.orphaned_count == 0
     assert state.failed_count == 0
+
+
+def test_no_more_worker_starts_than_available_work():
+    """Requesting far more workers than there are blocks must not
+    launch them all: workers beyond ready + processing can never be
+    fed, and launching them just burns start budget and wall-clock
+    (the run waits for every launched worker to connect and shut
+    down). 64 blocks with max_workers=128 -> at most 64 starts."""
+
+    def quick_worker():
+        client = daisy.Client()
+        while True:
+            with client.acquire_block() as block:
+                if block is None:
+                    break
+
+    task = daisy.Task(
+        task_id="overprovisioned_spawn",
+        total_roi=daisy.Roi([0], [640]),  # 64 blocks
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=quick_worker,
+        read_write_conflict=False,
+        max_workers=128,
+        max_retries=0,
+    )
+    server = daisy.Server()
+    states = server.run_blockwise([task], progress=False)
+
+    state = states["overprovisioned_spawn"]
+    assert state.is_done()
+    assert state.completed_count == 64
+    assert state.orphaned_count == 0
+    # never spawn workers that provably have nothing to do
+    assert state.worker_start_count <= 64, state.worker_start_count
+
+
+def test_downstream_task_ramps_up_as_upstream_completes():
+    """The ready+processing spawn cap must not strand a downstream
+    task: its ready_count starts at 0 and grows as upstream blocks
+    complete; later rebalance calls (state changes / health tick) must
+    keep spawning workers until the pipeline finishes."""
+    upstream = daisy.Task(
+        task_id="ramp_upstream",
+        total_roi=daisy.Roi([0], [160]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=2,
+        max_retries=0,
+    )
+    downstream = daisy.Task(
+        task_id="ramp_downstream",
+        total_roi=daisy.Roi([0], [160]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=4,
+        max_retries=0,
+    )
+    pipeline = upstream + downstream
+    server = daisy.Server()
+    states = server.run_blockwise(pipeline, progress=False)
+
+    assert states["ramp_upstream"].completed_count == 16
+    assert states["ramp_downstream"].completed_count == 16
+    assert states["ramp_downstream"].orphaned_count == 0

@@ -90,6 +90,11 @@ impl PyTaskState {
         self.inner.last_worker_error.clone()
     }
 
+    #[getter]
+    fn worker_start_count(&self) -> u32 {
+        self.inner.worker_start_count
+    }
+
     fn is_done(&self) -> bool {
         // For a counter snapshot, "done" means the counters balance.
         // Frozen snapshots from terminal variants (Done/Abandoned)
