@@ -12,7 +12,7 @@ Daisy v2 is a Rust rewrite of the original [daisy](https://pypi.org/project/dais
 pip install daisy
 ```
 
-Requires Python ≥ 3.11. Prebuilt wheels are published for Linux, macOS, and Windows.
+Requires Python ≥ 3.11. Wheels for Linux (glibc + musl, x86_64/aarch64), macOS (x86_64/arm64), and Windows are built in CI (`.github/workflows/publish.yaml`) and published to PyPI on version tags; building from source needs a Rust toolchain.
 
 ## Quick example
 
