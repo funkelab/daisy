@@ -28,6 +28,14 @@ pub struct RunningTask {
     /// displays. Initial-fill spawns and growth-after-budget-loosens
     /// spawns do not bump this counter.
     pub worker_restart_count: u32,
+    /// Total workers ever started for this task. Workers are expected
+    /// to be long-running (they may hold large models in memory), so
+    /// the runner enforces a hard start budget of
+    /// `max_workers + max_worker_restarts` regardless of how or why
+    /// previous workers exited — there is no exemption for clean or
+    /// productive exits. Starts beyond the first `max_workers` count
+    /// as restarts.
+    pub worker_start_count: u32,
 }
 
 impl RunningTask {
@@ -95,6 +103,10 @@ impl RunningTask {
         self.worker_failure_count = self.worker_failure_count.saturating_add(1);
     }
 
+    pub fn note_worker_started(&mut self) {
+        self.worker_start_count = self.worker_start_count.saturating_add(1);
+    }
+
     pub fn note_worker_restarted(&mut self) {
         self.worker_restart_count = self.worker_restart_count.saturating_add(1);
     }
@@ -116,6 +128,7 @@ pub struct TaskCounters {
     pub orphaned_count: i64,
     pub worker_failure_count: u32,
     pub worker_restart_count: u32,
+    pub worker_start_count: u32,
 }
 
 impl TaskCounters {
@@ -157,6 +170,7 @@ impl From<&RunningTask> for TaskCounters {
             orphaned_count: t.orphaned_count,
             worker_failure_count: t.worker_failure_count,
             worker_restart_count: t.worker_restart_count,
+            worker_start_count: t.worker_start_count,
         }
     }
 }
@@ -251,6 +265,14 @@ impl TaskState {
             Self::Running(t) => t.worker_failure_count,
             Self::Done(t) => t.counters.worker_failure_count,
             Self::Abandoned(t) => t.counters.worker_failure_count,
+        }
+    }
+
+    pub fn worker_start_count(&self) -> u32 {
+        match self {
+            Self::Running(t) => t.worker_start_count,
+            Self::Done(t) => t.counters.worker_start_count,
+            Self::Abandoned(t) => t.counters.worker_start_count,
         }
     }
 
