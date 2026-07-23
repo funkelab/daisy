@@ -245,6 +245,16 @@ class Client:
     context manager that handles status bookkeeping and routes
     failure tracebacks into the per-worker log.
 
+    A server that is already gone at construction time (connection
+    refused) is treated as "the run has ended": construction does NOT
+    raise — a WARNING is logged, `connected` is False, and
+    `acquire_block()` yields None immediately, so the canonical worker
+    loop exits cleanly. This is the normal fate of straggler cluster
+    jobs that start after the run drained; it must not register as a
+    worker failure. A missing or malformed `DAISY_CONTEXT` still
+    raises (`KeyError` / `ValueError`) — that's a configuration error,
+    not a race. Mid-run connection losses also still raise.
+
     The acquire_block context manager is implemented in Python
     because it integrates with `daisy.logging` (the "logging"
     carve-out for the otherwise all-Rust runtime)."""
@@ -267,10 +277,31 @@ class Client:
         self.port = int(context["port"])
         self.worker_id = int(context["worker_id"])
         self.task_id = context["task_id"]
-        self._client = _rs.SyncClient(self.host, self.port, self.task_id)
+        try:
+            self._client = _rs.SyncClient(self.host, self.port, self.task_id)
+        except ConnectionRefusedError:
+            self._client = None
+            logger.warning(
+                "daisy server at %s:%s is not reachable; assuming the run "
+                "has ended — this worker will exit without processing "
+                "blocks",
+                self.host,
+                self.port,
+            )
+
+    @property
+    def connected(self) -> bool:
+        """False if the server was already gone at construction, or after
+        `disconnect()`."""
+        return self._client is not None and self._client.is_connected()
 
     @contextmanager
     def acquire_block(self):
+        if self._client is None:
+            # server was gone at construction: behave exactly like the
+            # normal end-of-work signal
+            yield None
+            return
         block = self._client.acquire_block()
         if block is None:
             yield None
@@ -301,7 +332,8 @@ class Client:
 
     def __del__(self):
         try:
-            self._client.disconnect()
+            if self._client is not None:
+                self._client.disconnect()
         except Exception:
             pass
 

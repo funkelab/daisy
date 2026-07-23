@@ -16,6 +16,17 @@ fn io_err(e: std::io::Error) -> PyErr {
     PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!("{e}"))
 }
 
+/// Connect-phase errors keep their io kind: a refused connection maps to
+/// Python's builtin `ConnectionRefusedError` so `Client` can recognize
+/// "server already gone" portably (the Display string differs per OS).
+fn connect_err(e: std::io::Error) -> PyErr {
+    if e.kind() == std::io::ErrorKind::ConnectionRefused {
+        PyErr::new::<pyo3::exceptions::PyConnectionRefusedError, _>(format!("{e}"))
+    } else {
+        io_err(e)
+    }
+}
+
 #[pymethods]
 impl PySyncClient {
     #[new]
@@ -23,7 +34,7 @@ impl PySyncClient {
         let rt = tokio::runtime::Runtime::new().map_err(io_err)?;
         let client = py
             .detach(|| rt.block_on(Client::connect(host, port, task_id)))
-            .map_err(io_err)?;
+            .map_err(connect_err)?;
         Ok(Self {
             rt,
             client: Some(client),
