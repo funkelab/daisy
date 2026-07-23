@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Done-marker tracking is now opt-in.** `Task(done_marker_path=None)` only
+  resolves to a marker when `set_done_marker_basedir(...)` has been called;
+  the fallback to the logging basedir (`./daisy_logs/<task_id>`, relative to
+  the current working directory) is removed. Previously a rerun of a script
+  whose code had changed could silently skip every block a prior run had
+  marked done. Explicit `done_marker_path="..."` and `done_marker_path=False`
+  behave as before. To restore the old behavior, call
+  `daisy.set_done_marker_basedir(...)` once at pipeline start.
+
+### Added
+
+- Resumed runs now emit an INFO record per task on the `daisy._progress`
+  logger stating how many blocks were skipped via done markers and how to
+  reprocess them.
+
 ### Documentation
 
 - Done markers: documented the layout-hash limitation for grown volumes

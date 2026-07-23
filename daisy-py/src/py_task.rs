@@ -10,8 +10,15 @@ use crate::py_callbacks::{PyCheckBlock, PyProcessBlock, PySpawnWorker};
 use crate::py_roi::PyRoi;
 
 /// Three-state done-marker spec: `Auto` resolves at convert time
-/// against the global basedir (or `daisy.logging.LOG_BASEDIR` as
-/// final fallback); `Disabled` opts out; `Path` is verbatim.
+/// against the global basedir set via `set_done_marker_basedir()`;
+/// `Disabled` opts out; `Path` is verbatim.
+///
+/// Block tracking is opt-in: with no explicit `done_marker_path` and
+/// no basedir set, `Auto` resolves to no marker at all. There is
+/// deliberately no fallback to the logging basedir / CWD `daisy_logs`
+/// — persistent skip-state anchored to the current working directory
+/// meant a rerun of a (possibly changed) script silently skipped
+/// every block a previous run had marked done.
 #[derive(Clone, Debug)]
 pub enum DoneMarkerSpec {
     Auto,
@@ -23,33 +30,14 @@ impl DoneMarkerSpec {
     /// Resolve to a concrete path string. Precedence:
     ///   1. `Disabled`           → None
     ///   2. `Path(s)`            → Some(s)
-    ///   3. `Auto` + global Rust basedir set → `<basedir>/<task_id>`
-    ///   4. `Auto` + Python `daisy.logging.LOG_BASEDIR` set → `<log_basedir>/<task_id>`
-    ///   5. otherwise            → None
-    pub fn resolve(&self, py: Python<'_>, task_id: &str) -> Option<String> {
+    ///   3. `Auto` + basedir set via `set_done_marker_basedir` → `<basedir>/<task_id>`
+    ///   4. otherwise            → None (tracking is opt-in)
+    pub fn resolve(&self, _py: Python<'_>, task_id: &str) -> Option<String> {
         match self {
             DoneMarkerSpec::Disabled => None,
             DoneMarkerSpec::Path(s) => Some(s.clone()),
-            DoneMarkerSpec::Auto => {
-                if let Some(b) = get_basedir() {
-                    return Some(b.join(task_id).to_string_lossy().into_owned());
-                }
-                // Python LOG_BASEDIR fallback. Best-effort: any error
-                // (module not importable, attribute missing, value is
-                // None) just yields no marker.
-                let py_basedir: Option<String> = py
-                    .import("daisy.logging")
-                    .ok()
-                    .and_then(|m| m.getattr("LOG_BASEDIR").ok())
-                    .and_then(|v| if v.is_none() { None } else { v.str().ok() })
-                    .and_then(|s| s.extract::<String>().ok());
-                py_basedir.map(|b| {
-                    PathBuf::from(b)
-                        .join(task_id)
-                        .to_string_lossy()
-                        .into_owned()
-                })
-            }
+            DoneMarkerSpec::Auto => get_basedir()
+                .map(|b| b.join(task_id).to_string_lossy().into_owned()),
         }
     }
 }

@@ -149,26 +149,30 @@ def test_pipeline_can_be_run_independently_after_composition():
 
 
 def test_pipeline_reset_clears_member_markers(tmp_path):
-    import daisy.logging as gl
+    import daisy
 
-    gl.set_log_basedir(tmp_path / "logs")
-    a, b, c = _task("a"), _task("b"), _task("c")
-    pipe = a + b + c
+    # Done markers are opt-in: enable them via the global basedir.
+    daisy.set_done_marker_basedir(tmp_path / "markers")
+    try:
+        a, b, c = _task("a"), _task("b"), _task("c")
+        pipe = a + b + c
 
-    assert pipe.run_blockwise(progress=False)
-    for tid in ("a", "b", "c"):
-        assert (tmp_path / "logs" / tid).exists()
+        assert pipe.run_blockwise(progress=False)
+        for tid in ("a", "b", "c"):
+            assert (tmp_path / "markers" / tid).exists()
 
-    # Reset only b: only b's marker disappears.
-    Pipeline.from_task(b).reset()
-    assert (tmp_path / "logs" / "a").exists()
-    assert not (tmp_path / "logs" / "b").exists()
-    assert (tmp_path / "logs" / "c").exists()
+        # Reset only b: only b's marker disappears.
+        Pipeline.from_task(b).reset()
+        assert (tmp_path / "markers" / "a").exists()
+        assert not (tmp_path / "markers" / "b").exists()
+        assert (tmp_path / "markers" / "c").exists()
 
-    # Reset the whole pipeline: all three gone.
-    pipe.reset()
-    for tid in ("a", "b", "c"):
-        assert not (tmp_path / "logs" / tid).exists()
+        # Reset the whole pipeline: all three gone.
+        pipe.reset()
+        for tid in ("a", "b", "c"):
+            assert not (tmp_path / "markers" / tid).exists()
+    finally:
+        daisy.set_done_marker_basedir(None)
 
 
 def test_pipeline_run_blockwise_respects_block_level_dependencies(tmp_path):
