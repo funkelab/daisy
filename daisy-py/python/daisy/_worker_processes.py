@@ -108,12 +108,12 @@ def make_spawn_function(process_function, timeout=None):
     """
     payload = _serialize((process_function, timeout))
 
-    def _spawn_worker_process():
-        # DAISY_CONTEXT is set (process-globally) by the server just before
-        # this spawn function is called; snapshot the environment first
-        # thing to minimize the window in which a concurrently spawning
-        # worker could overwrite it.
+    def _spawn_worker_process(*, context):
+        # The context arrives as an argument (race-free), so the child's
+        # DAISY_CONTEXT can be set deterministically instead of hoping the
+        # process-global env var wasn't overwritten by a concurrent spawn.
         env = dict(os.environ)
+        env["DAISY_CONTEXT"] = context.to_env()
         # Capture the child's stderr (to a spooled file, not a pipe — no
         # reader-deadlock for chatty workers) so a crashing block function's
         # actual traceback can ride along in the raised error, where the

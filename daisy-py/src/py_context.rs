@@ -133,20 +133,39 @@ impl PyContext {
         let env = std::env::var(ENV_VARIABLE).map_err(|_| {
             PyErr::new::<PyKeyError, _>(format!("{ENV_VARIABLE} not found"))
         })?;
-        let mut inner = HashMap::new();
-        for token in env.split(':') {
-            if token.is_empty() {
-                continue;
-            }
-            let (k, v) = token.split_once('=').ok_or_else(|| {
-                PyErr::new::<PyValueError, _>(format!("invalid context token: {token}"))
-            })?;
-            inner.insert(k.to_string(), v.to_string());
-        }
-        Ok(Self { inner })
+        Self::from_env_string(&env)
+    }
+
+    /// Parse a `key=value:key=value` context string (the `to_env`
+    /// encoding) without touching the process environment.
+    #[staticmethod]
+    fn from_env_string(env: &str) -> PyResult<Self> {
+        Ok(Self { inner: parse_env_string(env)? })
     }
 
     fn __repr__(&self) -> String {
         self.to_env()
     }
+}
+
+
+impl PyContext {
+    /// Crate-internal: build directly from an encoded context string.
+    pub(crate) fn from_encoded(env: &str) -> PyResult<Self> {
+        Ok(Self { inner: parse_env_string(env)? })
+    }
+}
+
+pub(crate) fn parse_env_string(env: &str) -> PyResult<HashMap<String, String>> {
+    let mut inner = HashMap::new();
+    for token in env.split(':') {
+        if token.is_empty() {
+            continue;
+        }
+        let (k, v) = token.split_once('=').ok_or_else(|| {
+            PyErr::new::<PyValueError, _>(format!("invalid context token: {token}"))
+        })?;
+        inner.insert(k.to_string(), v.to_string());
+    }
+    Ok(inner)
 }

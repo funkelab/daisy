@@ -322,12 +322,19 @@ def _wrap_for_worker_logging(task):
 
     orig = task.process_function
     task_id = task.task_id
-    nargs = len([a for a in inspect.getfullargspec(orig).args if a != "self"])
+    argspec = inspect.getfullargspec(orig)
+    nargs = len([a for a in argspec.args if a != "self"])
+    # spawn functions may declare a keyword-only `context` parameter
+    # (race-free worker identity); mirror it so the Rust caller still
+    # sees the request and forward it through.
+    orig_wants_context = "context" in (argspec.kwonlyargs or [])
 
     if nargs == 0:
-        def wrapped():
+        def wrapped(*, context=None):
             with _worker_log._WorkerLogContext(task_id):
                 try:
+                    if orig_wants_context:
+                        return orig(context=context)
                     return orig()
                 except BaseException as e:
                     _worker_log.logger.warning(

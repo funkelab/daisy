@@ -2,7 +2,7 @@ use pyo3::prelude::*;
 
 mod py_block;
 mod py_callbacks;
-mod py_context;
+pub(crate) mod py_context;
 mod py_dep_graph;
 mod py_pipeline;
 mod py_roi;

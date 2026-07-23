@@ -92,7 +92,17 @@ These 1.x names are not exposed by daisy v2 (neither in `daisy` nor `daisy.v2`):
 v2 introduces format identifiers under the v2 name; existing daisy 1.x stores were never compatible with these because the formats are v2 inventions. Worth knowing:
 
 - **Done markers** are written under attribute `daisy_task_hash` in a Zarr v3 array, with a hash prefix `daisy-done-marker:v1`. These are v2-only.
-- **Worker context** is passed via the `DAISY_CONTEXT` environment variable (1.x had no equivalent — workers in 1.x were spawned via `multiprocessing` + `dill`).
+- **Worker context** reaches workers two ways. The `DAISY_CONTEXT` environment variable is set before each spawn-function call (1.x had no equivalent — workers in 1.x were spawned via `multiprocessing` + `dill`). Because that variable is process-global, a spawn function that blocks before its child captures the environment (an `sbatch`/`bsub` submission, a slow filesystem) can observe a *later* worker's value under concurrent spawns. Spawn functions that need a reliable identity should declare a keyword-only `context` parameter and receive this worker's `daisy.Context` by value:
+
+  ```python
+  def start_worker(*, context):
+      subprocess.run([
+          "sbatch", "--export", f"DAISY_CONTEXT={context.to_env()}",
+          "worker.sh",
+      ])
+  ```
+
+  The keyword-only parameter doesn't change the function's positional arity, so it still classifies as a spawn function; `context` supports dict access (`context["worker_id"]`) and `to_env()` for forwarding.
 
 ## Python version
 
