@@ -105,3 +105,38 @@ def test_context_round_trip():
     assert parsed["hostname"] == "node1"
     assert parsed["port"] == "1234"
     assert parsed["worker_id"] == "7"
+
+
+def test_legacy_zero_arg_spawn_warns_when_concurrent(recwarn):
+    """0-arg spawn functions still work (env-var path) but warn about the
+    DAISY_CONTEXT race when max_workers > 1."""
+    import warnings as _w
+
+    def legacy_spawn():
+        pass
+
+    def race_free(*, context):
+        pass
+
+    def block_fn(block):
+        pass
+
+    def mk(fn, workers):
+        return daisy.Task(
+            task_id="warncheck",
+            total_roi=daisy.Roi([0], [20]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=fn,
+            read_write_conflict=False,
+            max_workers=workers,
+        )
+
+    with pytest.warns(UserWarning, match="DAISY_CONTEXT"):
+        mk(legacy_spawn, 2)
+
+    # no warning: race-free signature, single worker, or block function
+    for fn, workers in ((race_free, 8), (legacy_spawn, 1), (block_fn, 8)):
+        with _w.catch_warnings():
+            _w.simplefilter("error", UserWarning)
+            mk(fn, workers)

@@ -80,6 +80,7 @@ Context = _rs.Context
 # read_write_conflict, fit, max_workers, max_retries, timeout, ...)
 _PROCESS_FN_ARG_INDEX = 4
 _CHECK_FN_ARG_INDEX = 5
+_MAX_WORKERS_ARG_INDEX = 8
 _TIMEOUT_ARG_INDEX = 10
 
 
@@ -112,6 +113,7 @@ class Task(_rs.Task):
     """
 
     def __new__(cls, *args, worker_processes=None, **kwargs):
+        _warn_if_racy_spawn_function(args, kwargs)
         check_fn = kwargs.get("check_function")
         if check_fn is None and len(args) > _CHECK_FN_ARG_INDEX:
             check_fn = args[_CHECK_FN_ARG_INDEX]
@@ -149,6 +151,42 @@ class Task(_rs.Task):
         # PyO3 constructs via __new__; override so object.__init__
         # doesn't reject the constructor kwargs.
         pass
+
+
+def _warn_if_racy_spawn_function(args, kwargs):
+    """Legacy 0-arg spawn functions read their identity from the
+    process-global DAISY_CONTEXT env var, which concurrent slow spawns can
+    overwrite (measured: 8 concurrent sbatch-style spawns all captured the
+    same worker_id). They keep working — but nudge toward the race-free
+    signature when the race is actually possible (max_workers > 1)."""
+    fn = kwargs.get("process_function")
+    if fn is None and len(args) > _PROCESS_FN_ARG_INDEX:
+        fn = args[_PROCESS_FN_ARG_INDEX]
+    if not callable(fn):
+        return
+    try:
+        spec = inspect.getfullargspec(fn)
+    except TypeError:
+        return
+    positional = [a for a in spec.args if a != "self"]
+    if positional or spec.varargs:
+        return  # block function (1-arg) or unusual signature — not spawn-style
+    if "context" in spec.kwonlyargs:
+        return  # race-free signature already
+    workers = kwargs.get("max_workers")
+    if workers is None and len(args) > _MAX_WORKERS_ARG_INDEX:
+        workers = args[_MAX_WORKERS_ARG_INDEX]
+    if workers is None or int(workers) <= 1:
+        return  # a single worker cannot race with itself
+    warnings.warn(
+        "this task's 0-argument spawn function reads DAISY_CONTEXT from the "
+        "process environment, which can race under concurrent worker spawns "
+        "(workers may inherit each other's worker_id). It still works, but "
+        "prefer the race-free form: declare `def start_worker(*, context):` "
+        "and forward `context.to_env()` to your worker command explicitly.",
+        UserWarning,
+        stacklevel=3,
+    )
 
 
 def _block_fn_arity(fn):
