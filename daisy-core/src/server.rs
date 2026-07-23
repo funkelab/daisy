@@ -348,6 +348,15 @@ impl Server {
                     // resource slot via the allocator and bumps
                     // failure count if it exited dirty), and rebalance
                     // immediately so freed budget can grow other tasks.
+                    // Attach the worker's error (if any) to the task
+                    // state first, so abandonment can report the cause.
+                    if let Some(err) = &stats.last_error {
+                        if let Some(state) = scheduler.task_states.get_mut(&stats.task_id) {
+                            if let Some(rt) = state.as_running_mut() {
+                                rt.note_worker_error(err.clone());
+                            }
+                        }
+                    }
                     collected_worker_stats.push(stats);
                     Self::check_thread_health(&mut workers, &mut scheduler, &mut allocator);
                     Self::rebalance_workers(
@@ -538,6 +547,7 @@ impl Server {
                     Ok(rt) => rt,
                     Err(e) => {
                         error!(worker_id, error = %e, "failed to create runtime");
+                        notifier.stats.last_error = Some(format!("failed to create runtime: {e}"));
                         return false;
                     }
                 };
@@ -545,6 +555,7 @@ impl Server {
                     Ok(c) => c,
                     Err(e) => {
                         error!(worker_id, error = %e, "failed to connect");
+                        notifier.stats.last_error = Some(format!("failed to connect to server: {e}"));
                         return false;
                     }
                 };
@@ -568,6 +579,7 @@ impl Server {
                                 }
                                 Err(e) => {
                                     warn!(worker_id, error = %e, "block processing failed");
+                                    notifier.stats.last_error = Some(format!("{e}"));
                                     block.status = crate::block::BlockStatus::Failed;
                                 }
                             }
@@ -575,6 +587,7 @@ impl Server {
                                 block.status == crate::block::BlockStatus::Failed;
                             if let Err(e) = rt.block_on(client.release_block(block)) {
                                 error!(worker_id, error = %e, "failed to release block");
+                                notifier.stats.last_error = Some(format!("failed to release block: {e}"));
                                 return false;
                             }
                             notifier.stats.blocks_processed += 1;
@@ -605,6 +618,7 @@ impl Server {
                     Ok(()) => true,
                     Err(e) => {
                         warn!(worker_id, error = %e, "spawn function failed");
+                        notifier.stats.last_error = Some(format!("{e}"));
                         false // should respawn
                     }
                 }
@@ -917,6 +931,11 @@ impl Server {
             }
             Message::BlockFailed { mut block, error } => {
                 warn!(block_id = %block.block_id, %error, "block failed");
+                if let Some(state) = scheduler.task_states.get_mut(block.task_id()) {
+                    if let Some(rt) = state.as_running_mut() {
+                        rt.note_worker_error(error.to_string());
+                    }
+                }
                 if bookkeeper.is_valid_return(&block, cm.addr) {
                     // Failed blocks intentionally not added to the
                     // duration trend — they're noisy outliers.

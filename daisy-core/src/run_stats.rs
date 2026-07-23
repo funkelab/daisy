@@ -127,6 +127,9 @@ pub struct WorkerStats {
     /// `None` if the platform doesn't expose per-thread CPU.
     pub cpu_time: Option<Duration>,
     pub blocks_processed: u64,
+    /// Error that terminated this worker, if it exited dirty. Carried
+    /// back so the server can attach the cause to the task state.
+    pub last_error: Option<String>,
 }
 
 /// Per-task aggregate stats produced at the end of a run.
