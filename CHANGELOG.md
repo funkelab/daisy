@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- The `funlib.persistence.Array` monkey-patching in the v1-compat layer.
+  daisy and funlib.persistence are unrelated packages that merely share
+  `funlib.geometry`; daisy no longer imports or modifies persistence.
+  Compat-surface blocks already carry `funlib.geometry` ROIs (the
+  `_BlockProxy` boundary), so v1-style code can index persistence Arrays
+  with them directly — no patching required. Native `daisy.v2` ROIs are
+  not accepted by persistence; convert explicitly if you mix surfaces.
+
 ### Added
 
 - Wheel-building CI (`publish.yaml`): manylinux/musllinux x86_64 + aarch64,

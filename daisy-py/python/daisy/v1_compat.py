@@ -74,51 +74,6 @@ def _coerce_coord(value):
         return value
 
 
-def _install_funlib_compat():
-    """daisy 1.x callers passed `funlib.geometry.Roi` / `funlib.geometry.Coordinate`
-    to `funlib.persistence.Array` indexing methods. funlib's `isinstance(key, Roi)`
-    /  `isinstance(key, Coordinate)` checks reject daisy 2.x's Rust types (they
-    aren't subclasses), so the access falls through to the numpy/zarr indexing
-    path and dies. Monkey-patch the funlib entry points to convert at the
-    boundary. No-op if funlib isn't installed."""
-    try:
-        from funlib.persistence.arrays.array import Array
-        from funlib.geometry import Roi as _FRoi, Coordinate as _FCoord
-    except ImportError:
-        return
-
-    def _to_funlib(x):
-        if isinstance(x, _v2.Roi):
-            return _FRoi(tuple(x.offset), tuple(x.shape))
-        if isinstance(x, _v2.Coordinate):
-            return _FCoord(tuple(x))
-        return x
-
-    def _patch(name, make_wrapper):
-        # Patch defensively: funlib.persistence's Array API varies across
-        # versions (e.g. 0.6 dropped to_pixel_space/to_world_space).
-        # A missing method means there is nothing to adapt — never let
-        # `import daisy` crash over it.
-        orig = getattr(Array, name, None)
-        if orig is None:
-            return
-        setattr(Array, name, make_wrapper(orig))
-
-    _patch("__setitem__", lambda orig: (
-        lambda self, key, value: orig(self, _to_funlib(key), value)))
-    _patch("__getitem__", lambda orig: (
-        lambda self, key: orig(self, _to_funlib(key))))
-    _patch("to_ndarray", lambda orig: (
-        lambda self, roi=None, **kw: orig(self, roi=_to_funlib(roi), **kw)))
-    _patch("to_pixel_space", lambda orig: (
-        lambda self, world_loc: orig(self, _to_funlib(world_loc))))
-    _patch("to_world_space", lambda orig: (
-        lambda self, pixel_loc: orig(self, _to_funlib(pixel_loc))))
-
-
-_install_funlib_compat()
-
-
 class _BlockProxy:
     """Wraps a v2 `_rs.Block` so user code (e.g. daisy 1.x `process_function`s
     like volara's `process_block`) sees `block.write_roi` / `block.read_roi`
