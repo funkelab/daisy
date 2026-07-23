@@ -111,6 +111,7 @@ impl RunningTask {
 
     pub fn note_worker_error(&mut self, error: String) {
         self.last_worker_error = Some(error);
+    }
 
     pub fn note_worker_started(&mut self) {
         self.worker_start_count = self.worker_start_count.saturating_add(1);

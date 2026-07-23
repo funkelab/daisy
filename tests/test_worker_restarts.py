@@ -439,8 +439,6 @@ def test_successful_run_has_no_abandonment_metadata():
         progress=False,
     )
 
-def test_clean_exit_without_progress_counts_toward_cap():
-
 def test_worker_start_budget_bounds_clean_exit_churn():
     """A spawn function that returns cleanly without its worker ever
     processing a block (e.g. `subprocess.run(..., check=False)` around
