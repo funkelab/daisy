@@ -6,10 +6,32 @@ Imports nothing from `_runner.py`; both `_runner.py` and the public
 """
 
 import json
+import logging
 import sys
 import time
 
 from daisy import logging as _worker_log
+
+logger = logging.getLogger(__name__)
+
+
+def _log_resume_summary(states):
+    """Emit one INFO record per task that skipped blocks via done markers.
+
+    Skipping is easy to miss: a resumed run "succeeds" while executing a
+    fraction (possibly none) of its blocks. This goes through the standard
+    `daisy.*` logger — nothing is forced onto the terminal; users control
+    visibility with ordinary logging configuration."""
+    for task_id, state in states.items():
+        skipped = state.skipped_count
+        if skipped > 0:
+            logger.info(
+                "task %r: resumed — %d/%d blocks skipped via done markers "
+                "(Task.reset() or done_marker_path=False reprocesses them)",
+                task_id,
+                skipped,
+                state.total_block_count,
+            )
 
 
 def _ordered_states(states, task_order):

@@ -12,6 +12,7 @@ logging machinery.
 import daisy._daisy as _rs
 from daisy import logging as _worker_log
 
+from daisy._progress import _log_resume_summary
 from daisy._task import _to_pipeline, _wrap_for_worker_logging
 
 
@@ -57,6 +58,7 @@ class Server:
                 pipeline, resources, observer, block_tracking=block_tracking,
             )
             self.last_run_stats = run_stats
+            _log_resume_summary(states)
             return states
         finally:
             _worker_log.close_all_log_files()
@@ -66,7 +68,9 @@ def _run_serial(pipeline, block_tracking=True):
     """Single-threaded execution path (no TCP, no workers)."""
     pipeline = _prepare(_coerce_pipeline(pipeline))
     try:
-        return _rs._run_serial(pipeline, block_tracking=block_tracking)
+        states = _rs._run_serial(pipeline, block_tracking=block_tracking)
+        _log_resume_summary(states)
+        return states
     finally:
         _worker_log.close_all_log_files()
 

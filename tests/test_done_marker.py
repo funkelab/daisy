@@ -178,3 +178,67 @@ def test_per_task_disable_overrides_basedir(tmp_path):
         assert len(calls2) == 4
     finally:
         daisy.set_done_marker_basedir(None)
+
+
+def test_no_optin_means_no_tracking(tmp_path, monkeypatch):
+    """With no explicit path and no basedir, nothing is tracked: a rerun
+    (e.g. after fixing a buggy process function) re-executes every block
+    instead of silently resuming from stale markers."""
+    monkeypatch.chdir(tmp_path)  # would have caught the old ./daisy_logs fallback
+    assert daisy.get_done_marker_basedir() is None
+
+    def run(calls):
+        task = daisy.Task(
+            task_id="my_pipeline_step",  # same id both runs, like a real script
+            total_roi=daisy.Roi([0], [40]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: calls.append(b.block_id),
+            read_write_conflict=False,
+            max_workers=1,
+            max_retries=0,
+        )
+        return _run_serial([task])
+
+    buggy_calls, fixed_calls = [], []
+    run(buggy_calls)
+    run(fixed_calls)  # "fixed the bug, rerun"
+    assert len(buggy_calls) == 4
+    assert len(fixed_calls) == 4  # every block re-executed
+    # worker LOGS may exist under daisy_logs, but no done marker (zarr) may
+    assert not list(Path(tmp_path).rglob("zarr.json"))
+
+
+def test_resume_emits_info_log(tmp_path, caplog):
+    """A resumed run (explicit opt-in via basedir) still skips done blocks,
+    and reports it as an INFO record on the daisy logger."""
+    import logging
+
+    daisy.set_done_marker_basedir(tmp_path / "markers")
+    try:
+        def run(calls):
+            task = daisy.Task(
+                task_id="resumed_task",
+                total_roi=daisy.Roi([0], [40]),
+                read_roi=daisy.Roi([0], [10]),
+                write_roi=daisy.Roi([0], [10]),
+                process_function=lambda b: calls.append(b.block_id),
+                read_write_conflict=False,
+                max_workers=1,
+                max_retries=0,
+            )
+            return _run_serial([task])
+
+        first, second = [], []
+        run(first)
+        assert len(first) == 4
+        with caplog.at_level(logging.INFO, logger="daisy"):
+            states = run(second)
+        assert len(second) == 0
+        assert states["resumed_task"].skipped_count == 4
+        resumed = [r for r in caplog.records if "resumed" in r.getMessage()]
+        assert len(resumed) == 1
+        msg = resumed[0].getMessage()
+        assert "4/4" in msg and "resumed_task" in msg
+    finally:
+        daisy.set_done_marker_basedir(None)

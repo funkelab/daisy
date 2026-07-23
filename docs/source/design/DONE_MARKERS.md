@@ -72,22 +72,46 @@ Failures and orphans staying unmarked is the natural way to make resume-after-fa
 
 ## Setup from Python
 
-Two ways to enable:
+**Done-marker tracking is opt-in.** With no explicit path and no basedir
+set, tasks are not tracked and nothing is ever skipped — a rerun executes
+every block, exactly like daisy 1.x without a `check_function`.
+
+Two ways to opt in:
 
 ```python
 # Per-task path (explicit)
 task = daisy.Task(..., done_marker_path="/scratch/run_2024_03_15/extract")
 
-# Or globally — every task without an explicit path uses <basedir>/<task_id>
+# Or globally — every task without an explicit path uses <basedir>/<task_id>.
+# This is the recommended pattern: one call at pipeline start, pointing at a
+# stable ABSOLUTE location that belongs to the run.
 daisy.set_done_marker_basedir("/scratch/run_2024_03_15")
 task = daisy.Task(...)  # marker at /scratch/run_2024_03_15/extract
 ```
 
-Pass `done_marker_path=False` to disable the marker for a specific task even if the basedir is set. Pass `done_marker_path=None` (the default) to defer to the basedir.
+Pass `done_marker_path=False` to disable the marker for a specific task even
+if the basedir is set. Pass `done_marker_path=None` (the default) to defer to
+the basedir (no basedir set → no tracking).
+
+> **History**: daisy 2.0 originally enabled markers by default, falling back
+> to `./daisy_logs/<task_id>` relative to the current working directory. That
+> default was removed: CWD-relative hidden skip-state meant that rerunning a
+> script after *changing its code* silently skipped every block a previous
+> (buggy) run had marked done. Markers are keyed by task_id + block geometry
+> only — **not by the process function** — so resume-correctness across code
+> changes is the user's responsibility: pick distinct task_ids per pipeline
+> version, or call `Task.reset()` after changing code.
 
 ## What the user sees
 
 In the execution summary, a resumed run prints `Skipped: N` for the count of pre-skipped blocks. A fully-resumed run (everything was already done) takes essentially no time — the runner skips everything, transitions every task to `Done`, and exits.
+
+In addition, every task that skipped at least one block emits an INFO record
+on the `daisy._progress` logger, e.g.
+`task 'extract': resumed — 40/64 blocks skipped via done markers (Task.reset() or done_marker_path=False reprocesses them)`.
+This follows standard Python logging conventions: nothing is forced onto the
+terminal, and users who want the notice enable it with
+`logging.getLogger("daisy").setLevel(logging.INFO)` (plus a handler).
 
 ## Tradeoffs vs daisy 1.x's `check_function`
 

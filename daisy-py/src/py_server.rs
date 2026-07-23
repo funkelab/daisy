@@ -207,6 +207,9 @@ pub fn _run_blockwise_orchestrator(
         "_print_execution_summary",
         (&states_obj, &order_py),
     )?;
+    // Resume visibility: INFO log per task that skipped blocks via
+    // done markers (python logging — user-configurable, never forced).
+    progress_mod.call_method1("_log_resume_summary", (&states_obj,))?;
     if let Some(stats) = &run_stats_obj {
         progress_mod.call_method1(
             "_print_resource_utilization",
