@@ -815,6 +815,26 @@ impl Server {
                 if alive >= task.max_workers {
                     continue;
                 }
+                // Never keep more workers alive than could possibly
+                // have work. A worker finishing its current block
+                // picks up a ready one, so workers beyond
+                // ready + processing can never receive a block before
+                // an existing worker frees up — spawning them only
+                // burns start budget and wall-clock (launches
+                // serialize, and the run cannot finish until every
+                // launched worker has connected and been told to shut
+                // down; measured: 2 workers drained a 64-block task
+                // while the run waited ~1s on 126 pointless
+                // launches). With read_write_conflict or upstream
+                // dependencies, ready_count can be temporarily small
+                // and grow as neighbors/upstreams complete — that may
+                // briefly under-provision, but the rebalance calls on
+                // task-state changes and the periodic health tick
+                // refill as ready grows, which is the right trade
+                // against provably-idle spawns.
+                if alive as i64 >= counters.ready_count + counters.processing_count {
+                    continue;
+                }
                 // Hard start budget: a task may ever start at most
                 // `max_workers + max_worker_restarts` workers, TOTAL,
                 // regardless of how or why previous workers exited —
