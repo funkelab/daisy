@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- Documented the blocking-spawn contract: spawn functions must run for the
+  worker's lifetime (`sbatch --wait` / `bsub -K` / `subprocess.run`);
+  submit-and-return spawns over-submit by up to `max_worker_restarts` jobs
+  and can abandon a task whose jobs are still queued. Connection-aware
+  worker accounting is planned.
+
 ### Changed
 
 - **Blocks always have a timeout.** `Task(timeout=...)` defaults to 600

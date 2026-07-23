@@ -107,12 +107,15 @@ v2 introduces format identifiers under the v2 name; existing daisy 1.x stores we
   ```python
   def start_worker(*, context):
       subprocess.run([
-          "sbatch", "--export", f"DAISY_CONTEXT={context.to_env()}",
+          "sbatch", "--wait",   # <- block until the job finishes (see below)
+          "--export", f"DAISY_CONTEXT={context.to_env()}",
           "worker.sh",
       ])
   ```
 
   The keyword-only parameter doesn't change the function's positional arity, so it still classifies as a spawn function; `context` supports dict access (`context["worker_id"]`) and `to_env()` for forwarding.
+
+- **Spawn functions must block for the worker's lifetime.** daisy's worker accounting (`max_workers`, the start budget, abandonment) tracks the *spawn-function call*: while your function is running, that worker slot counts as alive; when it returns, the slot is considered dead and eligible for replacement. A submit-and-return spawn function (`sbatch` without `--wait`, `bsub` without `-K`, a bare `Popen`) breaks that link: daisy will submit `max_workers + max_worker_restarts` jobs instead of `max_workers`, all of which connect and process concurrently, and may abandon the task while your jobs are still waiting in the queue (it cannot tell a queued job from a dead one). Use the blocking form: `sbatch --wait`, `bsub -K`, `srun`, or `subprocess.run` for local workers. Connection-aware worker accounting that lifts this requirement is on the roadmap.
 
 ## Python version
 
