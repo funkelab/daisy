@@ -196,6 +196,24 @@ def _install_proxies():
     _proxies_installed = True
 
 
+def _uninstall_proxies():
+    """Undo `_install_proxies`. Called at the end of every run so the next
+    run re-captures the THEN-current sys.stdout/stderr — a handle captured
+    once and kept forever goes stale whenever the host application (or a
+    test harness) swaps its streams between runs, silently misrouting
+    every later execution summary."""
+    global _proxies_installed, _saved_stdout, _saved_stderr
+    if not _proxies_installed:
+        return
+    if isinstance(sys.stdout, _PerThreadStream):
+        sys.stdout = _saved_stdout
+    if isinstance(sys.stderr, _PerThreadStream):
+        sys.stderr = _saved_stderr
+    _saved_stdout = None
+    _saved_stderr = None
+    _proxies_installed = False
+
+
 def _assign_slot(task_id: str) -> int | None:
     base = get_log_basedir()
     if base is None:
@@ -451,7 +469,9 @@ def emit_failure(message: str) -> None:
 
 
 def close_all_log_files():
-    """Close every open worker log file. Called at the end of run_blockwise."""
+    """Close every open worker log file and restore the stream proxies.
+    Called at the end of run_blockwise."""
+    _uninstall_proxies()
     with _slot_lock:
         for out_f, err_f in _slot_files.values():
             try:

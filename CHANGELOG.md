@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Blocks always have a timeout.** `Task(timeout=...)` defaults to 600
+  seconds and can no longer be disabled (`None` = the default; values
+  <= 0 raise ValueError). A hung block can therefore wedge a run — or
+  its shutdown — for at most the block deadline: the subprocess worker
+  self-kills at the deadline, the block is reclaimed and retried, and
+  shutdown joins complete. Failure surfaces attribute timeout reclaims
+  (`TaskState.timeout_reclaim_count` / `timeout_secs`, plus run-summary
+  and abandonment-error hints pointing at `Task(timeout=...)`).
+
+### Fixed
+
+- Worker-log stream proxies are now uninstalled at the end of each run;
+  previously the first run's `sys.stdout`/`sys.stderr` were captured
+  forever and every later run's execution summary was written to the
+  (possibly closed or replaced) original streams.
+
 ### Removed
 
 - The `funlib.persistence.Array` monkey-patching in the v1-compat layer.

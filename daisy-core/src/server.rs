@@ -374,8 +374,17 @@ impl Server {
 
                 _ = health_interval.tick() => {
                     let lost = bookkeeper.get_lost_blocks();
-                    for mut block in lost {
-                        warn!(block_id = %block.block_id, "block lost");
+                    for (mut block, timed_out) in lost {
+                        warn!(block_id = %block.block_id, timed_out, "block lost");
+                        if timed_out {
+                            if let Some(state) =
+                                scheduler.task_states.get_mut(block.task_id())
+                            {
+                                if let Some(rt) = state.as_running_mut() {
+                                    rt.note_timeout_reclaim();
+                                }
+                            }
+                        }
                         block.status = BlockStatus::Failed;
                         scheduler.release_block(block);
                     }

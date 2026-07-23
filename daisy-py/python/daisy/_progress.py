@@ -50,9 +50,16 @@ def _print_execution_summary(states, task_order=None):
     per-worker log proxy is currently installed."""
     import sys
     out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
+    # the saved handle can be a test harness's (or host app's) capture
+    # object that has since been closed — never let the summary crash a run
+    if getattr(out, "closed", False):
+        out = sys.__stdout__ or sys.stdout
 
     def p(s=""):
-        print(s, file=out)
+        try:
+            print(s, file=out)
+        except ValueError:  # closed file raced us
+            pass
 
     p()
     p("Execution Summary")
@@ -116,6 +123,22 @@ def _print_execution_summary(states, task_order=None):
             if n_more > 0:
                 p(f"      (+ {n_more} more failed blocks — see worker logs)")
             break
+
+    # Timeout attribution: when failures include deadline reclaims, say so
+    # and point at the knob — "my blocks are slow" and "my code crashes"
+    # need different fixes.
+    for tid, state in states.items():
+        reclaims = getattr(state, "timeout_reclaim_count", 0)
+        if not reclaims:
+            continue
+        t = getattr(state, "timeout_secs", None)
+        from daisy._daisy import DEFAULT_BLOCK_TIMEOUT_SECS
+        is_default = t is not None and t == DEFAULT_BLOCK_TIMEOUT_SECS
+        shown = f"{t:g}s" if t is not None else "the configured timeout"
+        p()
+        p(f"    {reclaims} block attempt(s) in task '{tid}' exceeded the "
+          f"block timeout ({shown}{' — the default' if is_default else ''}; "
+          f"pass Task(timeout=...) to raise it for slow blocks)")
 
     log_basedir = _worker_log.get_log_basedir()
     files_written = log_basedir is not None and _worker_log.get_log_mode() != "console"
@@ -334,9 +357,16 @@ def _print_resource_utilization(stats, task_order=None):
         return
     import sys
     out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
+    # the saved handle can be a test harness's (or host app's) capture
+    # object that has since been closed — never let the summary crash a run
+    if getattr(out, "closed", False):
+        out = sys.__stdout__ or sys.stdout
 
     def p(s=""):
-        print(s, file=out)
+        try:
+            print(s, file=out)
+        except ValueError:  # closed file raced us
+            pass
 
     process = stats.get("process") or {}
     per_task = stats.get("per_task") or {}

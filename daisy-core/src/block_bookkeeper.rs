@@ -94,13 +94,23 @@ impl BlockBookkeeper {
     /// Removes them from the sent list. The runner releases each
     /// returned block as `Failed`, which goes through the normal
     /// retry / orphan path.
-    pub fn get_lost_blocks(&mut self) -> Vec<Block> {
+    /// Each returned entry carries `timed_out: true` when the loss was a
+    /// deadline reclaim (as opposed to a client disconnect), so the
+    /// runner can account timeout reclaims separately.
+    pub fn get_lost_blocks(&mut self) -> Vec<(Block, bool)> {
         let now = Instant::now();
         let mut lost_ids = Vec::new();
 
         for (block_id, log) in &self.sent_blocks {
             if self.closed_clients.contains(&log.client_addr) {
-                lost_ids.push(block_id.clone());
+                // A disconnect whose deadline has ALSO passed is a timeout:
+                // preempted workers (child self-kill at the deadline) reach
+                // us as stream closes, but the cause is the deadline.
+                let deadline_passed = log
+                    .timeout
+                    .map(|t| now.duration_since(log.time_sent) > t)
+                    .unwrap_or(false);
+                lost_ids.push((block_id.clone(), deadline_passed));
                 continue;
             }
             if let Some(timeout) = log.timeout {
@@ -112,15 +122,15 @@ impl BlockBookkeeper {
                         timeout_ms = timeout.as_millis() as u64,
                         "block timed out — reclaiming",
                     );
-                    lost_ids.push(block_id.clone());
+                    lost_ids.push((block_id.clone(), true));
                 }
             }
         }
 
         let mut lost_blocks = Vec::new();
-        for id in lost_ids {
+        for (id, timed_out) in lost_ids {
             if let Some(log) = self.sent_blocks.remove(&id) {
-                lost_blocks.push(log.block);
+                lost_blocks.push((log.block, timed_out));
             }
         }
         lost_blocks

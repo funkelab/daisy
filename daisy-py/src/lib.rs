@@ -27,6 +27,7 @@ use py_task_state::PyTaskState;
 
 #[pymodule]
 fn _daisy(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("DEFAULT_BLOCK_TIMEOUT_SECS", crate::py_task::DEFAULT_BLOCK_TIMEOUT_SECS)?;
     m.add_class::<PyCoordinate>()?;
     m.add_class::<PyRoi>()?;
     m.add_class::<PyBlock>()?;

@@ -379,6 +379,7 @@ fn init_task(
         .or_insert_with(|| TaskState::Running(RunningTask::default()));
     if let Some(rt) = entry.as_running_mut() {
         rt.total_block_count = num_blocks;
+        rt.timeout_secs = task.timeout.map(|d| d.as_secs_f64());
     }
 
     // Ensure a queue exists (roots are already initialized).

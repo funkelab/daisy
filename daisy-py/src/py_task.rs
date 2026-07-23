@@ -99,6 +99,10 @@ fn parse_done_marker_spec(v: Option<&Bound<'_, PyAny>>) -> PyResult<DoneMarkerSp
     ))
 }
 
+/// The universal default block timeout. Kept in one place; also exported
+/// to python as `daisy._daisy.DEFAULT_BLOCK_TIMEOUT_SECS`.
+pub const DEFAULT_BLOCK_TIMEOUT_SECS: f64 = 600.0;
+
 #[pyclass(name = "Task", skip_from_py_object, subclass, module = "daisy._daisy")]
 pub struct PyTask {
     pub task_id: String,
@@ -120,8 +124,10 @@ pub struct PyTask {
     pub requires: HashMap<String, i64>,
     /// Cap on worker restarts before the task is abandoned. Default 10.
     pub max_worker_restarts: u32,
-    /// Per-block processing timeout in seconds. `None` (default) means
-    /// no timeout — blocks can sit in `processing` indefinitely as
+    /// Per-block processing timeout in seconds. Defaults to 600 (10
+    /// minutes) and can never be disabled — a wedged block function
+    /// must not hang a run forever. Historic note: `None` used to mean
+    /// no timeout — blocks could sit in `processing` indefinitely as
     /// long as the worker stays connected. When set, the bookkeeper
     /// reclaims any block that's been processing longer than this and
     /// re-queues it for retry (or orphans, depending on retry budget).
@@ -164,21 +170,33 @@ impl PyTask {
         max_worker_restarts: u32,
     ) -> PyResult<Self> {
         let done_marker_path = parse_done_marker_spec(done_marker_path)?;
+        // Every block ALWAYS has a timeout (default 10 minutes): a wedged
+        // block function must never be able to hang a run — or its
+        // shutdown — forever. Users with genuinely slow blocks raise the
+        // value; there is deliberately no way to disable it.
         let timeout_secs: Option<f64> = match timeout {
-            None => None,
-            Some(v) if v.is_none() => None,
+            None => Some(DEFAULT_BLOCK_TIMEOUT_SECS),
+            Some(v) if v.is_none() => Some(DEFAULT_BLOCK_TIMEOUT_SECS),
             Some(v) => {
-                if let Ok(secs) = v.call_method0("total_seconds")
+                let secs = if let Ok(secs) = v.call_method0("total_seconds")
                     .and_then(|x| x.extract::<f64>())
                 {
-                    Some(secs)
+                    secs
                 } else if let Ok(secs) = v.extract::<f64>() {
-                    Some(secs)
+                    secs
                 } else {
                     return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                        "timeout must be a float seconds, a timedelta, or None",
+                        "timeout must be a float seconds, a timedelta, or None \
+                         (None means the 600s default)",
+                    ));
+                };
+                if !(secs > 0.0) {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                        "block timeout must be positive; blocks are expected \
+                         to be fast — raise the timeout instead of disabling it",
                     ));
                 }
+                Some(secs)
             }
         };
         let reqs: HashMap<String, i64> = if let Some(d) = requires {
@@ -383,7 +401,7 @@ impl PyTask {
             done_marker_path: DoneMarkerSpec::Disabled,
             requires: HashMap::new(),
             max_worker_restarts: 10,
-            timeout_secs: None,
+            timeout_secs: Some(DEFAULT_BLOCK_TIMEOUT_SECS),
         }
     }
 
