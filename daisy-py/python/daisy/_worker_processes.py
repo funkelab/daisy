@@ -117,6 +117,12 @@ def make_spawn_function(process_function, timeout=None):
             # below turns that into a dirty worker exit
             pass
         returncode = proc.wait()
+        if returncode == EXIT_BLOCK_TIMEOUT:
+            raise RuntimeError(
+                f"daisy worker subprocess killed after a block exceeded "
+                f"timeout={timeout}s (true preemption; the server retries "
+                "the block under max_retries)"
+            )
         if returncode != 0:
             raise RuntimeError(
                 f"daisy worker subprocess exited with code {returncode}"
