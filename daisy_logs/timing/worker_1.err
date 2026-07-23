@@ -1,2 +1,0 @@
-01:30:27 [WARNING] daisy: worker function timing failed: daisy worker subprocess killed after a block exceeded timeout=0.5s (true preemption; the server retries the block under max_retries)
-RuntimeError: daisy worker subprocess killed after a block exceeded timeout=0.5s (true preemption; the server retries the block under max_retries)
