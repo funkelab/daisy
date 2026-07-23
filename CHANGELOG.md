@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   smoke-tested (install without a Rust toolchain, run a tiny blockwise
   task) before any publish; publishes to PyPI on version tags.
 
+- Spawn functions may declare a keyword-only `context` parameter
+  (`def start_worker(*, context):`) to receive their worker's
+  `daisy.Context` as an argument — a race-free alternative to reading the
+  process-global `DAISY_CONTEXT` environment variable, which concurrent
+  slow spawn functions can observe with a later worker's value. The env
+  var keeps being set for 0-arg spawn functions and worker children.
+  `Context.from_env_string(...)` parses an encoded context without
+  touching the environment. The built-in subprocess workers now set the
+  child's `DAISY_CONTEXT` deterministically from the argument.
+
 ### Changed
 
 - **Done-marker tracking is now opt-in.** `Task(done_marker_path=None)` only

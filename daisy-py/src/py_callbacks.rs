@@ -181,25 +181,65 @@ impl ProgressObserver for PyProgressObserver {
     }
 }
 
+impl PySpawnWorker {
+    /// True when the spawn function declares a keyword-only `context`
+    /// parameter (`def start_worker(*, context): ...`). Keyword-only
+    /// params don't count toward positional arity, so this composes
+    /// with the 0-positional-args == spawn-function classification.
+    fn wants_context(&self, py: Python<'_>) -> bool {
+        (|| -> PyResult<bool> {
+            let inspect = py.import("inspect")?;
+            let argspec = inspect.call_method1(
+                "getfullargspec",
+                (self.py_fn.clone_ref(py),),
+            )?;
+            let kwonly: Vec<String> = argspec.getattr("kwonlyargs")?.extract()?;
+            Ok(kwonly.iter().any(|a| a == "context"))
+        })()
+        .unwrap_or(false)
+    }
+}
+
 impl SpawnWorker for PySpawnWorker {
     fn spawn(&self, env_context: &str) -> Result<(), DaisyError> {
         Python::attach(|py| {
-            // Set the env var so Client() / subprocess workers can find the server.
+            // Still set the env var: 0-arg spawn functions and child
+            // processes that read DAISY_CONTEXT keep working. NOTE this
+            // variable is process-global — with concurrent spawns, a slow
+            // spawn function can observe a later worker's value. Spawn
+            // functions that need a reliable identity must take the
+            // keyword-only `context` argument below.
             let os = py.import("os").map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
             let environ = os.getattr("environ").map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
             environ
                 .set_item("DAISY_CONTEXT", env_context)
                 .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
 
-            self.py_fn.call0(py).map_err(|e| {
+let wrap_err = |e: pyo3::PyErr| {
                 // include the formatted python traceback (capped), as
                 // for block functions — see PyProcessBlock::process
-                let tb = e
-                    .traceback(py)
-                    .and_then(|t| t.format().ok())
-                    .unwrap_or_default();
-                DaisyError::ProcessFailed(cap_traceback(&format!("{tb}{e}")))
-            })?;
+                Python::attach(|py| {
+                    let tb = e
+                        .traceback(py)
+                        .and_then(|t| t.format().ok())
+                        .unwrap_or_default();
+                    DaisyError::ProcessFailed(cap_traceback(&format!("{tb}{e}")))
+                })
+            };
+            if self.wants_context(py) {
+                // Race-free path: this worker's context, passed by value.
+                let ctx = crate::py_context::PyContext::from_encoded(env_context)
+                    .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
+                let kwargs = PyDict::new(py);
+                kwargs
+                    .set_item("context", ctx.into_pyobject(py).map_err(|e| {
+                        DaisyError::ProcessFailed(format!("{e}"))
+                    })?)
+                    .map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
+                self.py_fn.call(py, (), Some(&kwargs)).map_err(wrap_err)?;
+            } else {
+                self.py_fn.call0(py).map_err(wrap_err)?;
+            }
             Ok(())
         })
     }
