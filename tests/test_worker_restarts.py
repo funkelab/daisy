@@ -356,3 +356,80 @@ def test_clean_run_does_not_count_failures():
     assert states["clean"].is_done()
     assert states["clean"].completed_count == 4
     assert states["clean"].worker_failure_count == 0
+
+
+def test_clean_exit_without_progress_counts_toward_cap():
+    """A spawn function that returns cleanly without its worker ever
+    processing a block (e.g. `subprocess.run(..., check=False)` around
+    a command that can't start) must count toward the restart cap —
+    otherwise it respawns forever and the run never terminates."""
+    import subprocess
+    import sys
+
+    def broken_spawn():
+        subprocess.run(
+            [sys.executable, "/nonexistent/worker.py"],
+            check=False,
+            capture_output=True,
+        )
+
+    task = daisy.Task(
+        task_id="clean_churn",
+        total_roi=daisy.Roi([0], [80]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=broken_spawn,
+        read_write_conflict=False,
+        max_workers=2,
+        max_retries=0,
+        max_worker_restarts=3,
+    )
+    server = daisy.Server()
+    # The run must TERMINATE (pytest-timeout is the backstop).
+    states = server.run_blockwise([task], progress=False)
+
+    state = states["clean_churn"]
+    assert state.is_done(), "expected task to terminate, run loop hung"
+    # Every one of these clean exits was unproductive, so they all
+    # count as failures; the cap then stops respawning exactly as it
+    # does for dirty exits.
+    assert state.worker_failure_count > state.worker_restart_count
+    assert state.worker_restart_count <= 3
+    assert state.completed_count == 0
+    assert state.orphaned_count > 0
+    assert state.failed_count == 0
+
+
+def test_worker_recycling_stays_exempt_from_cap():
+    """Workers that exit cleanly AFTER contributing progress (the
+    daisy 1.x recycle-after-N-blocks pattern) must not trip the cap,
+    even when total worker starts far exceed max_workers +
+    max_worker_restarts."""
+
+    def one_block_then_quit():
+        client = daisy.Client()
+        # process exactly one block, then exit cleanly
+        with client.acquire_block() as block:
+            pass
+
+    task = daisy.Task(
+        task_id="recycle",
+        total_roi=daisy.Roi([0], [160]),  # 16 blocks
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=one_block_then_quit,
+        read_write_conflict=False,
+        max_workers=2,
+        max_retries=0,
+        max_worker_restarts=3,  # 16 blocks needs ~16 starts >> 2 + 3
+    )
+    server = daisy.Server()
+    states = server.run_blockwise([task], progress=False)
+
+    state = states["recycle"]
+    assert state.is_done()
+    assert state.completed_count == 16, (
+        f"recycling workers should finish all blocks, got "
+        f"{state.completed_count} (failures={state.worker_failure_count})"
+    )
+    assert state.orphaned_count == 0
