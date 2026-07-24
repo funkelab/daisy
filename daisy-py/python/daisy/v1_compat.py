@@ -30,8 +30,7 @@ import warnings
 from daisy import v2 as _v2
 from daisy._runner import _run_serial
 from daisy._task import _record_task_upstream
-from daisy.v2 import (
-    Block,
+from daisy.v2 import (  # noqa: F401 — re-exported compat surface
     BlockStatus,
     BlockwiseDependencyGraph,
     Client,
@@ -72,6 +71,41 @@ def _coerce_coord(value):
         return _v2.Coordinate(tuple(value))
     except TypeError:
         return value
+
+
+class Block(_v2.Block):
+    """v1-compatible ``daisy.Block``: accepts ``funlib.geometry`` ROIs (or
+    anything with ``offset``/``shape``) in the constructor and presents its
+    ROIs as ``funlib.geometry`` types — the same contract as blocks handed
+    to process functions. daisy 1.x code that constructs blocks directly
+    (e.g. "process this one ROI without a blockwise job" helpers) works
+    unchanged. The strict native constructor remains at ``daisy.v2.Block``.
+    """
+
+    def __new__(cls, total_roi=None, read_roi=None, write_roi=None, *args, **kwargs):
+        total_roi = _coerce_roi(kwargs.pop("total_roi", total_roi))
+        read_roi = _coerce_roi(kwargs.pop("read_roi", read_roi))
+        write_roi = _coerce_roi(kwargs.pop("write_roi", write_roi))
+        return super().__new__(cls, total_roi, read_roi, write_roi, *args, **kwargs)
+
+    def __init__(self, *args, **kwargs):
+        # PyO3 constructs via __new__; keep object.__init__ from rejecting
+        # the constructor arguments.
+        pass
+
+    @property
+    def read_roi(self):
+        r = _v2.Block.read_roi.__get__(self)
+        from funlib.geometry import Roi as _FRoi
+
+        return _FRoi(tuple(r.offset), tuple(r.shape))
+
+    @property
+    def write_roi(self):
+        r = _v2.Block.write_roi.__get__(self)
+        from funlib.geometry import Roi as _FRoi
+
+        return _FRoi(tuple(r.offset), tuple(r.shape))
 
 
 class _BlockProxy:

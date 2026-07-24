@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `daisy.Block` (compat surface) now accepts `funlib.geometry` ROIs in its
+  constructor and presents its ROIs as `funlib.geometry` types — the same
+  contract as blocks handed to process functions. v1 code that constructs
+  blocks directly (e.g. process-one-ROI helpers) works unchanged; the
+  strict native constructor remains at `daisy.v2.Block`.
+
 ### Documentation
 
 - Documented the blocking-spawn contract: spawn functions must run for the

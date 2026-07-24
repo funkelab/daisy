@@ -26,7 +26,7 @@ impl PyBlockStatus {
 }
 
 /// Block pyclass. Not frozen (status is mutable), so eq/hash are manual.
-#[pyclass(name = "Block", from_py_object, module = "daisy._daisy")]
+#[pyclass(name = "Block", from_py_object, subclass, module = "daisy._daisy")]
 #[derive(Clone)]
 pub struct PyBlock {
     pub inner: Block,
