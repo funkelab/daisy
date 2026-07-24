@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contract as blocks handed to process functions. v1 code that constructs
   blocks directly (e.g. process-one-ROI helpers) works unchanged; the
   strict native constructor remains at `daisy.v2.Block`.
+- Blocks received in process functions ARE that same compat `Block` class
+  now (the `_BlockProxy` wrapper is gone): `type()` and
+  `isinstance(x, daisy.Block)` agree for every block a user touches,
+  whether daisy handed it out or they constructed it. Status mutations
+  still propagate to daisy's bookkeeping on the client paths (subprocess
+  and custom workers); thread mode continues to determine success by
+  exception only, as it always has in v2.
 
 ### Documentation
 

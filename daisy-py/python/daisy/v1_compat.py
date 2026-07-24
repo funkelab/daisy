@@ -93,6 +93,21 @@ class Block(_v2.Block):
         # the constructor arguments.
         pass
 
+    @classmethod
+    def _from_native(cls, inner):
+        """Compat view of an existing `_rs.Block` (e.g. one received off
+        the wire), preserving identity and status. total_roi only feeds
+        block-id derivation, which the explicit block_id overrides."""
+        blk = cls(
+            inner.read_roi,
+            inner.read_roi,
+            inner.write_roi,
+            task_id=inner.task_id,
+            block_id=inner.block_id[1],
+        )
+        blk.status = inner.status
+        return blk
+
     @property
     def read_roi(self):
         r = _v2.Block.read_roi.__get__(self)
@@ -108,67 +123,15 @@ class Block(_v2.Block):
         return _FRoi(tuple(r.offset), tuple(r.shape))
 
 
-class _BlockProxy:
-    """Wraps a v2 `_rs.Block` so user code (e.g. daisy 1.x `process_function`s
-    like volara's `process_block`) sees `block.write_roi` / `block.read_roi`
-    as `funlib.geometry.Roi` instances rather than daisy's Rust `Roi`.
-
-    All other attribute reads/writes proxy through to the underlying block.
-    Status mutations (set by daisy's own `acquire_block` context manager
-    after process_function returns) are forwarded to the inner block so
-    daisy's bookkeeping is unaffected."""
-
-    __slots__ = ("_block",)
-
-    def __init__(self, block):
-        object.__setattr__(self, "_block", block)
-
-    def _to_funlib_roi(self, r):
-        if r is None:
-            return None
-        try:
-            from funlib.geometry import Roi as _FRoi
-        except ImportError:
-            return r
-        return _FRoi(tuple(r.offset), tuple(r.shape))
-
-    @property
-    def write_roi(self):
-        return self._to_funlib_roi(self._block.write_roi)
-
-    @property
-    def read_roi(self):
-        return self._to_funlib_roi(self._block.read_roi)
-
-    @property
-    def status(self):
-        return self._block.status
-
-    @status.setter
-    def status(self, value):
-        self._block.status = value
-
-    @property
-    def block_id(self):
-        return self._block.block_id
-
-    def __getattr__(self, name):
-        return getattr(self._block, name)
-
-    def __repr__(self):
-        return f"_BlockProxy({self._block!r})"
-
-
-def _install_block_proxy():
-    """Monkey-patch `daisy.Client.acquire_block` to yield blocks wrapped in a
-    `_BlockProxy`. Volara and other daisy 1.x callers only ever obtain blocks
-    through `Client.acquire_block`, so this single boundary is enough to keep
-    daisy's Rust Roi/Coordinate types out of user code — they always see
-    funlib.geometry types instead.
-
-    With this in place, the daisy v2 Rust Roi/Coordinate can stay strict (no
-    duck-typing, no shape setters, no arithmetic shims) and v1.x consumers
-    keep working."""
+def _install_compat_block_boundary():
+    """Monkey-patch `daisy.Client.acquire_block` to yield compat `Block`
+    instances (funlib-typed ROIs). v1.x callers only ever obtain blocks
+    through `Client.acquire_block`, so this single boundary keeps daisy's
+    Rust Roi/Coordinate types out of user code; manually-constructed
+    `daisy.Block`s are the SAME class, so `type()`/`isinstance` agree for
+    every block a user touches. Status mutations propagate back to the
+    wire block so daisy's bookkeeping (auto-SUCCESS, failure reporting)
+    is unaffected."""
     from contextlib import contextmanager
     from daisy._task import Client
 
@@ -180,17 +143,21 @@ def _install_block_proxy():
             if block is None:
                 yield None
             else:
-                yield _BlockProxy(block)
+                compat = Block._from_native(block)
+                try:
+                    yield compat
+                finally:
+                    block.status = compat.status
 
     Client.acquire_block = acquire_block
 
 
-_install_block_proxy()
+_install_compat_block_boundary()
 
 
 def _wrap_block_fn(fn):
     """Wrap a 1-arg (block-taking) process function so it receives
-    `_BlockProxy`-wrapped blocks. 0-arg spawn functions and anything whose
+    compat `Block` views (funlib ROIs). 0-arg spawn functions and anything whose
     signature can't be inspected pass through unchanged. The wrapper is a
     plain 1-arg `def` so the Rust side's getfullargspec-based arity
     detection still classifies it as a block processor."""
@@ -207,7 +174,11 @@ def _wrap_block_fn(fn):
         return fn
 
     def _compat_block_fn(block):
-        return fn(_BlockProxy(block))
+        compat = Block._from_native(block)
+        try:
+            return fn(compat)
+        finally:
+            block.status = compat.status
 
     return _compat_block_fn
 
@@ -240,7 +211,7 @@ class Task(_v2.Task):
             if k in kwargs:
                 kwargs[k] = _coerce_roi(kwargs[k])
         # 1-arg (block-taking) process functions on the compat surface
-        # receive `_BlockProxy`-wrapped blocks (funlib-typed ROIs), matching
+        # receive compat `Block` views (funlib-typed ROIs), matching
         # what spawn-mode workers get from the patched Client.acquire_block.
         # Without this, the Rust block-fn path hands v1.x user code native
         # ROIs that fail isinstance/equality against funlib types.

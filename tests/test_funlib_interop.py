@@ -6,7 +6,7 @@ Two guarantees:
    Coordinate, compare by value instead of silently returning False.
    Unrelated types still compare unequal via NotImplemented, no exception.
 2. On the v1-compat surface, 1-arg (block-taking) process functions receive
-   `_BlockProxy`-wrapped blocks whose ROIs are funlib types — the same view
+   compat `Block` views whose ROIs are funlib types — the same class
    spawn-mode workers get from the patched `Client.acquire_block`.
 
 Cross-type *hash* equality is explicitly NOT guaranteed; mixed-type

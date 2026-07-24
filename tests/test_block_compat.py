@@ -49,3 +49,56 @@ def test_compat_block_roundtrips_through_rust():
     """A compat Block is a real _rs.Block subclass: rust APIs accept it."""
     b = daisy.Block(fg.Roi((0,), (40,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)))
     assert isinstance(b, daisy._daisy.Block)
+
+
+def test_acquired_and_manual_blocks_are_the_same_class():
+    """Blocks daisy hands to process functions and blocks users construct
+    are the SAME compat class: type() and isinstance agree everywhere."""
+    seen = {}
+
+    def probe(block):
+        seen["type"] = type(block)
+        seen["is_daisy_block"] = isinstance(block, daisy.Block)
+        seen["roi_is_funlib"] = isinstance(block.read_roi, fg.Roi)
+
+    task = daisy.Task(
+        "same-class",
+        total_roi=fg.Roi((0,), (10,)),
+        read_roi=fg.Roi((0,), (10,)),
+        write_roi=fg.Roi((0,), (10,)),
+        process_function=probe,
+        num_workers=1,
+        worker_processes=False,
+        done_marker_path=False,
+    )
+    assert daisy.run_blockwise([task], progress=False)
+    assert seen["type"] is daisy.Block
+    assert seen["is_daisy_block"] and seen["roi_is_funlib"]
+
+
+def test_status_mutation_propagates_from_compat_block():
+    """Setting FAILED on the compat block must reach daisy's bookkeeping
+    (the compat view copies status back to the wire block)."""
+
+    def fail_by_status(block):
+        block.status = daisy.BlockStatus.FAILED
+
+    # subprocess workers (the default): blocks flow through Client.
+    # acquire_block, where v1's status semantics live. (Thread mode —
+    # worker_processes=False — decides success by exception only and has
+    # never honored status mutations in v2.)
+    task = daisy.Task(
+        "status-prop",
+        total_roi=fg.Roi((0,), (20,)),
+        read_roi=fg.Roi((0,), (10,)),
+        write_roi=fg.Roi((0,), (10,)),
+        process_function=fail_by_status,
+        num_workers=1,
+        max_retries=0,
+        max_worker_restarts=0,
+        done_marker_path=False,
+    )
+    states = daisy.Server().run_blockwise([task], progress=False)
+    st = states["status-prop"]
+    assert st.completed_count == 0
+    assert st.failed_count + st.orphaned_count == 2
