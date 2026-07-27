@@ -6,6 +6,7 @@ __pycache__/
 *.dylib
 *.egg-info/
 Cargo.lock
+.vscode
 
 # Sphinx build artifacts
 docs/_build/
