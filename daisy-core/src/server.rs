@@ -3,7 +3,7 @@ use crate::block_bookkeeper::BlockBookkeeper;
 use crate::client::Client;
 use crate::protocol::{read_message, write_message, Message};
 use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
-use crate::run_stats::{thread_cpu_time, WorkerStats};
+use crate::run_stats::{thread_cpu_time, RunTally, WorkerStats};
 use crate::scheduler::Scheduler;
 use crate::task::Task;
 use crate::task_state::{AbandonReason, TaskCounters, TaskState};
@@ -201,10 +201,13 @@ impl Server {
         let (worker_exit_tx, mut worker_exit_rx) =
             mpsc::unbounded_channel::<WorkerStats>();
         let mut collected_worker_stats: Vec<WorkerStats> = Vec::new();
-        // Per-task list of `release_index → duration_ms`, so we can fit
-        // a linear trend at the end and report whether processing time
-        // grew/shrank as the run progressed.
-        let mut task_block_durations: HashMap<String, Vec<f64>> = HashMap::new();
+        // Server-side accounting fed from client messages: per-task
+        // `release_index → duration_ms` (for the end-of-run linear
+        // trend) and per-task / per-worker counts of valid block
+        // returns. Counting here — not in the worker loop — is what
+        // makes `blocks_processed` correct for subprocess-shim and
+        // external workers, which the stats layer otherwise never sees.
+        let mut tally = RunTally::default();
 
         // Process-wide sampler: peak RSS / virt and disk I/O deltas
         // updated every 200ms by a background tokio task.
@@ -302,7 +305,7 @@ impl Server {
                     let updated = self.handle_message(
                         cm, &mut scheduler, &mut bookkeeper,
                         &mut pending, worker_pools,
-                        &mut task_block_durations,
+                        &mut tally,
                     )?;
                     // Rebalance only when this release has actually
                     // unlocked a previously-blocked task — i.e. some
@@ -421,7 +424,7 @@ impl Server {
                         self.retry_pending(
                             &mut scheduler, &mut bookkeeper,
                             &mut pending, worker_pools,
-                            &mut task_block_durations,
+                            &mut tally,
                         )?;
                     }
                 }
@@ -483,7 +486,7 @@ impl Server {
         let run_stats = crate::run_stats::build_run_stats(
             stats_started,
             collected_worker_stats,
-            task_block_durations,
+            tally,
             process,
         );
         if let Some(ref obs) = progress {
@@ -560,7 +563,8 @@ impl Server {
                         return false;
                     }
                 };
-                let mut client = match rt.block_on(Client::connect(&host, port, &task_id)) {
+                let mut client =
+                    match rt.block_on(Client::connect(&host, port, &task_id, worker_id)) {
                     Ok(c) => c,
                     Err(e) => {
                         error!(worker_id, error = %e, "failed to connect");
@@ -599,7 +603,9 @@ impl Server {
                                 notifier.stats.last_error = Some(format!("failed to release block: {e}"));
                                 return false;
                             }
-                            notifier.stats.blocks_processed += 1;
+                            // blocks_processed is counted server-side when
+                            // the release arrives (see RunTally), the same
+                            // way as for subprocess and external workers.
                             if was_failure {
                                 debug!(worker_id, "exiting dirty after failed block");
                                 let _ = rt.block_on(client.disconnect());
@@ -915,14 +921,14 @@ impl Server {
         bookkeeper: &mut BlockBookkeeper,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
-        task_block_durations: &mut HashMap<String, Vec<f64>>,
+        tally: &mut RunTally,
     ) -> std::io::Result<()> {
         let count = pending.len();
         for _ in 0..count {
             if let Some(cm) = pending.pop_front() {
                 let _ = self.handle_message(
                     cm, scheduler, bookkeeper, pending, worker_pools,
-                    task_block_durations,
+                    tally,
                 )?;
             }
         }
@@ -942,27 +948,35 @@ impl Server {
         bookkeeper: &mut BlockBookkeeper,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
-        task_block_durations: &mut HashMap<String, Vec<f64>>,
+        tally: &mut RunTally,
     ) -> std::io::Result<Vec<String>> {
         let mut updated: Vec<String> = Vec::new();
         match cm.message {
             Message::AcquireBlock { .. } => {
                 self.handle_acquire(cm, scheduler, bookkeeper, pending, worker_pools)?;
             }
+            Message::Register { task_id, worker_id } => {
+                bookkeeper.register_worker(cm.addr, task_id, worker_id);
+            }
             Message::ReleaseBlock { block } => {
                 if bookkeeper.is_valid_return(&block, cm.addr) {
                     if let Some(elapsed) = bookkeeper.notify_block_returned(&block, cm.addr) {
-                        task_block_durations
+                        tally
+                            .block_durations
                             .entry(block.block_id.task_id.clone())
                             .or_default()
                             .push(elapsed.as_secs_f64() * 1000.0);
                     }
+                    tally.count_return(
+                        &block.block_id.task_id,
+                        bookkeeper.registered_worker_id(cm.addr),
+                    );
                     updated = scheduler.release_block(block);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
                             scheduler, bookkeeper, pending, worker_pools,
-                            task_block_durations,
+                            tally,
                         )?;
                     }
                 } else {
@@ -978,15 +992,21 @@ impl Server {
                 }
                 if bookkeeper.is_valid_return(&block, cm.addr) {
                     // Failed blocks intentionally not added to the
-                    // duration trend — they're noisy outliers.
+                    // duration trend — they're noisy outliers. They DO
+                    // count as processed: the worker spent the time,
+                    // matching the historical thread-loop accounting.
                     let _ = bookkeeper.notify_block_returned(&block, cm.addr);
+                    tally.count_return(
+                        &block.block_id.task_id,
+                        bookkeeper.registered_worker_id(cm.addr),
+                    );
                     block.status = BlockStatus::Failed;
                     updated = scheduler.release_block(block);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
                             scheduler, bookkeeper, pending, worker_pools,
-                            task_block_durations,
+                            tally,
                         )?;
                     }
                 }

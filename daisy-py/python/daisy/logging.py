@@ -124,9 +124,26 @@ _slot_lock = threading.Lock()
 _thread_slots: dict[tuple[str, int], int] = {}
 # (task_id, slot) -> (out_file, err_file).
 _slot_files: dict[tuple[str, int], tuple[typing.IO[str], typing.IO[str]]] = {}
+
+
+class _PicklableLocal(threading.local):
+    """A ``threading.local`` whose pickled form is "a fresh, empty local".
+
+    Block functions that reference the ``daisy`` module as a global get
+    the entire module namespace serialized by value when dill ships them
+    to subprocess workers from a source-tree (editable) install, and a
+    bare ``threading.local`` is unpicklable. Which-slot-is-bound state is
+    inherently per-thread and per-process, so an empty local on the
+    receiving side is the correct reconstruction, not a lossy one.
+    """
+
+    def __reduce__(self):
+        return (self.__class__, ())
+
+
 # Per-thread: which (task_id, slot) pair is currently active. Missing = no
 # worker slot bound; writes always go straight to the real stream.
-_active = threading.local()
+_active = _PicklableLocal()
 
 
 class _PerThreadStream:

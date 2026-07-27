@@ -118,7 +118,7 @@ async fn test_chained_tasks_distributed() {
 
 
 async fn run_worker(host: String, port: u16, task_id: String) {
-    let mut client = Client::connect(&host, port, &task_id).await.unwrap();
+    let mut client = Client::connect(&host, port, &task_id, 0).await.unwrap();
     loop {
         match client.acquire_block().await {
             Ok(Some(mut block)) => {
@@ -269,7 +269,7 @@ async fn test_server_block_failure_and_retry() {
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
 
     let w = tokio::spawn(async move {
-        let mut client = Client::connect(&host, port, "retry_test").await.unwrap();
+        let mut client = Client::connect(&host, port, "retry_test", 0).await.unwrap();
         loop {
             match client.acquire_block().await {
                 Ok(Some(mut block)) => {

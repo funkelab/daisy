@@ -19,6 +19,10 @@ pub struct BlockBookkeeper {
     sent_blocks: HashMap<BlockId, BlockLog>,
     /// Track which client addresses have disconnected so we can detect lost blocks.
     closed_clients: std::collections::HashSet<SocketAddr>,
+    /// Worker identity per connection, announced via `Message::Register`
+    /// at connect time: addr -> (task_id, worker_id). Used to attribute
+    /// block returns to workers in the run stats.
+    registered_workers: HashMap<SocketAddr, (String, u64)>,
 }
 
 impl BlockBookkeeper {
@@ -26,7 +30,24 @@ impl BlockBookkeeper {
         Self {
             sent_blocks: HashMap::new(),
             closed_clients: std::collections::HashSet::new(),
+            registered_workers: HashMap::new(),
         }
+    }
+
+    /// Record which worker a client connection belongs to. Also clears
+    /// any closed-client marker left by an earlier connection that used
+    /// the same (OS-recycled) ephemeral port — this connection is
+    /// demonstrably alive.
+    pub fn register_worker(&mut self, addr: SocketAddr, task_id: String, worker_id: u64) {
+        debug!(%addr, task_id, worker_id, "worker registered");
+        self.closed_clients.remove(&addr);
+        self.registered_workers.insert(addr, (task_id, worker_id));
+    }
+
+    /// The worker id a connection registered with, if any (a client
+    /// running an older daisy version never registers).
+    pub fn registered_worker_id(&self, addr: SocketAddr) -> Option<u64> {
+        self.registered_workers.get(&addr).map(|(_, wid)| *wid)
     }
 
     /// Record that a block was sent to a client. `timeout` is the
@@ -84,9 +105,12 @@ impl BlockBookkeeper {
         }
     }
 
-    /// Mark a client address as disconnected.
+    /// Mark a client address as disconnected. The registration is
+    /// dropped too — the OS can hand the same ephemeral port to a later
+    /// worker, and a stale entry would mis-attribute its blocks.
     pub fn notify_client_disconnected(&mut self, client_addr: SocketAddr) {
         self.closed_clients.insert(client_addr);
+        self.registered_workers.remove(&client_addr);
     }
 
     /// Return blocks that are lost: the client disconnected, OR the

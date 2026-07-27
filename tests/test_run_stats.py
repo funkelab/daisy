@@ -24,9 +24,6 @@ def test_stats_dict_has_expected_keys():
         read_write_conflict=False,
         max_workers=2,
         max_retries=0,
-        # thread mode: blocks_processed accounting is only visible for
-        # in-process workers (see RUN_STATS.md gap note)
-        worker_processes=False,
     )
     server.run_blockwise([task])
     s = server.last_run_stats
@@ -112,11 +109,6 @@ def test_per_worker_stats_present_and_blocks_account():
         read_write_conflict=False,
         max_workers=4,
         max_retries=0,
-        # thread mode: per-worker block accounting is only visible for
-        # in-process workers (subprocess blocks are the documented run-stats
-        # gap, see docs/source/design/RUN_STATS.md); this test documents the
-        # thread-mode stats machinery.
-        worker_processes=False,
     )
     server.run_blockwise([task])
     s = server.last_run_stats

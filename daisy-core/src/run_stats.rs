@@ -2,9 +2,14 @@
 //!
 //! Three layers of measurement:
 //!
-//! - **Per-worker** — wall-clock alive, OS-thread CPU time, blocks
-//!   processed. Reported when the worker thread exits (signals through
-//!   the existing exit channel).
+//! - **Per-worker** — wall-clock alive and OS-thread CPU time are
+//!   reported when the worker thread exits (through the exit channel);
+//!   blocks processed are counted server-side as block returns arrive,
+//!   attributed to workers via the `Register` handshake, and merged in
+//!   `build_run_stats`. Server-side counting is what makes the numbers
+//!   mode-independent: thread workers, subprocess-shim workers, and
+//!   external cluster workers all release blocks over the same TCP
+//!   protocol.
 //! - **Per-task aggregate** — sum across that task's workers, plus a
 //!   linear-regression fit `(release_index, duration_ms)` so the
 //!   "first block ran in 2 ms, last block ran in 12 ms" trend is
@@ -126,10 +131,48 @@ pub struct WorkerStats {
     pub wall_time: Duration,
     /// `None` if the platform doesn't expose per-thread CPU.
     pub cpu_time: Option<Duration>,
+    /// Valid block returns the server observed from this worker. Not
+    /// filled in by the worker thread — counted in `RunTally` as
+    /// releases arrive and merged in `build_run_stats`.
     pub blocks_processed: u64,
     /// Error that terminated this worker, if it exited dirty. Carried
     /// back so the server can attach the cause to the task state.
     pub last_error: Option<String>,
+}
+
+/// Server-side per-run accounting, fed from client messages as the run
+/// progresses and folded into `RunStats` by `build_run_stats`.
+///
+/// Counting block returns at the server (rather than in the worker
+/// thread's own loop) is what keeps `blocks_processed` correct across
+/// every execution mode: in-process threads, subprocess-shim workers,
+/// and external cluster workers all return blocks over the same TCP
+/// protocol. It is also more honest — an attempt the server reclaimed
+/// (timeout, dead client) was never a valid return and is not counted.
+#[derive(Debug, Default)]
+pub struct RunTally {
+    /// task_id -> per-block server-side durations (ms), in the order
+    /// each successful block's `ReleaseBlock` was observed.
+    pub block_durations: HashMap<String, Vec<f64>>,
+    /// task_id -> valid block returns observed (successes and failures).
+    pub task_blocks: HashMap<String, u64>,
+    /// (task_id, worker_id) -> valid block returns from that worker,
+    /// for connections that announced themselves via `Register`.
+    pub worker_blocks: HashMap<(String, u64), u64>,
+}
+
+impl RunTally {
+    /// Record one valid block return. `worker_id` is the returning
+    /// connection's registered identity, when it announced one.
+    pub fn count_return(&mut self, task_id: &str, worker_id: Option<u64>) {
+        *self.task_blocks.entry(task_id.to_string()).or_default() += 1;
+        if let Some(wid) = worker_id {
+            *self
+                .worker_blocks
+                .entry((task_id.to_string(), wid))
+                .or_default() += 1;
+        }
+    }
 }
 
 /// Per-task aggregate stats produced at the end of a run.
@@ -199,17 +242,36 @@ pub fn linear_trend(y: &[f64]) -> (f64, f64) {
 ///
 /// `worker_stats` is the per-worker fold across all retired workers
 /// (including any still-alive workers whose stats were captured at
-/// shutdown).
-///
-/// `task_block_durations[task_id]` is the per-task list of release-side
-/// durations in millisecond, in the order each block's `ReleaseBlock`
-/// was observed by the server.
+/// shutdown). Their `blocks_processed` is filled in here from the
+/// tally's server-side counts; workers the server heard from that have
+/// no thread in this process (external cluster workers) get synthetic
+/// entries carrying just their block counts.
 pub fn build_run_stats(
     started: Instant,
-    worker_stats: Vec<WorkerStats>,
-    task_block_durations: HashMap<String, Vec<f64>>,
+    mut worker_stats: Vec<WorkerStats>,
+    tally: RunTally,
     process: ProcessStats,
 ) -> RunStats {
+    let RunTally {
+        block_durations,
+        task_blocks,
+        mut worker_blocks,
+    } = tally;
+
+    for ws in &mut worker_stats {
+        ws.blocks_processed = worker_blocks
+            .remove(&(ws.task_id.clone(), ws.worker_id))
+            .unwrap_or(0);
+    }
+    for ((task_id, worker_id), blocks) in worker_blocks {
+        worker_stats.push(WorkerStats {
+            task_id,
+            worker_id,
+            blocks_processed: blocks,
+            ..Default::default()
+        });
+    }
+
     let mut per_task: HashMap<String, TaskStats> = HashMap::new();
 
     for ws in &worker_stats {
@@ -219,7 +281,6 @@ pub fn build_run_stats(
                 task_id: ws.task_id.clone(),
                 ..Default::default()
             });
-        entry.blocks_processed += ws.blocks_processed;
         entry.total_wall_time += ws.wall_time;
         match (entry.total_cpu_time, ws.cpu_time) {
             (Some(prev), Some(more)) => entry.total_cpu_time = Some(prev + more),
@@ -232,7 +293,17 @@ pub fn build_run_stats(
         }
     }
 
-    for (task_id, durations) in task_block_durations {
+    for (task_id, blocks) in task_blocks {
+        per_task
+            .entry(task_id.clone())
+            .or_insert_with(|| TaskStats {
+                task_id,
+                ..Default::default()
+            })
+            .blocks_processed = blocks;
+    }
+
+    for (task_id, durations) in block_durations {
         let entry = per_task
             .entry(task_id.clone())
             .or_insert_with(|| TaskStats {

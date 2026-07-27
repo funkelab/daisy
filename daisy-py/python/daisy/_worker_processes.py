@@ -27,12 +27,15 @@ functions) and falls back to stdlib ``pickle`` when dill is not installed
 or ``pip install dill`` for full function support.
 """
 
+import importlib
+import io
 import os
 import pickle
 import struct
 import subprocess
 import tempfile
 import sys
+import types
 
 #: exit code the worker child uses when it self-terminates because a block
 #: exceeded ``Task(timeout=...)`` (see ``_subprocess_worker``).
@@ -57,6 +60,52 @@ def _read_frame(stream) -> bytes:
     return stream.read(n)
 
 
+def _import_module(name):
+    """Unpickle-side reconstructor for by-reference module pickles."""
+    return importlib.import_module(name)
+
+
+def _make_modules_by_ref_pickler(dill):
+    """A ``dill.Pickler`` that pickles every imported module by reference.
+
+    dill pickles a module it deems "not builtin" — anything whose file
+    lives outside sys.prefix / site-packages, e.g. an editable install
+    or a source-tree checkout — BY VALUE: its entire ``__dict__`` is
+    serialized, so one unpicklable module-level object (a
+    ``threading.local``, a ``struct.Struct``, an open file) anywhere in
+    that namespace fails the whole payload. A block function only has to
+    reference such a module as a global (``daisy.BlockStatus.SUCCESS``)
+    to drag it in.
+
+    Our child workers replicate the parent's ``sys.path`` before the
+    function is deserialized (see ``read_payload``), so any module
+    importable in the parent is importable in the child, and
+    by-reference is both sufficient and robust. Only ``__main__`` (and
+    its multiprocessing alias) genuinely needs dill's by-value path —
+    the child's ``__main__`` is the worker shim, not the user's script.
+    """
+
+    class _ModulesByRefPickler(dill.Pickler):
+        dispatch = dill.Pickler.dispatch.copy()
+
+        def _save_module(self, obj):
+            name = getattr(obj, "__name__", None)
+            if (
+                name
+                and name not in ("__main__", "__mp_main__")
+                and sys.modules.get(name) is obj
+            ):
+                self.save_reduce(_import_module, (name,), obj=obj)
+            else:
+                # __main__, or a synthetic/reloaded module the child could
+                # not re-import — fall back to dill's own module handling.
+                dill.Pickler.dispatch[types.ModuleType](self, obj)
+
+        dispatch[types.ModuleType] = _save_module
+
+    return _ModulesByRefPickler
+
+
 def _serialize(obj) -> bytes:
     try:
         import dill
@@ -76,7 +125,28 @@ def _serialize(obj) -> bytes:
                 f"entire runtime). Underlying error: {e!r}"
             ) from e
     else:
-        body = dill.dumps(obj, recurse=True)
+        try:
+            # recurse=True is load-bearing: it ships the globals the
+            # function actually references, so functions defined in
+            # __main__ / notebooks resolve their names in the child.
+            buf = io.BytesIO()
+            _make_modules_by_ref_pickler(dill)(buf, recurse=True).dump(obj)
+            body = buf.getvalue()
+        except Exception as e:
+            raise RuntimeError(
+                "daisy could not serialize this process_function for "
+                "subprocess workers (the default execution mode). dill "
+                "serializes the function together with the globals it "
+                "references — a referenced module or object that cannot "
+                "be pickled fails the whole payload. Either restructure "
+                "the function to import what it needs by name (e.g. "
+                "`from mypkg import thing` instead of referencing the "
+                "`mypkg` module as a global), or opt into GIL-sharing "
+                "thread workers with `Task(..., worker_processes=False)` "
+                "(only sensible for block functions that release the GIL "
+                "for essentially their entire runtime). "
+                f"Underlying error: {e!r}"
+            ) from e
     header = pickle.dumps({"sys_path": list(sys.path)})
     return _pack_frames(header, body)
 

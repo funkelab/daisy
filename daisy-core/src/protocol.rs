@@ -25,6 +25,13 @@ pub enum Message {
 
     /// Worker notifies it is disconnecting.
     Disconnect,
+
+    /// Worker announces its identity right after connecting, so the
+    /// server can attribute block returns to workers regardless of
+    /// where the worker runs (in-process thread, subprocess shim, or
+    /// external cluster job). Appended last so the wire discriminants
+    /// of the original messages are unchanged.
+    Register { task_id: String, worker_id: u64 },
 }
 
 const MAX_MESSAGE_SIZE: u32 = 64 * 1024 * 1024; // 64 MiB safety limit

@@ -14,15 +14,30 @@ pub struct Client {
 }
 
 impl Client {
-    /// Connect to the server at the given address.
-    pub async fn connect(host: &str, port: u16, task_id: &str) -> io::Result<Self> {
+    /// Connect to the server at the given address and announce this
+    /// worker's identity, so the server can attribute block returns to
+    /// it in the run stats.
+    pub async fn connect(
+        host: &str,
+        port: u16,
+        task_id: &str,
+        worker_id: u64,
+    ) -> io::Result<Self> {
         let addr = format!("{host}:{port}");
-        debug!(%addr, task_id, "connecting to server");
+        debug!(%addr, task_id, worker_id, "connecting to server");
         let stream = TcpStream::connect(&addr).await?;
         // Disable Nagle: per-block acquire/release are tiny request/response
         // messages; Nagle + delayed-ACK adds ~40ms stalls each way.
         stream.set_nodelay(true)?;
-        let (reader, writer) = stream.into_split();
+        let (reader, mut writer) = stream.into_split();
+        write_message(
+            &mut writer,
+            &Message::Register {
+                task_id: task_id.to_string(),
+                worker_id,
+            },
+        )
+        .await?;
         Ok(Self {
             reader,
             writer,
