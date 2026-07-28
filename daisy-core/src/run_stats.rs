@@ -346,6 +346,87 @@ mod tests {
     use super::*;
 
     #[test]
+    fn run_tally_counts_per_task_and_per_worker() {
+        let mut tally = RunTally::default();
+        tally.count_return("a", Some(1));
+        tally.count_return("a", Some(1));
+        tally.count_return("a", None); // unregistered client: task-only
+        tally.count_return("b", Some(2));
+        assert_eq!(tally.task_blocks["a"], 3);
+        assert_eq!(tally.task_blocks["b"], 1);
+        assert_eq!(tally.worker_blocks[&("a".to_string(), 1)], 2);
+        assert_eq!(tally.worker_blocks[&("b".to_string(), 2)], 1);
+    }
+
+    #[test]
+    fn build_run_stats_merges_tally_into_worker_stats() {
+        let worker_stats = vec![
+            WorkerStats {
+                task_id: "a".into(),
+                worker_id: 1,
+                wall_time: Duration::from_secs(2),
+                ..Default::default()
+            },
+            WorkerStats {
+                task_id: "a".into(),
+                worker_id: 2,
+                wall_time: Duration::from_secs(1),
+                ..Default::default()
+            },
+        ];
+        let mut tally = RunTally::default();
+        for _ in 0..3 {
+            tally.count_return("a", Some(1));
+        }
+        tally.count_return("a", Some(2));
+        // A worker the server heard from that has no thread in this
+        // process (an external cluster worker).
+        tally.count_return("a", Some(7));
+
+        let stats = build_run_stats(
+            Instant::now(),
+            worker_stats,
+            tally,
+            ProcessStats::default(),
+        );
+
+        assert_eq!(stats.per_task["a"].blocks_processed, 5);
+        let by_id = |wid: u64| {
+            stats
+                .per_worker
+                .iter()
+                .find(|w| w.worker_id == wid)
+                .unwrap()
+        };
+        assert_eq!(by_id(1).blocks_processed, 3);
+        assert_eq!(by_id(2).blocks_processed, 1);
+        // The external worker gets a synthetic entry carrying just its
+        // block count.
+        let external = by_id(7);
+        assert_eq!(external.blocks_processed, 1);
+        assert_eq!(external.wall_time, Duration::ZERO);
+        assert_eq!(stats.per_worker.len(), 3);
+    }
+
+    #[test]
+    fn build_run_stats_task_counts_survive_unregistered_workers() {
+        // Returns observed from clients that never sent Register (an
+        // older daisy): per-task counts stay correct, per-worker
+        // attribution is simply absent.
+        let mut tally = RunTally::default();
+        tally.count_return("a", None);
+        tally.count_return("a", None);
+        let stats = build_run_stats(
+            Instant::now(),
+            vec![],
+            tally,
+            ProcessStats::default(),
+        );
+        assert_eq!(stats.per_task["a"].blocks_processed, 2);
+        assert!(stats.per_worker.is_empty());
+    }
+
+    #[test]
     fn linear_trend_constant_signal_has_zero_slope() {
         let (mean, slope) = linear_trend(&[3.0; 100]);
         assert!((mean - 3.0).abs() < 1e-9);

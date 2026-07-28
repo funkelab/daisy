@@ -160,3 +160,43 @@ impl BlockBookkeeper {
         lost_blocks
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::roi::Roi;
+
+    fn addr(port: u16) -> SocketAddr {
+        format!("127.0.0.1:{port}").parse().unwrap()
+    }
+
+    fn block(task_id: &str) -> Block {
+        let roi = Roi::from_slices(&[0], &[10]);
+        Block::new(&roi, roi.clone(), roi.clone(), task_id)
+    }
+
+    #[test]
+    fn registration_lifecycle() {
+        let mut bk = BlockBookkeeper::new();
+        assert_eq!(bk.registered_worker_id(addr(9000)), None);
+        bk.register_worker(addr(9000), "t".to_string(), 5);
+        assert_eq!(bk.registered_worker_id(addr(9000)), Some(5));
+        // Disconnect drops the registration so an OS-recycled ephemeral
+        // port can't inherit a stale identity.
+        bk.notify_client_disconnected(addr(9000));
+        assert_eq!(bk.registered_worker_id(addr(9000)), None);
+    }
+
+    #[test]
+    fn registration_clears_closed_marker_for_recycled_port() {
+        let mut bk = BlockBookkeeper::new();
+        // An earlier connection on this ephemeral port disconnected...
+        bk.notify_client_disconnected(addr(9001));
+        // ...and the OS hands the port to a new worker, which registers
+        // and receives a block. Its in-flight block must not be
+        // reclaimed as lost on the strength of the stale marker.
+        bk.register_worker(addr(9001), "t".to_string(), 6);
+        bk.notify_block_sent(block("t"), addr(9001), None);
+        assert!(bk.get_lost_blocks().is_empty());
+    }
+}

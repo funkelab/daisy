@@ -88,8 +88,8 @@ async fn test_chained_tasks_distributed() {
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
 
     let h = host.clone();
-    let w_a = tokio::spawn(run_worker(h.clone(), port, "a".to_string()));
-    let w_b = tokio::spawn(run_worker(h, port, "b".to_string()));
+    let w_a = tokio::spawn(run_worker(h.clone(), port, "a".to_string(), 0));
+    let w_b = tokio::spawn(run_worker(h, port, "b".to_string(), 1));
 
     let (states, _) = tokio::time::timeout(
         std::time::Duration::from_secs(8),
@@ -117,8 +117,10 @@ async fn test_chained_tasks_distributed() {
 }
 
 
-async fn run_worker(host: String, port: u16, task_id: String) {
-    let mut client = Client::connect(&host, port, &task_id, 0).await.unwrap();
+async fn run_worker(host: String, port: u16, task_id: String, worker_id: u64) {
+    let mut client = Client::connect(&host, port, &task_id, worker_id)
+        .await
+        .unwrap();
     loop {
         match client.acquire_block().await {
             Ok(Some(mut block)) => {
@@ -152,10 +154,10 @@ async fn test_server_client_no_conflict() {
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
 
     let h = host.clone();
-    let w1 = tokio::spawn(run_worker(h.clone(), port, "test_tcp".to_string()));
-    let w2 = tokio::spawn(run_worker(h, port, "test_tcp".to_string()));
+    let w1 = tokio::spawn(run_worker(h.clone(), port, "test_tcp".to_string(), 0));
+    let w2 = tokio::spawn(run_worker(h, port, "test_tcp".to_string(), 1));
 
-    let (states, _) = tokio::time::timeout(
+    let (states, run_stats) = tokio::time::timeout(
         std::time::Duration::from_secs(10),
         server.run_blockwise(
             listener,
@@ -175,6 +177,19 @@ async fn test_server_client_no_conflict() {
     assert!(state.balanced(), "task should be done: {state}");
     assert_eq!(state.total_block_count, 4);
     assert_eq!(state.completed_count, 4);
+
+    // External workers (raw TCP clients, no thread inside the server
+    // process) announce themselves via Register, so their block returns
+    // are counted server-side and reported as synthetic per-worker
+    // entries.
+    assert_eq!(run_stats.per_task["test_tcp"].blocks_processed, 4);
+    let external_blocks: u64 = run_stats
+        .per_worker
+        .iter()
+        .filter(|w| w.task_id == "test_tcp")
+        .map(|w| w.blocks_processed)
+        .sum();
+    assert_eq!(external_blocks, 4);
 
     // Workers should exit promptly after server shutdown — not linger as zombies.
     tokio::time::timeout(std::time::Duration::from_secs(2), w1)
@@ -209,8 +224,8 @@ async fn test_server_client_with_conflict() {
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
 
     let h = host.clone();
-    let w1 = tokio::spawn(run_worker(h.clone(), port, "conflict_tcp".to_string()));
-    let w2 = tokio::spawn(run_worker(h, port, "conflict_tcp".to_string()));
+    let w1 = tokio::spawn(run_worker(h.clone(), port, "conflict_tcp".to_string(), 0));
+    let w2 = tokio::spawn(run_worker(h, port, "conflict_tcp".to_string(), 1));
 
     let (states, _) = tokio::time::timeout(
         std::time::Duration::from_secs(10),
