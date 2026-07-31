@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Per-block measurement is now strictly opt-in end to end. The worker
+  context carries the task's `resource_tracking` flag, so a worker skips
+  the profiler entirely when stats were not requested — previously every
+  worker measured cpu/rss/io per block and the server discarded the
+  payload. Thread-mode workers were already gated; this closes the
+  `Client.acquire_block` path used by subprocess-shim and external
+  cluster workers. An absent key (hand-built `Context`, older server)
+  means off.
+
+### Changed
+
 - **Run statistics are now an optional per-block layer.** Set
   `Task(resource_tracking=True)` and every block comes back carrying what it
   cost — wall time, CPU time, peak RSS, IO bytes — measured inside whoever

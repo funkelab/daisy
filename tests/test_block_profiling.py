@@ -240,3 +240,54 @@ def test_tracking_without_resource_tracking_omits_stat_arrays(tmp_path):
     s = _summary(server, "plain")
     assert int(s["blocks"]) == 4, "blocks are counted even without resource stats"
     assert not s["has_stats"]
+
+
+def test_worker_context_advertises_resource_tracking(tmp_path):
+    """The server tells workers whether to measure, so a worker never pays
+    for stats the server would discard. Absent key means off — a hand-built
+    Context or an older server must not switch measurement on."""
+    for raw, want in (
+        ("hostname=h:port=1:task_id=t:worker_id=0:resource_tracking=1", True),
+        ("hostname=h:port=1:task_id=t:worker_id=0:resource_tracking=0", False),
+        ("hostname=h:port=1:task_id=t:worker_id=0", False),
+    ):
+        ctx = daisy.Context.from_env_string(raw)
+        got = str(ctx.get("resource_tracking", "0")) in ("1", "true", "True")
+        assert got is want, raw
+
+
+def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
+    """`resource_tracking=False` must leave the stats layer entirely idle:
+    only done/failures on disk, and no measured totals in the summary."""
+    daisy.set_tracking_basedir(tmp_path / "tr")
+
+    def run(flag, task_id):
+        task = daisy.Task(
+            task_id=task_id,
+            total_roi=daisy.Roi([0], [40]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: None,
+            read_write_conflict=False,
+            max_workers=2,
+            resource_tracking=flag,
+        )
+        server = daisy.Server()
+        server.run_blockwise([task], progress=False)
+        per = server.last_tracking_summary["per_task"][task_id]
+        arrays = sorted(
+            p.name for p in (tmp_path / "tr" / task_id).iterdir() if p.is_dir()
+        )
+        return per, arrays
+
+    on, on_arrays = run(True, "measured")
+    off, off_arrays = run(False, "unmeasured")
+
+    # both ran the same work
+    assert on["blocks"] == off["blocks"] == 4
+    # ...but only the opted-in task measured anything
+    assert on["has_stats"] and set(on_arrays) > {"done", "failures"}
+    assert not off["has_stats"]
+    assert off_arrays == ["done", "failures"]
+    assert off["total_cpu_secs"] == 0
+    assert off["io_read_bytes"] == 0

@@ -389,6 +389,15 @@ class Client:
         self.port = int(context["port"])
         self.worker_id = int(context["worker_id"])
         self.task_id = context["task_id"]
+        # Measure blocks only when the task asked for it. Without this the
+        # server would receive stats it discards, so every worker would pay
+        # for a feature nobody enabled. Absent key (a hand-built Context, or
+        # an older server) means "off".
+        self.resource_tracking = str(context.get("resource_tracking", "0")) in (
+            "1",
+            "true",
+            "True",
+        )
         try:
             self._client = _rs.SyncClient(self.host, self.port, self.task_id)
         except ConnectionRefusedError:
@@ -426,8 +435,9 @@ class Client:
         # why 0-arg workers need no extra code. A user who wants tighter
         # scoping can still use `daisy.profile_block(block)` inside their
         # function — the first measurement attached wins.
-        profiler = _rs.profile_block(block)
-        profiler.__enter__()
+        profiler = _rs.profile_block(block) if self.resource_tracking else None
+        if profiler is not None:
+            profiler.__enter__()
         try:
             yield block
             if block.status == BlockStatus.PROCESSING:
@@ -464,7 +474,8 @@ class Client:
             # Attach before the block goes back: the server reads stats off
             # the released block, and a failed block's cost is worth
             # recording too.
-            profiler.__exit__(None, None, None)
+            if profiler is not None:
+                profiler.__exit__(None, None, None)
             if block.status != BlockStatus.SUCCESS:
                 block.status = BlockStatus.FAILED
             if not reported:

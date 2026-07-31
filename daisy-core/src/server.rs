@@ -558,9 +558,16 @@ impl Server {
                 let _ = rt.block_on(client.disconnect());
                 true // clean exit
             } else if let Some(ref spawn_fn) = task.spawn_function {
+                // resource_tracking rides along so the worker can skip
+                // measuring entirely when nobody asked for stats — the
+                // server would only discard them.
                 let env_ctx = format!(
-                    "hostname={}:port={}:task_id={}:worker_id={}",
-                    host, port, task_id, worker_id
+                    "hostname={}:port={}:task_id={}:worker_id={}:resource_tracking={}",
+                    host,
+                    port,
+                    task_id,
+                    worker_id,
+                    if task.resource_tracking { 1 } else { 0 }
                 );
                 match spawn_fn.spawn(&env_ctx) {
                     Ok(()) => true,
