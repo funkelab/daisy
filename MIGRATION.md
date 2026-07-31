@@ -51,7 +51,7 @@ A few things v2 added that have no 1.x equivalent:
 - **Worker restart cap** with proper abandonment + transitive downstream orphan propagation.
 - **Run statistics** (per-worker, per-task, process-wide) surfaced after each run.
 
-## Worker execution modes (and the subprocess default)
+## How workers run
 
 > **Behavior change: blocks always time out.** `Task(timeout=...)` now
 > defaults to **600 seconds (10 minutes)** and cannot be disabled —
@@ -63,36 +63,42 @@ A few things v2 added that have no 1.x equivalent:
 > error say so and point at `Task(timeout=...)`. Raise the value
 > explicitly for genuinely slow blocks.
 
-A 1-arg `process_function` on the distributed run paths executes in **worker
-subprocesses by default** — the function is serialized (with `cloudpickle`
-when installed, giving daisy 1.x's lambda/closure support back) and each
-worker slot runs `python -m daisy._subprocess_worker`. Objects that cannot
-cross a process boundary (threading locks/conditions, open write handles,
-live connections — directly or via an object your function is bound to) are
-rejected at submit time with guidance: create them inside the block
-function, or use `worker_processes=False` to run on threads where they are
-real. This is the mode that
-behaves like daisy 1.x: CPU-bound python scales with `max_workers`, and
-`Task(timeout=…)` truly preempts a stuck block by killing its worker
-process.
+### One worker model: a dedicated process each
 
-`Task(worker_processes=False)` opts into **thread workers** (one Rust
-thread per slot, sharing the server process's GIL). Be aware this is only
-faster for a *very narrow* use case: block functions that release the GIL
-for essentially their entire runtime — pure I/O waits or single-threaded
-C-library calls — and even then only by ~15% (no interpreter startup, no
-serialization). It is also the mode to use when workers must share large
-read-only in-process memory. Any meaningful pure-python fraction makes
-threads dramatically slower: measured at 16 workers, 1.7× slower with just
-10% python glue, 8× at 30%, 28× at 100% python. Thread workers also cannot
-be preempted by `timeout=` (the reclaimed block's thread keeps running).
+On the distributed run paths **every worker is its own OS process**, as in
+daisy 1.x. Whatever your `process_function` is, daisy serializes it (with
+`cloudpickle` when installed, which gives 1.x's lambda/closure support back)
+and each worker slot runs `python -m daisy._subprocess_worker`:
 
-Serial execution (`run_blockwise(…, multiprocessing=False)`) always calls
-your original function in-process and is unaffected by `worker_processes`.
+| your function | what the worker process does |
+| --- | --- |
+| `f(block)` — 1 arg | runs the standard `Client.acquire_block()` loop and calls `f` per block |
+| `f()` or `f(*, context)` — 0 args | calls `f` once; `f` drives its own loop, and may `srun`/`sbatch` a further process |
 
-**Resource note:** with the subprocess default, `max_workers=N` means N
-python interpreter processes (each importing your function's modules), not
-N threads in one process.
+Consequences worth knowing:
+
+- **CPU-bound python scales with `max_workers`.** There is no shared GIL.
+- **`Task(timeout=…)` truly preempts.** A stuck block's process is killed.
+- **`max_workers=N` means N python interpreters**, each importing your
+  function's modules. Budget memory accordingly.
+- **Your function must be picklable.** Objects that cannot cross a process
+  boundary (threading locks/conditions, open write handles, live database
+  connections — held directly or by an object your function is bound to) are
+  rejected before the run starts, with guidance. Create them inside the
+  function instead, or pass a path and reopen it in the worker.
+- **No free shared memory.** Workers cannot share a large read-only array by
+  closing over it; `numpy.memmap` a file instead, which costs one page cache
+  copy rather than one heap copy per worker.
+
+Serial execution (`run_blockwise(…, multiprocessing=False)`) is the in-process
+escape hatch: single-threaded, no workers, your original function called
+directly. Use it for `pdb`, for closures over live objects, and in tests that
+need to observe in-process state.
+
+If your 0-arg worker function re-executes something itself (`srun`, `sbatch`,
+a container), daisy does not see that grandchild process and cannot configure
+it. Forward what it needs — `context.to_env()` as `DAISY_CONTEXT`, and your
+own logging setup — the way you already would for a remote worker.
 
 ## Removed APIs
 

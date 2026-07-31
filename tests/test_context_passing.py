@@ -1,20 +1,27 @@
-"""Spawn functions can receive their worker context as an argument.
+"""Every worker gets its own, correct context.
 
-The DAISY_CONTEXT env var is process-global: with concurrent spawns, a
-spawn function that blocks before its child captures the environment (an
-sbatch submission, a slow filesystem) can observe a LATER worker's value —
-measured in the adversarial suite as 8 concurrent spawns all seeing
-worker_id=7. Declaring a keyword-only `context` parameter opts into the
-race-free path: `def start_worker(*, context): ...` receives this worker's
-`daisy.Context` by value. Keyword-only params don't count toward positional
-arity, so the 0-positional-args == spawn-function classification is
-untouched.
+A worker learns who it is (`hostname`, `port`, `task_id`, `worker_id`) from a
+`daisy.Context`, either as a keyword-only `context` argument or by reading
+the `DAISY_CONTEXT` environment variable. Both are now race-free: each
+worker runs in its own process, and the parent builds that process's
+environment explicitly, so there is no shared mutable place for one worker's
+identity to overwrite another's.
+
+That used not to be true. Worker functions ran on server threads sharing one
+process environment, so a spawn function that blocked before its child read
+the environment (an sbatch submission, a slow filesystem) could observe a
+LATER worker's value — measured in the adversarial suite as 8 concurrent
+spawns all seeing worker_id=7. The keyword-only `context` parameter was
+introduced as the opt-in fix and remains the recommended signature, since it
+is explicit and does not depend on inheritance; it is no longer the
+difference between correct and racy.
+
+Identities are recorded to files: each worker is a separate process, so an
+in-process list would be appended to in the child and read as empty here.
 """
 
 import os
-import time
-
-import pytest
+from pathlib import Path
 
 import daisy
 
@@ -33,66 +40,98 @@ def _mk_task(spawn_fn, n_blocks=16, max_workers=8, **kw):
     )
 
 
-def test_slow_concurrent_spawns_get_distinct_contexts():
-    """THE race test: 8 workers, each spawn sleeps 50ms before reading its
-    identity. On the env-var path this collapses to one worker_id; on the
-    argument path every spawn sees its own."""
-    seen = []
+def _ids_in(dirpath, prefix="w"):
+    return [
+        f.name.split("-")[1]
+        for f in Path(dirpath).iterdir()
+        if f.name.startswith(prefix + "-")
+    ]
+
+
+def test_slow_concurrent_context_arg_spawns_get_distinct_identities(tmp_path):
+    """THE race test, argument form: 8 workers, each sleeping 50ms before
+    reading its identity, must each see their own worker_id."""
+    out = str(tmp_path / "ids")
+    Path(out).mkdir()
 
     def slow_spawn(*, context):
-        time.sleep(0.05)  # sbatch-submission stand-in
-        seen.append(context["worker_id"])
+        import time as _time
+        from pathlib import Path as _Path
+
+        _time.sleep(0.05)  # sbatch-submission stand-in
+        _Path(out, f"w-{context['worker_id']}").touch()
         # no worker ever connects; the start budget ends the run
 
     task = _mk_task(slow_spawn, max_workers=8, max_worker_restarts=0)
     daisy.Server().run_blockwise([task], progress=False)
 
+    seen = _ids_in(out)
     assert len(seen) == 8, seen
     assert len(set(seen)) == 8, f"duplicate worker identities handed out: {seen}"
 
 
-def test_env_var_still_set_for_context_spawns():
-    """The env var keeps being set even on the argument path (children may
-    inherit it), and matches the argument for non-overlapping spawns."""
-    seen = {}
+def test_slow_concurrent_env_var_spawns_get_distinct_identities(tmp_path):
+    """THE race test, environment form. This is the case that used to
+    collapse to a single worker_id: reading DAISY_CONTEXT from a process
+    shared with 7 other spawns. Each worker now has its own process and its
+    own environment, so the bare 0-arg signature is race-free too."""
+    out = str(tmp_path / "ids")
+    Path(out).mkdir()
+
+    def slow_spawn():
+        import time as _time
+        from pathlib import Path as _Path
+
+        _time.sleep(0.05)
+        _Path(out, f"w-{daisy.Context.from_env()['worker_id']}").touch()
+
+    task = _mk_task(slow_spawn, max_workers=8, max_worker_restarts=0)
+    daisy.Server().run_blockwise([task], progress=False)
+
+    seen = _ids_in(out)
+    assert len(seen) == 8, seen
+    assert len(set(seen)) == 8, f"duplicate worker identities handed out: {seen}"
+
+
+def test_context_argument_and_env_var_agree(tmp_path):
+    """A worker's `context` argument and its inherited DAISY_CONTEXT
+    describe the same worker — children it launches can rely on either."""
+    out = str(tmp_path / "ids")
+    Path(out).mkdir()
 
     def spawn(*, context):
-        seen["arg"] = context["worker_id"]
-        seen["env"] = daisy.Context.from_env()["worker_id"]
+        from pathlib import Path as _Path
+
+        arg = context["worker_id"]
+        env = daisy.Context.from_env()["worker_id"]
+        _Path(out, f"pair-{arg}-{env}").touch()
 
     task = _mk_task(spawn, max_workers=1, max_worker_restarts=0)
     daisy.Server().run_blockwise([task], progress=False)
-    assert seen["arg"] == seen["env"]
+
+    pairs = [f.name.split("-")[1:] for f in Path(out).iterdir()]
+    assert pairs, "spawn function never ran"
+    for arg, env in pairs:
+        assert arg == env, f"context argument {arg} != env var {env}"
 
 
-def test_zero_arg_spawn_functions_unchanged():
-    """Legacy 0-arg spawn functions keep working on the env-var path."""
-    seen = []
-
-    def legacy_spawn():
-        seen.append(daisy.Context.from_env()["worker_id"])
-
-    task = _mk_task(legacy_spawn, max_workers=1, max_worker_restarts=0)
-    daisy.Server().run_blockwise([task], progress=False)
-    assert len(seen) == 1
-
-
-def test_shim_workers_get_distinct_identities():
-    """Subprocess block-function workers (the default mode) inherit a
-    deterministic DAISY_CONTEXT from the context argument."""
-    import tempfile
-
-    outdir = tempfile.mkdtemp()
+def test_block_function_workers_get_distinct_identities(tmp_path):
+    """Workers running a 1-arg block function get a deterministic
+    DAISY_CONTEXT built for their process alone."""
+    outdir = str(tmp_path / "ids")
+    Path(outdir).mkdir()
 
     def record_identity(block):
+        import os as _os
+        import time as _time
+
         ctx = daisy.Context.from_env()
-        open(os.path.join(outdir, f"w{ctx['worker_id']}_p{os.getpid()}"), "w").close()
-        time.sleep(0.05)  # hold the block so all workers participate
+        open(os.path.join(outdir, f"w-{ctx['worker_id']}_p{_os.getpid()}"), "w").close()
+        _time.sleep(0.05)  # hold the block so all workers participate
 
     task = _mk_task(record_identity, n_blocks=32, max_workers=8, task_id="shim_ctx")
-    ok = daisy.run_blockwise([task], progress=False)
-    assert ok
-    worker_ids = {f.split("_")[0] for f in os.listdir(outdir)}
+    assert daisy.run_blockwise([task], progress=False)
+    worker_ids = {f.name.split("_")[0] for f in Path(outdir).iterdir()}
     assert len(worker_ids) == 8, sorted(worker_ids)
 
 
@@ -104,9 +143,10 @@ def test_context_round_trip():
     assert parsed["worker_id"] == "7"
 
 
-def test_legacy_zero_arg_spawn_warns_when_concurrent(recwarn):
-    """0-arg spawn functions still work (env-var path) but warn about the
-    DAISY_CONTEXT race when max_workers > 1."""
+def test_both_spawn_signatures_are_accepted_without_warning(tmp_path):
+    """Both the bare 0-arg and the keyword-only `context` signature are
+    first-class. The 0-arg form used to warn about the DAISY_CONTEXT race
+    when max_workers > 1; that warning is gone because the race is."""
     import warnings as _w
 
     def legacy_spawn():
@@ -118,22 +158,15 @@ def test_legacy_zero_arg_spawn_warns_when_concurrent(recwarn):
     def block_fn(block):
         pass
 
-    def mk(fn, workers):
-        return daisy.Task(
-            task_id="warncheck",
-            total_roi=daisy.Roi([0], [20]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=fn,
-            read_write_conflict=False,
-            max_workers=workers,
-        )
-
-    with pytest.warns(UserWarning, match="DAISY_CONTEXT"):
-        mk(legacy_spawn, 2)
-
-    # no warning: race-free signature, single worker, or block function
-    for fn, workers in ((race_free, 8), (legacy_spawn, 1), (block_fn, 8)):
+    for fn, workers in ((legacy_spawn, 8), (race_free, 8), (block_fn, 8)):
         with _w.catch_warnings():
             _w.simplefilter("error", UserWarning)
-            mk(fn, workers)
+            daisy.Task(
+                task_id="warncheck",
+                total_roi=daisy.Roi([0], [20]),
+                read_roi=daisy.Roi([0], [10]),
+                write_roi=daisy.Roi([0], [10]),
+                process_function=fn,
+                read_write_conflict=False,
+                max_workers=workers,
+            )

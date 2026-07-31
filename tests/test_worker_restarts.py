@@ -446,21 +446,29 @@ def test_successful_run_has_no_abandonment_metadata():
     )
 
 
-def test_worker_start_budget_bounds_clean_exit_churn():
+def test_worker_start_budget_bounds_clean_exit_churn(tmp_path):
     """A spawn function that returns cleanly without its worker ever
     processing a block (e.g. `subprocess.run(..., check=False)` around
     a command that can't start) must not respawn forever: total worker
     starts are hard-capped at max_workers + max_worker_restarts, no
-    matter how or why previous workers exited."""
-    import subprocess
-    import sys
+    matter how or why previous workers exited.
 
-    starts = []
+    Starts are counted with one file each: the worker function runs in its
+    own process, so an in-process counter would be incremented in the child
+    and read as zero here."""
+    startdir = tmp_path / "starts"
+    startdir.mkdir()
+    out = str(startdir)
 
     def broken_spawn():
-        starts.append(1)
-        subprocess.run(
-            [sys.executable, "/nonexistent/worker.py"],
+        import os as _os
+        import subprocess as _subprocess
+        import sys as _sys
+        from pathlib import Path as _Path
+
+        _Path(out, f"start-{_os.getpid()}").touch()
+        _subprocess.run(
+            [_sys.executable, "/nonexistent/worker.py"],
             check=False,
             capture_output=True,
         )
@@ -482,6 +490,7 @@ def test_worker_start_budget_bounds_clean_exit_churn():
 
     state = states["clean_churn"]
     assert state.is_done(), "expected task to terminate, run loop hung"
+    starts = list(startdir.iterdir())
     assert len(starts) == 5, f"budget is 2 + 3 = 5 starts, saw {len(starts)}"
     assert state.worker_restart_count == 3
     # clean exits are not failures — worker_failure_count reports

@@ -1,10 +1,12 @@
 """The end-of-run summary, agglomerated from per-block measurements.
 
-These tests replace an older file that had to pin thread mode to see any
-counts at all — that pin existed *because* only the in-process worker loop
-incremented `blocks_processed`. The whole point of the redesign is that the
-numbers no longer depend on where the block ran, so the equivalence across
-modes is asserted here rather than worked around.
+These tests replace an older file that had to pin in-process workers to see
+any counts at all — that pin existed *because* only the in-process worker
+loop incremented `blocks_processed`. Measurement now happens inside the
+worker and rides home on the block, so the numbers do not depend on how the
+work was dispatched; the equivalence is asserted here rather than worked
+around. Every distributed worker is a subprocess, so the figures are also
+per-process, which is what makes peak RSS meaningful.
 
 `linear_trend`'s own maths is unit-tested in Rust; what matters at this
 level is that the trend is fed real per-block wall times.
@@ -48,7 +50,7 @@ def _busy(_block):
 
 def test_summary_shape(tmp_path):
     """The keys the renderer and users rely on."""
-    _, s = _run(_tracked_task("shape", tmp_path, _busy, worker_processes=False))
+    _, s = _run(_tracked_task("shape", tmp_path, _busy))
     for key in (
         "blocks",
         "failures",
@@ -64,28 +66,43 @@ def test_summary_shape(tmp_path):
         assert key in s, f"missing summary key {key}"
 
 
+def _busy_worker():
+    """A 0-arg worker driving its own loop — the shape a cluster worker has.
+    It measures via `Client.acquire_block` exactly as the shim does."""
+    client = daisy.Client()
+    while True:
+        with client.acquire_block() as block:
+            if block is None:
+                return
+            _busy(block)
+
+
 @pytest.mark.parametrize(
-    "mode_kwargs, mode",
-    [({"worker_processes": False}, "threads"), ({}, "subprocess")],
-    ids=["threads", "subprocess"],
+    "fn, shape",
+    [(_busy, "block_function"), (_busy_worker, "worker_function")],
+    ids=["block_function", "worker_function"],
 )
-def test_block_count_matches_the_scheduler_in_every_mode(tmp_path, mode_kwargs, mode):
-    """The regression under test: subprocess mode used to report 0 blocks.
+def test_block_count_matches_the_scheduler_for_either_function_shape(
+    tmp_path, fn, shape
+):
+    """The regression under test: subprocess workers used to report 0 blocks,
+    because only the deleted in-process worker loop incremented a counter.
 
     `blocks` and `completed_count` are the same event counted once, so they
-    must agree exactly — in both modes.
+    must agree exactly — whether the user wrote a 1-arg block function or a
+    0-arg worker function.
     """
-    task = _tracked_task(f"count_{mode}", tmp_path, _busy, **mode_kwargs)
+    task = _tracked_task(f"count_{shape}", tmp_path, fn)
     states, s = _run(task)
     assert states[task.task_id].completed_count == 4
     assert int(s["blocks"]) == 4
-    assert s["has_stats"], f"{mode} blocks must arrive measured"
+    assert s["has_stats"], f"{shape} blocks must arrive measured"
 
 
 def test_cpu_and_wall_are_plausible(tmp_path):
     """CPU-bound work should burn CPU comparable to its wall time; the
     numbers must be real measurements, not zeros or wild values."""
-    _, s = _run(_tracked_task("plausible", tmp_path, _busy, worker_processes=False))
+    _, s = _run(_tracked_task("plausible", tmp_path, _busy))
     cpu = float(s["total_cpu_secs"])
     block = float(s["total_block_secs"])
     assert cpu > 0, "busy work must register CPU time"
@@ -102,7 +119,7 @@ def test_sleeping_blocks_burn_wall_but_not_cpu(tmp_path):
     def sleeper(_block):
         time.sleep(0.02)
 
-    _, s = _run(_tracked_task("sleepy", tmp_path, sleeper, worker_processes=False))
+    _, s = _run(_tracked_task("sleepy", tmp_path, sleeper))
     cpu = float(s["total_cpu_secs"])
     block = float(s["total_block_secs"])
     assert block > 0.05, f"4 blocks x 20ms should show up as wall time: {block}"
@@ -112,11 +129,7 @@ def test_sleeping_blocks_burn_wall_but_not_cpu(tmp_path):
 def test_constant_workload_reports_near_zero_slope(tmp_path):
     """Uniform blocks → flat trend. Deliberately generous: this asserts the
     trend is fed real data, not that a loaded machine is quiet."""
-    _, s = _run(
-        _tracked_task(
-            "flat", tmp_path, _busy, total=[200], max_workers=1, worker_processes=False
-        )
-    )
+    _, s = _run(_tracked_task("flat", tmp_path, _busy, total=[200], max_workers=1))
     assert int(s["blocks"]) == 20
     assert float(s["mean_block_ms"]) > 0
     mean = float(s["mean_block_ms"])
@@ -146,7 +159,6 @@ def test_slowing_workload_reports_positive_slope(tmp_path):
             slowing,
             total=[100],
             max_workers=1,
-            worker_processes=False,
         )
     )
     assert int(s["blocks"]) == 10
@@ -164,7 +176,6 @@ def test_untracked_task_reports_no_summary(tmp_path):
         process_function=_busy,
         read_write_conflict=False,
         max_workers=1,
-        worker_processes=False,
     )
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False)

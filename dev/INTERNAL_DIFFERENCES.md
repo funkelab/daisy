@@ -83,10 +83,12 @@ self.process = Process(...)  # after start
 self.process = None  # after stop
 ```
 
-**Daisy**: workers are `std::thread` instances spawned and managed entirely by the Rust server. Each worker thread calls the Python `process_function` via PyO3's GIL acquisition (`Python::attach`). The server distinguishes two worker types based on function arity:
+**Daisy**: worker *supervisors* are `std::thread` instances spawned and managed entirely by the Rust server; the work itself runs in a dedicated OS process per worker, as in v1. Each supervisor thread acquires the GIL just long enough to call the task's spawn function, then waits for it. The Python layer converts whatever the user passed into such a spawn function before the run starts:
 
-- **1-arg block processors**: the Rust worker thread creates a TCP client, loops acquiring blocks from the server, acquires the GIL to call the Python function for each block, and releases the block. No separate process is spawned.
-- **0-arg spawn functions**: the Rust worker thread acquires the GIL, sets `DAISY_CONTEXT` in `os.environ`, and calls the function directly. The function (typically `subprocess.run(...)`) manages its own lifecycle.
+- **1-arg block processors** are serialized and run by `python -m daisy._subprocess_worker`, which drives the TCP `Client.acquire_block()` loop in the child.
+- **0-arg worker functions** are serialized and called in a child, where they drive their own loop and may `subprocess.run(...)` something further.
+
+Earlier v2 builds ran 1-arg functions on the supervisor thread itself, under the server's GIL, with `worker_processes=False` as an opt-in. That mode is gone: it did not parallelize Python-bound work, and `timeout` could not preempt a thread.
 
 Worker health is monitored by `check_thread_health` which inspects `JoinHandle::is_finished()` and respawns on failure:
 
@@ -100,7 +102,7 @@ let should_respawn = match handle.join() {
 
 **Pro daisy**: no dill serialization, no `multiprocessing.Process`, no Python health-monitor thread. Worker lifecycle is managed by typed Rust code. The `WorkerState` enum makes the worker explosion bug (PR #67/#68) unrepresentable — you can't confuse "exited normally" with "crashed" because they're different enum variants.
 
-**Pro daisy**: each worker is a separate OS process with its own GIL, so Python-heavy process functions run in true parallel. Daisy's 1-arg workers are threads that share a GIL, so Python-bound work is serialized. (For the common case where the process function calls `subprocess.run()` or drops the GIL via numpy/C extensions, this isn't a limitation.)
+**Parity**: both implementations give each worker a separate OS process with its own GIL, so Python-heavy process functions run in true parallel. v1 gets there by forking; v2 cannot fork (its server is multithreaded) and so spawns and serializes instead, which is why v2 requires worker functions to be picklable.
 
 **Con daisy**: the nullable `process` field caused the worker explosion bug. `reap_dead_workers` couldn't distinguish normal exit from crash because both ended up with `process = None`.
 

@@ -7,134 +7,97 @@ The runner is given a global `resources` budget. The number of
   - its own `max_workers` cap,
   - and the global budget after subtracting other tasks' usage.
 
-These tests verify those bounds empirically by tracking how many of a
-task's workers were ever simultaneously alive.
+These tests verify those bounds empirically. Every worker is its own
+process, so concurrency is measured the only way it can be: each block
+records the interval it ran for, and the peak overlap is swept out of those
+records afterwards (see `observe.py`). An earlier version of this file used
+in-process closure counters and pinned thread workers to make them work.
+
+`hold_s` has to comfortably exceed worker start-up (a fresh interpreter
+importing daisy) or workers would drain the blocks in sequence and the
+`>=` assertions would measure staggered starts rather than a concurrency
+cap.
 """
 
-import threading
-import time
-
 import pytest
+from observe import interval_recorder, peak_concurrency
 
 import daisy
+
+HOLD_S = 0.05
 
 
 def _make_task(
     task_id,
+    outdir,
     *,
     max_workers,
     requires=None,
-    blocks=8,
-    hold_ms=20,
-    concurrency_observer=None,
+    hold_s=HOLD_S,
     total=80,
     block=10,
 ):
-    counts = {"alive": 0, "peak": 0}
-    lock = threading.Lock()
-
-    def process(block):
-        with lock:
-            counts["alive"] += 1
-            counts["peak"] = max(counts["peak"], counts["alive"])
-        try:
-            time.sleep(hold_ms / 1000.0)
-        finally:
-            with lock:
-                counts["alive"] -= 1
-        if concurrency_observer is not None:
-            concurrency_observer(task_id, counts["peak"])
-
     return daisy.Task(
         task_id=task_id,
         total_roi=daisy.Roi([0], [total]),
         read_roi=daisy.Roi([0], [block]),
         write_roi=daisy.Roi([0], [block]),
-        process_function=process,
+        process_function=interval_recorder(outdir, task_id, hold_s),
         read_write_conflict=False,
         max_workers=max_workers,
         max_retries=0,
         requires=requires,
-        # these tests measure concurrency via in-process closure counters,
-        # which requires thread workers; the resource allocator under test
-        # is orthogonal to the worker execution mode
-        worker_processes=False,
-    ), counts
+    )
 
 
 def test_max_workers_caps_concurrency_without_requires(tmp_path):
     """No `requires` → resource budget irrelevant, `max_workers` is the
     only cap. Even with a huge budget, peak alive workers ≤ max_workers."""
-    task, counts = _make_task("a", max_workers=3, blocks=8)
+    outdir = tmp_path / "intervals"
+    task = _make_task("a", outdir, max_workers=3)
     states = daisy.Server().run_blockwise(
         [task],
         resources={"cpu": 100},  # plenty, but task doesn't require it
     )
     assert states["a"].is_done()
-    assert counts["peak"] <= 3, f"peak {counts['peak']} exceeded max_workers=3"
+    peak = peak_concurrency(outdir)
+    assert peak <= 3, f"peak {peak} exceeded max_workers=3"
 
 
 def test_resource_budget_caps_one_task_below_max_workers(tmp_path):
     """`requires={"cpu": 1}` with budget {"cpu": 2} caps peak at 2 even
     when max_workers=8."""
-    task, counts = _make_task("a", max_workers=8, requires={"cpu": 1})
+    outdir = tmp_path / "intervals"
+    task = _make_task("a", outdir, max_workers=8, requires={"cpu": 1})
     states = daisy.Server().run_blockwise([task], resources={"cpu": 2})
     assert states["a"].is_done()
-    assert counts["peak"] <= 2, f"peak {counts['peak']} exceeded budget"
+    peak = peak_concurrency(outdir)
+    assert peak <= 2, f"peak {peak} exceeded budget"
 
 
 def test_two_tasks_share_a_resource(tmp_path):
     """Two CPU tasks competing for a 4-CPU budget — combined peak ≤ 4."""
-    cross_lock = threading.Lock()
-    cross_alive = {"a": 0, "b": 0, "combined_peak": 0}
-
-    def make(task_id):
-        def process(block):
-            with cross_lock:
-                cross_alive[task_id] += 1
-                combined = cross_alive["a"] + cross_alive["b"]
-                cross_alive["combined_peak"] = max(
-                    cross_alive["combined_peak"], combined
-                )
-            try:
-                time.sleep(0.02)
-            finally:
-                with cross_lock:
-                    cross_alive[task_id] -= 1
-
-        return daisy.Task(
-            task_id=task_id,
-            total_roi=daisy.Roi([0], [80]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=process,
-            read_write_conflict=False,
-            max_workers=8,
-            max_retries=0,
-            # in-process concurrency counters -> thread workers
-            # (subprocess workers increment them in the child, so
-            # the parent would observe 0 and assert nothing)
-            worker_processes=False,
-            requires={"cpu": 1},
-        )
-
-    tasks = [make("a"), make("b")]
+    outdir = tmp_path / "intervals"
+    tasks = [
+        _make_task(task_id, outdir, max_workers=8, requires={"cpu": 1})
+        for task_id in ("a", "b")
+    ]
     states = daisy.Server().run_blockwise(tasks, resources={"cpu": 4})
     assert all(states[t].is_done() for t in ("a", "b"))
-    assert cross_alive["combined_peak"] <= 4, (
-        f"combined peak {cross_alive['combined_peak']} exceeded budget cpu=4"
-    )
+    combined = peak_concurrency(outdir, task_ids={"a", "b"})
+    assert combined <= 4, f"combined peak {combined} exceeded budget cpu=4"
 
 
 def test_disjoint_resources_run_in_parallel(tmp_path):
     """A CPU task and a GPU task on disjoint budgets should both run
     near their `max_workers` cap simultaneously — neither blocks the
     other."""
-    cpu_task, cpu_counts = _make_task(
-        "cpu", max_workers=4, requires={"cpu": 1}, hold_ms=30
+    outdir = tmp_path / "intervals"
+    cpu_task = _make_task(
+        "cpu", outdir, max_workers=4, requires={"cpu": 1}, hold_s=0.15
     )
-    gpu_task, gpu_counts = _make_task(
-        "gpu", max_workers=2, requires={"gpu": 1}, hold_ms=30
+    gpu_task = _make_task(
+        "gpu", outdir, max_workers=2, requires={"gpu": 1}, hold_s=0.15
     )
 
     states = daisy.Server().run_blockwise(
@@ -144,8 +107,14 @@ def test_disjoint_resources_run_in_parallel(tmp_path):
     assert states["cpu"].is_done() and states["gpu"].is_done()
     # Peaks should hit the caps — the runner should be willing to spawn
     # all of them since budgets are disjoint.
-    assert cpu_counts["peak"] >= 2, f"cpu peak {cpu_counts['peak']} too low"
-    assert gpu_counts["peak"] >= 1, f"gpu peak {gpu_counts['peak']} too low"
+    cpu_peak = peak_concurrency(outdir, task_ids={"cpu"})
+    gpu_peak = peak_concurrency(outdir, task_ids={"gpu"})
+    assert cpu_peak >= 2, f"cpu peak {cpu_peak} too low"
+    assert gpu_peak >= 1, f"gpu peak {gpu_peak} too low"
+    # Disjoint budgets mean the two tasks genuinely overlap in time.
+    assert peak_concurrency(outdir) > max(cpu_peak, gpu_peak), (
+        "cpu and gpu tasks never ran at the same time"
+    )
 
 
 def test_requires_exceeds_budget_hard_errors():
@@ -174,36 +143,18 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
     upstream-blocked. Once filter drains, its workers exit and agglom's
     workers start picking up. Total filter peak + agglom peak ≤ budget
     at any single instant; both tasks complete."""
-    cross_lock = threading.Lock()
-    cross_alive = {"filter": 0, "agglom": 0, "combined_peak": 0}
+    outdir = tmp_path / "intervals"
 
     def make(task_id, upstream=None):
-        def process(block):
-            with cross_lock:
-                cross_alive[task_id] += 1
-                combined = cross_alive["filter"] + cross_alive["agglom"]
-                cross_alive["combined_peak"] = max(
-                    cross_alive["combined_peak"], combined
-                )
-            try:
-                time.sleep(0.02)
-            finally:
-                with cross_lock:
-                    cross_alive[task_id] -= 1
-
         return daisy.Task(
             task_id=task_id,
             total_roi=daisy.Roi([0], [40]),
             read_roi=daisy.Roi([0], [10]),
             write_roi=daisy.Roi([0], [10]),
-            process_function=process,
+            process_function=interval_recorder(outdir, task_id, HOLD_S),
             read_write_conflict=False,
             max_workers=4,
             max_retries=0,
-            # in-process concurrency counters -> thread workers
-            # (subprocess workers increment them in the child, so
-            # the parent would observe 0 and assert nothing)
-            worker_processes=False,
             requires={"cpu": 1},
             upstream_tasks=[upstream] if upstream is not None else None,
         )
@@ -214,9 +165,8 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
     assert states["filter"].is_done()
     assert states["agglom"].is_done()
     # Combined peak respects the budget.
-    assert cross_alive["combined_peak"] <= 4, (
-        f"combined peak {cross_alive['combined_peak']} exceeded cpu=4"
-    )
+    combined = peak_concurrency(outdir, task_ids={"filter", "agglom"})
+    assert combined <= 4, f"combined peak {combined} exceeded cpu=4"
 
 
 def test_num_workers_keyword_is_rejected():

@@ -76,11 +76,10 @@ def test_compat_block_fn_receives_funlib_rois():
         process_function=process,
         num_workers=1,
         done_marker_path=False,
-        # the `seen` dict instrumentation needs in-process workers; the
-        # proxy wrapping under test happens before worker-mode dispatch
-        worker_processes=False,
     )
-    assert compat.run_blockwise([task], progress=False)
+    # the `seen` dict needs in-process execution; the proxy wrapping under
+    # test happens at construction, before any worker is involved
+    assert compat.run_blockwise([task], multiprocessing=False, progress=False)
     assert seen == {"read_is_funlib": True, "write_is_funlib": True, "eq": True}
 
 

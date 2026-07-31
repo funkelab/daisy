@@ -92,27 +92,33 @@ daisy/
         │                                  └─ abort_interval   (every 100ms,
         │                                                       checks SIGINT)
         │
-        └─ worker threads   ────────►   std::thread per worker
-                                          ├─ for 1-arg fn (worker_processes=False):
-                                          │    tokio Client + GIL-held call per block
-                                          └─ for 0-arg fn: GIL acquire + call
-                                               (the default for 1-arg fns: the Python
-                                                layer converts them into a 0-arg spawn
-                                                of `python -m daisy._subprocess_worker`,
-                                                so block functions run in real worker
-                                                processes — see daisy/_worker_processes.py)
-                                                            once, user runs loop
+        └─ worker threads   ────────►   std::thread per worker, and every
+                                          one of them does the same thing:
+                                          GIL acquire + call the task's
+                                          spawn function once, then wait.
+
+                                          The Python layer has already turned
+                                          whatever the user passed into a spawn
+                                          function that launches
+                                          `python -m daisy._subprocess_worker`
+                                          (see daisy/_worker_processes.py), so
+                                          user code — 1-arg block function or
+                                          0-arg worker function — always runs in
+                                          a dedicated OS process. These threads
+                                          only supervise; they hold the GIL just
+                                          long enough to start a child.
 ```
 
 Three layers, three responsibilities:
 
 - **Python**: minimal — `Client` context manager (worker-side), the tqdm/JSON progress observers, the per-thread log proxy, and the v1.x compat shims (`num_workers=` alias, list-of-tasks `run_blockwise`, `SerialServer`). `Task`, `Pipeline`, `Scheduler`, `Context`, `Roi`, etc. are direct re-exports of their PyO3 classes — no Python wrapper.
 - **PyO3 bridge**: type conversion + GIL discipline. Wraps Python callables in `dyn ProcessBlock` / `dyn SpawnWorker`. Releases the GIL across long Rust operations and re-acquires it for callbacks. The `Pipeline` `+` / `|` operators live here; composition is fully Rust-side.
-- **Rust core**: the actual machinery. Pipeline DAG, dependency graph, ready surface, scheduler, TCP server, worker threads, resource budget, run statistics, signal handling.
+- **Rust core**: the actual machinery. Pipeline DAG, dependency graph, ready surface, scheduler, TCP server, worker supervision, resource budget, run statistics, signal handling.
 
 ## How a block flows from acquire to release
 
-For a 1-arg `process_function` task:
+Distributed: the worker is a separate process talking TCP, so the block
+crosses a process boundary in both directions.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -126,10 +132,11 @@ For a 1-arg `process_function` task:
                                  │  Message::SendBlock
                                  ▼
             ┌──────────────────────────────────┐
-            │ worker thread (Rust)             │
-            │   process_fn.process(&mut block) │  ◄── PyO3 GIL acquire
-            │     └─ Python user code          │      runs Python
-            │   if Failed: exit dirty          │      releases GIL
+            │ worker PROCESS (python)           │
+            │   Client.acquire_block() yields   │
+            │     └─ Python user code           │  ◄── own interpreter,
+            │   measures the block if asked     │      own GIL
+            │   if Failed: report + exit dirty  │
             └────────────────┬─────────────────┘
                              │  Message::ReleaseBlock
                              ▼

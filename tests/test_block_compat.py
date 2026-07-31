@@ -72,10 +72,11 @@ def test_acquired_and_manual_blocks_are_the_same_class():
         write_roi=fg.Roi((0,), (10,)),
         process_function=probe,
         num_workers=1,
-        worker_processes=False,
         done_marker_path=False,
     )
-    assert daisy.run_blockwise([task], progress=False)
+    # the `seen` dict needs in-process execution; the compat wrapping under
+    # test happens at construction, before any worker is involved
+    assert daisy.run_blockwise([task], multiprocessing=False, progress=False)
     assert seen["type"] is daisy.Block
     assert seen["is_daisy_block"] and seen["roi_is_funlib"]
 
@@ -87,10 +88,8 @@ def test_status_mutation_propagates_from_compat_block():
     def fail_by_status(block):
         block.status = daisy.BlockStatus.FAILED
 
-    # subprocess workers (the default): blocks flow through Client.
-    # acquire_block, where v1's status semantics live. (Thread mode —
-    # worker_processes=False — decides success by exception only and has
-    # never honored status mutations in v2.)
+    # distributed workers: blocks flow through Client.acquire_block, where
+    # v1's status semantics live.
     task = daisy.Task(
         "status-prop",
         total_roi=fg.Roi((0,), (20,)),

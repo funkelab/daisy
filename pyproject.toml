@@ -29,7 +29,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# full function support (lambdas, closures) for Task(worker_processes=True)
+# full function support (lambdas, closures) for the worker processes
+# every distributed worker runs in; without it, module-level functions only
 worker-processes = [
     "cloudpickle",
 ]
@@ -72,7 +73,7 @@ unresolved-import = "ignore"
 
 [dependency-groups]
 dev = [
-    "cloudpickle>=3",  # lambda/closure support for the worker_processes default
+    "cloudpickle>=3",  # lambda/closure support for worker processes
     "filelock>=3.29.0",
     "pytest>=8",
     "pytest-timeout>=2",

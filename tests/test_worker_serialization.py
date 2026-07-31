@@ -109,9 +109,9 @@ def test_main_defined_function_round_trips(tmp_path):
 
 def test_captured_lock_fails_with_actionable_guidance():
     """Locks (and friends) cannot cross a process boundary. cloudpickle
-    refuses them; daisy must explain the two ways out rather than surface a
-    bare pickling error. NOTE: dill would have accepted these silently,
-    shipping a lock that synchronizes nothing."""
+    refuses them; daisy must explain the ways out rather than surface a bare
+    pickling error. NOTE: dill would have accepted these silently, shipping
+    a lock that synchronizes nothing."""
     lock = threading.Lock()
 
     def process(block):
@@ -121,8 +121,10 @@ def test_captured_lock_fails_with_actionable_guidance():
     with pytest.raises(RuntimeError) as excinfo:
         _serialize((process, None))
     msg = str(excinfo.value)
-    assert "worker_processes=False" in msg
-    assert "inside the block function" in msg
+    # the remedies, in the order a user should try them
+    assert "module level" in msg
+    assert "inside the function" in msg
+    assert "multiprocessing=False" in msg
 
 
 def test_bound_method_holding_a_lock_fails_with_guidance():
@@ -137,14 +139,16 @@ def test_bound_method_holding_a_lock_fails_with_guidance():
             with self._lock:
                 pass
 
-    with pytest.raises(RuntimeError, match="worker_processes=False"):
+    with pytest.raises(RuntimeError, match="could not serialize"):
         _serialize((Writer().process_block, None))
 
 
-def test_spawn_function_serializes_eagerly():
-    """Unserializable functions must fail at Task construction, not minutes
-    later on a cluster node."""
+@pytest.mark.parametrize("arity", [0, 1], ids=["worker_function", "block_function"])
+def test_spawn_function_serializes_eagerly(arity):
+    """Unserializable functions must fail when the spawn function is built,
+    not minutes later on a cluster node — for worker functions as well as
+    block functions, since both are now shipped to a subprocess."""
     lock = threading.Lock()
 
     with pytest.raises(RuntimeError, match="cannot be pickled|could not serialize"):
-        make_spawn_function(lambda block: lock, timeout=None)
+        make_spawn_function(lambda block: lock, arity=arity, timeout=None)

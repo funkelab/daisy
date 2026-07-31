@@ -1,9 +1,11 @@
-"""Per-block resource measurement across every execution mode.
+"""Per-block resource measurement.
 
 The point of the design is that measurement happens *inside* whoever runs
-the block, so thread workers, subprocess-shim workers and external cluster
-workers all report the same thing. These tests pin that equivalence — the
-bug being fixed was subprocess-mode blocks reporting nothing at all.
+the block, so daisy's own worker subprocesses and hand-written external
+cluster workers report the same thing at the same seam
+(`Client.acquire_block`). These tests pin that equivalence — the bug being
+fixed was subprocess blocks reporting nothing at all, because the only
+counter lived in an in-process worker loop that no longer exists.
 """
 
 import subprocess
@@ -92,15 +94,12 @@ def test_profile_block_records_a_failing_block():
     assert block.stats is not None
 
 
-@pytest.mark.parametrize(
-    "worker_processes", [False, True], ids=["threads", "subprocess"]
-)
-def test_blocks_counted_in_both_worker_modes(tmp_path, worker_processes):
-    """The regression this overhaul fixes: subprocess mode used to report
-    zero blocks because only the in-process worker loop counted."""
-    task = _task(
-        f"count_{int(worker_processes)}", tmp_path, worker_processes=worker_processes
-    )
+def test_blocks_are_counted_and_measured(tmp_path):
+    """The regression this overhaul fixes: subprocess workers used to report
+    zero blocks because only the in-process worker loop counted. Measurement
+    now happens in the worker and rides home on the block, so it does not
+    matter where the block ran."""
+    task = _task("counted", tmp_path)
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
     s = _summary(server, task.task_id)
@@ -150,7 +149,7 @@ def test_stats_are_readable_from_the_tracking_group(tmp_path):
     zarr = _require_zarr_v3()
     numpy = pytest.importorskip("numpy")
 
-    task = _task("persisted", tmp_path, worker_processes=False)
+    task = _task("persisted", tmp_path)
     server = daisy.Server()
     server.run_blockwise([task], progress=False)
 
@@ -184,7 +183,6 @@ def test_failures_are_counted_per_block(tmp_path):
         max_retries=1,
         max_worker_restarts=6,
         done_marker_path=str(tmp_path / "tracking_failing"),
-        worker_processes=False,
     )
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
@@ -227,7 +225,6 @@ def test_tracking_without_resource_tracking_omits_stat_arrays(tmp_path):
         read_write_conflict=False,
         max_workers=1,
         done_marker_path=str(tmp_path / "tracking_plain"),
-        worker_processes=False,
     )
     server = daisy.Server()
     server.run_blockwise([task], progress=False)

@@ -321,8 +321,12 @@ class Client:
         # daisy 1.x callers reach for `client.context["logdir"]` to set up
         # per-worker logging themselves. v2 owns logging internally and no
         # longer puts logdir in the worker context, so fall back to the
-        # process-global `get_log_basedir()` (which fork-inheriting workers
-        # see as the value the master set) when the key is missing.
+        # process-global `get_log_basedir()` when the key is missing. In a
+        # worker subprocess that global is not inherited — nothing is, a
+        # spawned child starts from defaults — so the parent ships its
+        # logging configuration in the worker payload and
+        # `_worker_processes.apply_parent_config` restores it before we get
+        # here (see `_capture_parent_config`).
         if "logdir" not in context:
             from daisy.logging import get_log_basedir
 

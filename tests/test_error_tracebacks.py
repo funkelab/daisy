@@ -71,14 +71,19 @@ def test_summary_contains_first_failure_traceback_subprocess_mode():
     assert out.count("Traceback (most recent call last)") == 1
 
 
-def test_summary_traceback_thread_mode():
-    server = daisy.Server()
-    states = server.run_blockwise(
-        [_failing_task(worker_processes=False)], progress=False
-    )
-    tb = states["tb_demo"].first_worker_error
-    assert tb is not None
-    assert "lookup[block.block_id[1]]" in tb
+def test_serial_mode_reraises_the_original_exception():
+    """The other execution path. Distributed workers ship a *formatted*
+    traceback back over the wire (there is no exception object to send);
+    serial mode runs the function in-process, so it re-raises the original
+    exception with its real traceback attached — better for pdb, which is
+    what serial mode is for."""
+    import traceback
+
+    with pytest.raises(KeyError) as exc_info:
+        daisy.run_blockwise(_failing_task(), multiprocessing=False, progress=False)
+    tb = "".join(traceback.format_exception(exc_info.value))
+    assert "lookup[block.block_id[1]]" in tb  # the user's source line
+    assert "_inner_helper" in tb and "_outer_helper" in tb
 
 
 def _crashing_worker():

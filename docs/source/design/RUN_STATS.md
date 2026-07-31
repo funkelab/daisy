@@ -15,15 +15,18 @@ accumulator to drift.
 
 The measurement is taken by whoever ran the block, not by the server:
 
-- A **thread worker** is measured in Rust around the call into Python.
-- A **subprocess-shim worker** and any **external cluster worker** are
-  measured inside `Client.acquire_block`, which every such worker goes
-  through.
+- Every **distributed worker** — daisy's own worker processes and any
+  hand-written external cluster worker alike — is measured inside
+  `Client.acquire_block`, the one seam they all go through.
+- **Serial mode** (`multiprocessing=False`) is measured in Rust around the
+  call into Python, since there is no client involved. Same measurement
+  code, so `resource_tracking` behaves uniformly; the figures are of the
+  single process doing the work.
 
-That is the only vantage point that yields the same numbers in every mode. A
-server-side timer can measure the round trip (and still does, for the
-timeout deadline), but it cannot see CPU time, memory or IO inside another
-process — let alone on another node.
+That is the only vantage point that yields comparable numbers. A server-side
+timer can measure the round trip (and still does, for the timeout deadline),
+but it cannot see CPU time, memory or IO inside another process — let alone
+on another node.
 
 The payload rides home on the block itself (`Block.stats`), inside the
 existing `ReleaseBlock` / `BlockFailed` messages. **Statistics add no
@@ -56,11 +59,12 @@ Unsupported platforms report zero rather than failing.
 
 `ru_maxrss` is a monotonic high-water mark for the whole process, so
 `peak_rss_bytes` reads as "how large had this process grown by the time this
-block finished" — not "what this block allocated". In subprocess mode (the
-default) each worker is its own process handling one block at a time, which
-makes it a useful per-worker figure. In thread mode every concurrent block
-reports the same process-wide number. This is documented rather than
-papered over; a true per-block figure would need allocator interposition.
+block finished" — not "what this block allocated". Every distributed worker
+is its own process handling one block at a time, which makes it a useful
+per-worker figure; this is one of the things that got simpler when
+in-process workers went away, since concurrent blocks sharing a process all
+reported the same number. A true per-block figure would still need allocator
+interposition.
 
 ### GPU is reserved, not faked
 
@@ -157,13 +161,14 @@ implementation), since every daisy-provided path measures automatically.
 ## What this replaced
 
 Until this redesign, `blocks_processed` was incremented in exactly one
-place: the in-process worker thread's loop. Subprocess workers (the default)
+place: the in-process worker thread's loop. Worker processes (the default)
 and external cluster workers never touched it, so the per-task panel
 reported `blocks 0` for the modes most people run, and the run-stats tests
-had to pin thread mode to see any counts at all. The fix was not another
-accumulator but removing the split: measure where the work happens, persist
-through the layer that already tracks blocks, and let the summary be a fold
-over that.
+had to pin in-process workers to see any counts at all. The fix was not
+another accumulator but removing the split: measure where the work happens,
+persist through the layer that already tracks blocks, and let the summary be
+a fold over that. That in-process worker loop has since been deleted
+outright, leaving one measurement path.
 
 Deleted along the way: `WorkerStats`, `TaskStats`, `ProcessStats`,
 `RunStats`, `build_run_stats`, the 200 ms `sysinfo` process sampler (and the

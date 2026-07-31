@@ -74,10 +74,12 @@ import tempfile
 EXIT_BLOCK_TIMEOUT = 87
 
 # payload wire format: two length-prefixed frames.
-#   frame 1 (stdlib pickle): {"sys_path": [...]} — the parent's sys.path,
-#     prepended in the child so the function's module references resolve
-#     exactly as they did in the parent. daisy 1.x got this for free by
-#     forking; a spawned child re-imports, so it needs the parent's paths.
+#   frame 1 (stdlib pickle): the parent's process-global configuration that
+#     a worker needs — `sys.path` so the function's module references
+#     resolve as they did in the parent, and the `daisy.logging` settings so
+#     worker output lands where the master said it should. daisy 1.x got all
+#     of this for free by forking; a spawned child starts from defaults, so
+#     anything process-global has to be carried explicitly.
 #   frame 2 (cloudpickle or pickle): {"function":, "arity":, "timeout":}
 _LEN = struct.Struct("<Q")
 
@@ -90,6 +92,42 @@ def _read_frame(stream) -> bytes:
     header = stream.read(_LEN.size)
     n = _LEN.unpack(header)[0]
     return stream.read(n)
+
+
+def _capture_parent_config() -> dict:
+    """Snapshot the parent's process-global state that a worker inherits.
+
+    `daisy.logging`'s settings are module globals, so a spawned child starts
+    with the defaults rather than whatever the master configured. Without
+    this, `set_log_basedir(...)` would have no effect in any worker: per-
+    worker log files would silently become console output, and workers that
+    read `client.context["logdir"]` (the daisy 1.x idiom) would not find the
+    key at all.
+    """
+    from daisy import logging as _worker_log
+
+    basedir = _worker_log.get_log_basedir()
+    return {
+        "sys_path": list(sys.path),
+        "log_basedir": None if basedir is None else str(basedir),
+        "log_mode": _worker_log.get_log_mode(),
+        "log_level": _worker_log.get_log_level(),
+    }
+
+
+def apply_parent_config(meta: dict) -> None:
+    """Child side: restore the parent's globals before any user code runs."""
+    for p in reversed(meta.get("sys_path", [])):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    from daisy import logging as _worker_log
+
+    if "log_basedir" in meta:
+        _worker_log.set_log_basedir(meta["log_basedir"])
+    if meta.get("log_mode"):
+        _worker_log.set_log_mode(meta["log_mode"])
+    if meta.get("log_level") is not None:
+        _worker_log.set_log_level(meta["log_level"])
 
 
 #: Shared tail for both serialization failure messages: what the caller can
@@ -135,17 +173,16 @@ def _serialize(obj) -> bytes:
                 f"the function is bound to. {_SERIALIZE_REMEDY} "
                 f"Underlying error: {e!r}"
             ) from e
-    header = pickle.dumps({"sys_path": list(sys.path)})
+    header = pickle.dumps(_capture_parent_config())
     return _pack_frames(header, body)
 
 
 def read_payload(stream):
-    """Child side: read the payload dict from the stdin stream, applying
-    the parent's sys.path before the function is deserialized."""
+    """Child side: read the payload dict from the stdin stream, restoring the
+    parent's sys.path and logging configuration before the function is
+    deserialized."""
     meta = pickle.loads(_read_frame(stream))
-    for p in reversed(meta.get("sys_path", [])):
-        if p not in sys.path:
-            sys.path.insert(0, p)
+    apply_parent_config(meta)
     body = _read_frame(stream)
     try:
         import cloudpickle as _pickle

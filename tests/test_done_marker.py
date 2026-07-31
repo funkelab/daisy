@@ -281,7 +281,6 @@ def test_tracking_is_a_zarr_group_with_done_and_failures(tmp_path):
         read_write_conflict=False,
         max_workers=1,
         tracking_path=str(tmp_path / "tracking"),
-        worker_processes=False,
     )
     _run_serial([task])
 
@@ -332,7 +331,6 @@ def test_legacy_array_layout_is_refused_with_rm_instructions(tmp_path):
         read_write_conflict=False,
         max_workers=1,
         tracking_path=str(root),
-        worker_processes=False,
     )
     with pytest.raises(Exception) as excinfo:
         _run_serial([task])
@@ -352,7 +350,6 @@ def test_done_marker_names_still_work_but_warn(tmp_path):
             read_write_conflict=False,
             max_workers=1,
             done_marker_path=str(tmp_path / "aliased"),
-            worker_processes=False,
         )
     _run_serial([task])
     assert (tmp_path / "aliased" / "done").is_dir()
