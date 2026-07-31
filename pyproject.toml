@@ -31,7 +31,7 @@ dependencies = [
 [project.optional-dependencies]
 # full function support (lambdas, closures) for Task(worker_processes=True)
 worker-processes = [
-    "dill",
+    "cloudpickle",
 ]
 
 [project.urls]
@@ -72,7 +72,7 @@ unresolved-import = "ignore"
 
 [dependency-groups]
 dev = [
-    "dill>=0.3",  # lambda/closure support for the worker_processes default
+    "cloudpickle>=3",  # lambda/closure support for the worker_processes default
     "filelock>=3.29.0",
     "pytest>=8",
     "pytest-timeout>=2",

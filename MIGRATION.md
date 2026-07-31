@@ -63,9 +63,14 @@ A few things v2 added that have no 1.x equivalent:
 > explicitly for genuinely slow blocks.
 
 A 1-arg `process_function` on the distributed run paths executes in **worker
-subprocesses by default** — the function is serialized (with `dill` when
-installed, giving daisy 1.x's lambda/closure support back) and each worker
-slot runs `python -m daisy._subprocess_worker`. This is the mode that
+subprocesses by default** — the function is serialized (with `cloudpickle`
+when installed, giving daisy 1.x's lambda/closure support back) and each
+worker slot runs `python -m daisy._subprocess_worker`. Objects that cannot
+cross a process boundary (threading locks/conditions, open write handles,
+live connections — directly or via an object your function is bound to) are
+rejected at submit time with guidance: create them inside the block
+function, or use `worker_processes=False` to run on threads where they are
+real. This is the mode that
 behaves like daisy 1.x: CPU-bound python scales with `max_workers`, and
 `Task(timeout=…)` truly preempts a stuck block by killing its worker
 process.

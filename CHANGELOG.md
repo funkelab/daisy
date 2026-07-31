@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Subprocess-worker payloads are serialized with **cloudpickle** instead of
+  dill (optional dependency `daisy[worker-processes]` now installs
+  cloudpickle). Both ship functions by value; they differ on *modules* a
+  block function references as globals. dill pickles any module outside
+  site-packages by value — the whole `__dict__` — so one unpicklable member
+  anywhere in your project package (a `struct.Struct`, a `threading.local`,
+  a live connection) failed the payload even when the block function never
+  touched it. cloudpickle pickles importable modules by reference and
+  reserves by-value for `__main__`, which is the split daisy wants: workers
+  replicate the parent's `sys.path`, and re-importing is what genuinely
+  remote cluster workers do — so local subprocess runs behave like the real
+  deployment.
+
+  Two consequences worth knowing. Objects that cannot cross a process
+  boundary (threading locks/conditions/semaphores, write-mode file handles —
+  directly, or via an object the function is bound to) are now **rejected at
+  submit time** with guidance, where dill accepted them and shipped a lock
+  that synchronized nothing. And module-level state mutated at runtime in
+  the driver is no longer visible to workers, because they re-import; pass
+  such state into the block function instead. Both changes make local
+  subprocess runs behave like cluster runs.
+
 ### Added
 
 - Lint/type CI (`lint.yaml`): `ruff check` + `ruff format --check` with a

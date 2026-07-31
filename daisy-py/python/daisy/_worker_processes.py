@@ -21,10 +21,30 @@ can swap out or truncate between write and read, nothing to clean up, and
 no path/size limits. The child reads stdin to EOF before any user code
 runs.
 
-Serialization prefers ``dill`` (lambdas, closures, interactively defined
-functions) and falls back to stdlib ``pickle`` when dill is not installed
-(module-level functions only). Install with ``pip install daisy[worker-processes]``
-or ``pip install dill`` for full function support.
+Serialization prefers ``cloudpickle`` (lambdas, closures, functions defined
+in ``__main__`` or a notebook) and falls back to stdlib ``pickle`` when it
+is not installed (module-level functions only). Install with
+``pip install daisy[worker-processes]``.
+
+Why cloudpickle and not dill: both serialize functions by value, but they
+disagree about *modules* a function references as globals (``import mypkg``
+then ``mypkg.helper()``). dill pickles any module outside
+site-packages BY VALUE — the whole ``__dict__`` — so one unpicklable
+member anywhere in your project package (a ``struct.Struct``, a
+``threading.local``, a live DB connection) fails the payload even when the
+block function never touches it. cloudpickle pickles importable modules by
+reference and reserves by-value for ``__main__``, which is precisely the
+split daisy wants: workers replicate the parent's ``sys.path`` (see
+``read_payload``), and re-importing is also what genuinely remote cluster
+workers do, so local subprocess runs behave like the real deployment.
+
+The trade: cloudpickle refuses to serialize a few things dill accepts —
+notably ``threading`` synchronization primitives and write-mode file
+handles, including indirectly (a bound method whose ``self`` holds a
+``Lock``). Those objects are meaningless across process boundaries
+anyway, so failing loudly at submit time is the better outcome; the fix
+is to create them inside the block function, or to use thread workers
+(``worker_processes=False``), where a shared lock actually synchronizes.
 """
 
 import os
@@ -43,7 +63,7 @@ EXIT_BLOCK_TIMEOUT = 87
 #     prepended in the child so the function's module references resolve
 #     exactly as they did in the parent. daisy 1.x got this for free by
 #     forking; a spawned child re-imports, so it needs the parent's paths.
-#   frame 2 (dill or pickle): (process_function, timeout)
+#   frame 2 (cloudpickle or pickle): (process_function, timeout)
 _LEN = struct.Struct("<Q")
 
 
@@ -59,7 +79,7 @@ def _read_frame(stream) -> bytes:
 
 def _serialize(obj) -> bytes:
     try:
-        import dill
+        import cloudpickle
     except ImportError:
         try:
             body = pickle.dumps(obj)
@@ -68,15 +88,30 @@ def _serialize(obj) -> bytes:
                 "daisy could not serialize this process_function for "
                 "subprocess workers (the default execution mode): stdlib "
                 "pickle supports module-level functions only. Either install "
-                "dill for lambda/closure support (`pip install dill`, or "
-                "`pip install daisy[worker-processes]`), or opt into "
-                "GIL-sharing thread workers with "
+                "cloudpickle for lambda/closure support (`pip install "
+                "cloudpickle`, or `pip install daisy[worker-processes]`), or "
+                "opt into GIL-sharing thread workers with "
                 "`Task(..., worker_processes=False)` (only sensible for "
                 "block functions that release the GIL for essentially their "
                 f"entire runtime). Underlying error: {e!r}"
             ) from e
     else:
-        body = dill.dumps(obj, recurse=True)
+        try:
+            body = cloudpickle.dumps(obj)
+        except Exception as e:
+            raise RuntimeError(
+                "daisy could not serialize this process_function for "
+                "subprocess workers (the default execution mode). The "
+                "function is shipped together with the objects it captures, "
+                "and something it captures cannot be pickled — commonly a "
+                "threading lock/condition, an open write handle, or a live "
+                "connection, held either directly or by an object the "
+                "function is bound to. Such objects do not carry meaning "
+                "across process boundaries: create them inside the block "
+                "function instead, or use `Task(..., worker_processes=False)` "
+                "to run on threads, where shared locks and handles are "
+                f"real. Underlying error: {e!r}"
+            ) from e
     header = pickle.dumps({"sys_path": list(sys.path)})
     return _pack_frames(header, body)
 
@@ -90,7 +125,7 @@ def read_payload(stream):
             sys.path.insert(0, p)
     body = _read_frame(stream)
     try:
-        import dill as _pickle
+        import cloudpickle as _pickle
     except ImportError:
         import pickle as _pickle
     return _pickle.loads(body)

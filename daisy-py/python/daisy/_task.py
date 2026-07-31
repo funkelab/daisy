@@ -92,7 +92,7 @@ class Task(_rs.Task):
     is executed by the distributed runner:
 
     - ``None`` (default): **worker subprocesses** — the function is
-      serialized (dill when available) and each worker slot runs it in
+      serialized (cloudpickle when available) and each worker slot runs it in
       a real OS process via ``daisy._worker_processes``. CPU-bound
       python work scales with ``max_workers``, and ``timeout=`` gets
       true preemption (a stuck block kills its worker process).

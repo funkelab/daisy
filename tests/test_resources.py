@@ -111,6 +111,10 @@ def test_two_tasks_share_a_resource(tmp_path):
             read_write_conflict=False,
             max_workers=8,
             max_retries=0,
+            # in-process concurrency counters -> thread workers
+            # (subprocess workers increment them in the child, so
+            # the parent would observe 0 and assert nothing)
+            worker_processes=False,
             requires={"cpu": 1},
         )
 
@@ -196,6 +200,10 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
             read_write_conflict=False,
             max_workers=4,
             max_retries=0,
+            # in-process concurrency counters -> thread workers
+            # (subprocess workers increment them in the child, so
+            # the parent would observe 0 and assert nothing)
+            worker_processes=False,
             requires={"cpu": 1},
             upstream_tasks=[upstream] if upstream is not None else None,
         )
