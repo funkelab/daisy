@@ -1,4 +1,6 @@
 use crate::block::BlockStatus;
+use crate::block_profile::BlockProfiler;
+use crate::block_tracking::TaskSummary;
 use crate::error::DaisyError;
 use crate::scheduler::Scheduler;
 use crate::task::Task;
@@ -19,14 +21,14 @@ impl SerialRunner {
     /// `block_tracking`: when `true`, per-task done-markers are opened and
     /// the scheduler's pre-check skips already-completed blocks. When
     /// `false`, marker initialization is skipped — every block is processed
-    /// regardless of any `done_marker_path` configured on the tasks.
+    /// regardless of any `tracking_path` configured on the tasks.
     pub fn run(
         pipeline: &crate::pipeline::Pipeline,
         block_tracking: bool,
-    ) -> Result<HashMap<String, TaskCounters>, DaisyError> {
+    ) -> Result<(HashMap<String, TaskCounters>, HashMap<String, TaskSummary>), DaisyError> {
         let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
-            scheduler.init_done_markers()?;
+            scheduler.init_tracking()?;
         }
 
         let mut started_tasks = HashSet::new();
@@ -65,7 +67,17 @@ impl SerialRunner {
             block.status = BlockStatus::Processing;
             let task = scheduler.task_map.get(&task_id).unwrap().clone();
             if let Some(ref process_fn) = task.process_function {
-                match process_fn.process(&mut block) {
+                // Serial mode runs the function in this thread, so it
+                // measures the block here — same numbers, same payload
+                // path (`Block::stats`) as every other mode.
+                let profiler = task.resource_tracking.then(BlockProfiler::start);
+                let outcome = process_fn.process(&mut block);
+                if let Some(p) = profiler {
+                    if block.stats.is_none() {
+                        block.stats = Some(p.finish());
+                    }
+                }
+                match outcome {
                     Ok(()) => {
                         if block.status != BlockStatus::Failed {
                             block.status = BlockStatus::Success;
@@ -98,11 +110,13 @@ impl SerialRunner {
             }
         }
 
-        Ok(scheduler
+        let summaries = scheduler.tracking_summaries();
+        let counters = scheduler
             .task_states
             .into_iter()
             .map(|(k, v)| (k, v.counters()))
-            .collect())
+            .collect();
+        Ok((counters, summaries))
     }
 }
 
@@ -122,7 +136,9 @@ mod tests {
         );
 
         let pipeline = crate::pipeline::Pipeline::from_task(task.clone());
-        let states = SerialRunner::run(&pipeline, true).unwrap();
+        let (states, summaries) = SerialRunner::run(&pipeline, true).unwrap();
+        // No tracking_path configured, so nothing to summarise.
+        assert!(summaries.is_empty());
         let state = &states["test"];
         assert!(state.balanced());
         assert_eq!(state.total_block_count, 4);

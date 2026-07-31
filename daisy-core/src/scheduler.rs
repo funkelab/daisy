@@ -1,6 +1,6 @@
 use crate::block::{Block, BlockStatus};
 use crate::dependency_graph::DependencyGraph;
-use crate::done_marker::DoneMarker;
+use crate::block_tracking::{TaskSummary, TaskTracking};
 use crate::error::DaisyError;
 use crate::processing_queue::ProcessingQueue;
 use crate::ready_surface::ReadySurface;
@@ -26,9 +26,11 @@ pub struct Scheduler {
     pub task_states: HashMap<String, TaskState>,
     task_queues: HashMap<String, ProcessingQueue>,
     count_all_orphans: bool,
-    /// Per-task persistent done-markers, keyed by task_id. Created on
-    /// `Scheduler::new` if `task.done_marker_path` is set.
-    done_markers: HashMap<String, DoneMarker>,
+    /// Per-task persistent block tracking, keyed by task_id. Opened by
+    /// `init_tracking` for tasks with a tracking path configured. Also
+    /// the single owner of this run's per-task aggregates — there is no
+    /// second block counter anywhere.
+    task_tracking: HashMap<String, TaskTracking>,
 }
 
 impl Scheduler {
@@ -73,41 +75,83 @@ impl Scheduler {
             task_states,
             task_queues,
             count_all_orphans,
-            done_markers: HashMap::new(),
+            task_tracking: HashMap::new(),
         }
     }
 
-    /// Open the done-markers configured on tasks. Must be called after
+    /// Open the block tracking configured on tasks. Must be called after
     /// `new` and before any blocks are processed. On failure (layout
     /// mismatch / IO error) returns the error and leaves the scheduler
-    /// without any markers — the caller should treat this as fatal.
-    pub fn init_done_markers(&mut self) -> Result<(), DaisyError> {
+    /// without tracking — the caller should treat this as fatal.
+    ///
+    /// A task asking for `resource_tracking` without a tracking path has
+    /// nowhere to write its measurements; that is a configuration error
+    /// rather than something to silently ignore.
+    pub fn init_tracking(&mut self) -> Result<(), DaisyError> {
         for (task_id, task) in &self.task_map {
-            let Some(ref dir) = task.done_marker_path else { continue };
-            match DoneMarker::open_or_create(
+            let Some(ref dir) = task.tracking_path else {
+                if task.resource_tracking {
+                    return Err(DaisyError::InvalidConfig(format!(
+                        "task {task_id:?} sets resource_tracking=True but has no tracking \
+                         directory to write to. Pass Task(tracking_path=...) or call \
+                         daisy.set_tracking_basedir(...) once at pipeline start."
+                    )));
+                }
+                continue;
+            };
+            match TaskTracking::open_or_create(
                 dir,
                 &task.total_roi,
                 &task.read_roi,
                 &task.write_roi,
                 &task.fit,
+                task.resource_tracking,
             ) {
-                Ok(marker) => {
+                Ok(tracking) => {
                     debug!(
                         task_id = %task_id,
                         path = %dir.display(),
-                        capacity = marker.capacity(),
-                        already_done = marker.count_done(),
-                        "done-marker opened",
+                        capacity = tracking.capacity(),
+                        already_done = tracking.count_done(),
+                        with_stats = tracking.with_stats(),
+                        "block tracking opened",
                     );
-                    self.done_markers.insert(task_id.clone(), marker);
+                    self.task_tracking.insert(task_id.clone(), tracking);
                 }
                 Err(e) => {
-                    warn!(task_id = %task_id, error = %e, "failed to open done-marker");
+                    warn!(task_id = %task_id, error = %e, "failed to open block tracking");
                     return Err(DaisyError::InvalidConfig(format!("{e}")));
                 }
             }
         }
         Ok(())
+    }
+
+    /// This run's per-task aggregates, for the end-of-run summary. Tasks
+    /// without tracking configured simply don't appear.
+    pub fn tracking_summaries(&self) -> HashMap<String, TaskSummary> {
+        self.task_tracking
+            .iter()
+            .map(|(id, t)| (id.clone(), t.summary().clone()))
+            .collect()
+    }
+
+    /// Whether any task expects blocks to come back carrying resource
+    /// stats — used to police workers that return unmeasured blocks.
+    pub fn expects_block_stats(&self, task_id: &str) -> bool {
+        self.task_tracking
+            .get(task_id)
+            .map(|t| t.with_stats())
+            .unwrap_or(false)
+    }
+
+    /// Note one failed attempt for a block (worker-reported failure or a
+    /// timeout reclaim). Failure counts are kept whenever tracking is on
+    /// at all, independent of resource tracking.
+    pub fn note_block_failure(&mut self, block: &Block) {
+        if let Some(tracking) = self.task_tracking.get_mut(block.task_id()) {
+            tracking.note_failure(block);
+        }
     }
 
     /// Access the dependency graph for upstream/downstream queries.
@@ -208,14 +252,21 @@ impl Scheduler {
                 if let Some(rt) = self.running_mut(&task_id) {
                     rt.note_completed();
                 }
-                if let Some(marker) = self.done_markers.get_mut(&task_id) {
-                    marker.mark_success(&block);
+                if let Some(tracking) = self.task_tracking.get_mut(&task_id) {
+                    // Records done + any resource stats the block carried,
+                    // and folds both into this run's aggregates.
+                    tracking.record(&block);
                 }
                 let newly_ready = self.update_ready_queue(new_blocks);
                 self.maybe_finalize(&task_id);
                 newly_ready
             }
             BlockStatus::Failed => {
+                // Every failed attempt counts, whether it will be retried
+                // or is permanent.
+                if let Some(tracking) = self.task_tracking.get_mut(&task_id) {
+                    tracking.note_failure(&block);
+                }
                 let task = self.task_map.get(&task_id).unwrap().clone();
                 let max_retries = task.max_retries;
                 let queue = self.task_queues.get_mut(&task_id).unwrap();
@@ -264,9 +315,9 @@ impl Scheduler {
     }
 
     fn precheck(&self, task_id: &str, block: &Block) -> bool {
-        // The done-marker is the cheapest check (single byte), do it first.
-        if let Some(marker) = self.done_markers.get(task_id) {
-            if marker.is_done(block) {
+        // The done array is the cheapest check (single byte), do it first.
+        if let Some(tracking) = self.task_tracking.get(task_id) {
+            if tracking.is_done(block) {
                 return true;
             }
         }

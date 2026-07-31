@@ -1,7 +1,7 @@
 use daisy_core::block::BlockStatus;
 use daisy_core::client::Client;
 use daisy_core::pipeline::Pipeline;
-use daisy_core::protocol::{read_message, write_message, Message};
+use daisy_core::protocol::{read_message, write_message, Message, PROTOCOL_VERSION};
 use daisy_core::resource_allocator::ResourceBudget;
 use daisy_core::roi::Roi;
 use daisy_core::server::Server;
@@ -50,6 +50,47 @@ async fn test_framing_roundtrip() {
     drop(writer);
     drop(reader);
     let _ = server_task.await;
+}
+
+/// A peer speaking a different wire version must be told so, rather than
+/// failing somewhere deep inside the bincode decoder.
+///
+/// The payload is positional bincode: adding a field to any message (or to
+/// `Block`) silently changes the byte layout, and without this guard the
+/// symptom is `UnexpectedEnd`, or an `Option` tag read out of an unrelated
+/// string's length. The realistic way to get there is external cluster
+/// workers loading daisy from a different environment than the driver, so
+/// the error needs to name the actual problem.
+#[tokio::test(flavor = "multi_thread")]
+async fn test_protocol_version_mismatch_is_reported_clearly() {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let server_task = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (mut reader, _writer) = stream.into_split();
+        // Return whatever the read produced so the test can inspect it.
+        read_message(&mut reader).await.map(|_| ()).map_err(|e| e.to_string())
+    });
+
+    // Hand-roll a frame claiming a version this build does not speak.
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    let payload =
+        bincode::encode_to_vec(Message::RequestShutdown, bincode::config::standard()).unwrap();
+    let len = (payload.len() + 1) as u32;
+    stream.write_all(&len.to_be_bytes()).await.unwrap();
+    stream.write_all(&[PROTOCOL_VERSION.wrapping_add(7)]).await.unwrap();
+    stream.write_all(&payload).await.unwrap();
+    stream.flush().await.unwrap();
+
+    let err = server_task
+        .await
+        .unwrap()
+        .expect_err("expected a version-mismatch error");
+    assert!(err.contains("protocol version mismatch"), "message: {err}");
+    assert!(err.contains("Rebuild your workers"), "message: {err}");
 }
 
 /// Regression test: chained tasks (b depends on a) run cleanly in

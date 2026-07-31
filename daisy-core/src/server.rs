@@ -3,7 +3,7 @@ use crate::block_bookkeeper::BlockBookkeeper;
 use crate::client::Client;
 use crate::protocol::{read_message, write_message, Message};
 use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
-use crate::run_stats::{thread_cpu_time, WorkerStats};
+use crate::block_tracking::TaskSummary;
 use crate::scheduler::Scheduler;
 use crate::task::Task;
 use crate::task_state::{AbandonReason, TaskCounters, TaskState};
@@ -12,7 +12,6 @@ use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use std::time::Instant;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -49,6 +48,21 @@ struct ClientMessage {
     message: Message,
     addr: SocketAddr,
     reply_tx: mpsc::Sender<Message>,
+}
+
+/// What a worker thread reports as it exits.
+///
+/// Deliberately not a statistics type: resource measurements belong to
+/// blocks (`Block::stats` → `block_tracking`), and mixing the two is what
+/// let a per-worker block counter drift away from the scheduler's. The
+/// only payload here is control flow — `last_error` is what abandonment
+/// quotes when it explains why a task died.
+#[derive(Debug, Default)]
+struct WorkerExit {
+    task_id: String,
+    #[allow(dead_code)]
+    worker_id: u64,
+    last_error: Option<String>,
 }
 
 pub struct Server {
@@ -113,10 +127,10 @@ impl Server {
         progress: Option<Arc<dyn ProgressObserver>>,
         abort_check: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
         block_tracking: bool,
-    ) -> std::io::Result<(HashMap<String, TaskCounters>, crate::run_stats::RunStats)> {
+    ) -> std::io::Result<(HashMap<String, TaskCounters>, HashMap<String, TaskSummary>)> {
         let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
-            if let Err(e) = scheduler.init_done_markers() {
+            if let Err(e) = scheduler.init_tracking() {
                 return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
             }
         }
@@ -193,71 +207,12 @@ impl Server {
         }
         let mut workers: Vec<(WorkerSpec, WorkerThread)> = Vec::new();
         let mut next_worker_id: u64 = 0;
-        // Channel each worker thread signals on just before it exits,
-        // so the main loop can rebalance immediately rather than
-        // waiting for the next 500ms health tick. The payload also
-        // carries that worker's resource-utilisation stats — collected
-        // here for the post-run report.
-        let (worker_exit_tx, mut worker_exit_rx) =
-            mpsc::unbounded_channel::<WorkerStats>();
-        let mut collected_worker_stats: Vec<WorkerStats> = Vec::new();
-        // Per-task list of `release_index → duration_ms`, so we can fit
-        // a linear trend at the end and report whether processing time
-        // grew/shrank as the run progressed.
-        let mut task_block_durations: HashMap<String, Vec<f64>> = HashMap::new();
-
-        // Process-wide sampler: peak RSS / virt and disk I/O deltas
-        // updated every 200ms by a background tokio task.
-        let process_stats = std::sync::Arc::new(std::sync::Mutex::new(
-            crate::run_stats::ProcessStats::default(),
-        ));
-        let stats_started = Instant::now();
-        let process_stats_clone = process_stats.clone();
-        let (sampler_stop_tx, mut sampler_stop_rx) = tokio::sync::oneshot::channel::<()>();
-        let sampler_handle = tokio::spawn(async move {
-            use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
-            let pid = Pid::from_u32(std::process::id());
-            let mut system = System::new_with_specifics(
-                RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
-            );
-            let mut baseline_disk_read: u64 = 0;
-            let mut baseline_disk_write: u64 = 0;
-            let mut first = true;
-            let mut interval = tokio::time::interval(std::time::Duration::from_millis(200));
-            loop {
-                tokio::select! {
-                    _ = &mut sampler_stop_rx => break,
-                    _ = interval.tick() => {
-                        system.refresh_processes_specifics(
-                            ProcessesToUpdate::Some(&[pid]),
-                            true,
-                            ProcessRefreshKind::everything(),
-                        );
-                        if let Some(p) = system.process(pid) {
-                            let mut g = process_stats_clone.lock().unwrap();
-                            g.peak_rss_bytes = g.peak_rss_bytes.max(p.memory());
-                            g.peak_virt_bytes = g.peak_virt_bytes.max(p.virtual_memory());
-                            let disk = p.disk_usage();
-                            if first {
-                                baseline_disk_read = disk.total_read_bytes;
-                                baseline_disk_write = disk.total_written_bytes;
-                                first = false;
-                            }
-                            g.disk_read_bytes =
-                                disk.total_read_bytes.saturating_sub(baseline_disk_read);
-                            g.disk_write_bytes =
-                                disk.total_written_bytes.saturating_sub(baseline_disk_write);
-                            g.total_cpu_time = std::time::Duration::from_secs_f64(
-                                p.run_time() as f64 * (p.cpu_usage() as f64 / 100.0),
-                            );
-                            g.unavailable = false;
-                        } else {
-                            process_stats_clone.lock().unwrap().unavailable = true;
-                        }
-                    }
-                }
-            }
-        });
+        // Channel each worker thread signals on just before it exits, so
+        // the main loop can rebalance immediately rather than waiting for
+        // the next 500ms health tick. The payload carries the error that
+        // killed a dirty worker — that is control flow, not a statistic:
+        // it is what lets abandonment report *why* the task died.
+        let (worker_exit_tx, mut worker_exit_rx) = mpsc::unbounded_channel::<WorkerExit>();
 
         if let Some(ref obs) = progress {
             obs.on_start(&snapshot_counters(&scheduler.task_states));
@@ -302,7 +257,6 @@ impl Server {
                     let updated = self.handle_message(
                         cm, &mut scheduler, &mut bookkeeper,
                         &mut pending, worker_pools,
-                        &mut task_block_durations,
                     )?;
                     // Rebalance only when this release has actually
                     // unlocked a previously-blocked task — i.e. some
@@ -341,23 +295,20 @@ impl Server {
                     }
                 }
 
-                Some(stats) = worker_exit_rx.recv() => {
-                    // A worker thread just signalled it's exiting and
-                    // handed back its utilisation stats. Stash them
-                    // for the report, reap the thread (frees its
-                    // resource slot via the allocator and bumps
-                    // failure count if it exited dirty), and rebalance
-                    // immediately so freed budget can grow other tasks.
-                    // Attach the worker's error (if any) to the task
-                    // state first, so abandonment can report the cause.
-                    if let Some(err) = &stats.last_error {
-                        if let Some(state) = scheduler.task_states.get_mut(&stats.task_id) {
+                Some(exit) = worker_exit_rx.recv() => {
+                    // A worker thread just signalled it's exiting. Attach
+                    // its error (if any) to the task state so abandonment
+                    // can report the cause, then reap the thread (frees
+                    // its resource slot via the allocator and bumps the
+                    // failure count if it exited dirty) and rebalance so
+                    // freed budget can grow other tasks.
+                    if let Some(err) = &exit.last_error {
+                        if let Some(state) = scheduler.task_states.get_mut(&exit.task_id) {
                             if let Some(rt) = state.as_running_mut() {
                                 rt.note_worker_error(err.clone());
                             }
                         }
                     }
-                    collected_worker_stats.push(stats);
                     Self::check_thread_health(&mut workers, &mut scheduler, &mut allocator);
                     Self::rebalance_workers(
                         &self.host,
@@ -421,8 +372,7 @@ impl Server {
                         self.retry_pending(
                             &mut scheduler, &mut bookkeeper,
                             &mut pending, worker_pools,
-                            &mut task_block_durations,
-                        )?;
+                            )?;
                     }
                 }
 
@@ -470,22 +420,21 @@ impl Server {
                 let _ = handle.join();
             }
         }
-        // Drain any worker-exit notifications still in flight.
-        while let Ok(s) = worker_exit_rx.try_recv() {
-            collected_worker_stats.push(s);
+        // Drain any worker-exit notifications still in flight, so a
+        // late dirty exit still attaches its cause to the task state.
+        while let Ok(exit) = worker_exit_rx.try_recv() {
+            if let Some(err) = &exit.last_error {
+                if let Some(state) = scheduler.task_states.get_mut(&exit.task_id) {
+                    if let Some(rt) = state.as_running_mut() {
+                        rt.note_worker_error(err.clone());
+                    }
+                }
+            }
         }
 
-        // Stop the sysinfo sampler and pull its final snapshot.
-        let _ = sampler_stop_tx.send(());
-        let _ = sampler_handle.await;
-        let process = process_stats.lock().unwrap().clone();
-
-        let run_stats = crate::run_stats::build_run_stats(
-            stats_started,
-            collected_worker_stats,
-            task_block_durations,
-            process,
-        );
+        // The summary is an agglomeration of what the tracking layer
+        // actually wrote — no separate accumulator to disagree with it.
+        let summaries = scheduler.tracking_summaries();
         if let Some(ref obs) = progress {
             obs.on_finish(&snapshot_counters(&scheduler.task_states));
         }
@@ -495,7 +444,7 @@ impl Server {
                 "run aborted by abort_check callback",
             ));
         }
-        Ok((snapshot_counters(&scheduler.task_states), run_stats))
+        Ok((snapshot_counters(&scheduler.task_states), summaries))
     }
 
     /// Spawn a worker thread for a task. For 1-arg process functions, the
@@ -510,7 +459,7 @@ impl Server {
     /// case.
     fn spawn_worker(
         spec: &WorkerSpec,
-        exit_tx: mpsc::UnboundedSender<WorkerStats>,
+        exit_tx: mpsc::UnboundedSender<WorkerExit>,
     ) -> JoinHandle<bool> {
         let task = spec.task.clone();
         let host = spec.host.clone();
@@ -519,35 +468,26 @@ impl Server {
         let worker_id = spec.worker_id;
 
         std::thread::spawn(move || -> bool {
-            // RAII: report stats and notify on every return path
-            // (including panics that unwind through this thread).
+            // RAII: notify on every return path (including panics that
+            // unwind through this thread) so the run loop can rebalance
+            // promptly and abandonment can report the cause.
             struct ExitNotifier {
-                tx: mpsc::UnboundedSender<WorkerStats>,
-                stats: WorkerStats,
-                started: Instant,
-                start_cpu: Option<std::time::Duration>,
+                tx: mpsc::UnboundedSender<WorkerExit>,
+                exit: WorkerExit,
             }
             impl Drop for ExitNotifier {
                 fn drop(&mut self) {
-                    self.stats.wall_time = self.started.elapsed();
-                    self.stats.cpu_time = match (thread_cpu_time(), self.start_cpu) {
-                        (Some(now), Some(then)) => Some(now.saturating_sub(then)),
-                        (Some(now), None) => Some(now),
-                        _ => None,
-                    };
-                    let _ = self.tx.send(std::mem::take(&mut self.stats));
+                    let _ = self.tx.send(std::mem::take(&mut self.exit));
                 }
             }
             #[allow(unused_mut)]
             let mut notifier = ExitNotifier {
                 tx: exit_tx,
-                stats: WorkerStats {
+                exit: WorkerExit {
                     task_id: task_id.clone(),
                     worker_id,
-                    ..Default::default()
+                    last_error: None,
                 },
-                started: Instant::now(),
-                start_cpu: thread_cpu_time(),
             };
 
             if let Some(ref process_fn) = task.process_function {
@@ -556,7 +496,7 @@ impl Server {
                     Ok(rt) => rt,
                     Err(e) => {
                         error!(worker_id, error = %e, "failed to create runtime");
-                        notifier.stats.last_error = Some(format!("failed to create runtime: {e}"));
+                        notifier.exit.last_error = Some(format!("failed to create runtime: {e}"));
                         return false;
                     }
                 };
@@ -564,7 +504,7 @@ impl Server {
                     Ok(c) => c,
                     Err(e) => {
                         error!(worker_id, error = %e, "failed to connect");
-                        notifier.stats.last_error = Some(format!("failed to connect to server: {e}"));
+                        notifier.exit.last_error = Some(format!("failed to connect to server: {e}"));
                         return false;
                     }
                 };
@@ -588,7 +528,7 @@ impl Server {
                                 }
                                 Err(e) => {
                                     warn!(worker_id, error = %e, "block processing failed");
-                                    notifier.stats.last_error = Some(format!("{e}"));
+                                    notifier.exit.last_error = Some(format!("{e}"));
                                     block.status = crate::block::BlockStatus::Failed;
                                 }
                             }
@@ -596,10 +536,9 @@ impl Server {
                                 block.status == crate::block::BlockStatus::Failed;
                             if let Err(e) = rt.block_on(client.release_block(block)) {
                                 error!(worker_id, error = %e, "failed to release block");
-                                notifier.stats.last_error = Some(format!("failed to release block: {e}"));
+                                notifier.exit.last_error = Some(format!("failed to release block: {e}"));
                                 return false;
                             }
-                            notifier.stats.blocks_processed += 1;
                             if was_failure {
                                 debug!(worker_id, "exiting dirty after failed block");
                                 let _ = rt.block_on(client.disconnect());
@@ -627,7 +566,7 @@ impl Server {
                     Ok(()) => true,
                     Err(e) => {
                         warn!(worker_id, error = %e, "spawn function failed");
-                        notifier.stats.last_error = Some(format!("{e}"));
+                        notifier.exit.last_error = Some(format!("{e}"));
                         false // should respawn
                     }
                 }
@@ -809,7 +748,7 @@ impl Server {
         allocator: &mut ResourceAllocator,
         workers: &mut Vec<(WorkerSpec, WorkerThread)>,
         next_id: &mut u64,
-        exit_tx: &mpsc::UnboundedSender<WorkerStats>,
+        exit_tx: &mpsc::UnboundedSender<WorkerExit>,
     ) {
         // Round-robin grow: at each pass, give *one* more worker to
         // every eligible task. Repeat until no task can grow. This
@@ -915,14 +854,12 @@ impl Server {
         bookkeeper: &mut BlockBookkeeper,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
-        task_block_durations: &mut HashMap<String, Vec<f64>>,
     ) -> std::io::Result<()> {
         let count = pending.len();
         for _ in 0..count {
             if let Some(cm) = pending.pop_front() {
                 let _ = self.handle_message(
                     cm, scheduler, bookkeeper, pending, worker_pools,
-                    task_block_durations,
                 )?;
             }
         }
@@ -942,7 +879,6 @@ impl Server {
         bookkeeper: &mut BlockBookkeeper,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
-        task_block_durations: &mut HashMap<String, Vec<f64>>,
     ) -> std::io::Result<Vec<String>> {
         let mut updated: Vec<String> = Vec::new();
         match cm.message {
@@ -951,19 +887,32 @@ impl Server {
             }
             Message::ReleaseBlock { block } => {
                 if bookkeeper.is_valid_return(&block, cm.addr) {
-                    if let Some(elapsed) = bookkeeper.notify_block_returned(&block, cm.addr) {
-                        task_block_durations
-                            .entry(block.block_id.task_id.clone())
-                            .or_default()
-                            .push(elapsed.as_secs_f64() * 1000.0);
+                    // The bookkeeper's timer still runs the timeout
+                    // deadline; per-block *durations* now come from the
+                    // worker's own measurement on `block.stats`, which is
+                    // the same number in every execution mode.
+                    let _ = bookkeeper.notify_block_returned(&block, cm.addr);
+                    if scheduler.expects_block_stats(block.task_id()) && block.stats.is_none() {
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!(
+                                "task {:?} has resource_tracking enabled but worker at {} \
+                                 returned block {} without measurements. Wrap the block body \
+                                 in `with daisy.profile_block(block):` — daisy's own workers \
+                                 do this automatically, so this usually means a custom \
+                                 client is bypassing daisy.Client.",
+                                block.task_id(),
+                                cm.addr,
+                                block.block_id,
+                            ),
+                        ));
                     }
                     updated = scheduler.release_block(block);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
                             scheduler, bookkeeper, pending, worker_pools,
-                            task_block_durations,
-                        )?;
+                                )?;
                     }
                 } else {
                     debug!(block_id = %block.block_id, "invalid block return");
@@ -977,8 +926,9 @@ impl Server {
                     }
                 }
                 if bookkeeper.is_valid_return(&block, cm.addr) {
-                    // Failed blocks intentionally not added to the
-                    // duration trend — they're noisy outliers.
+                    // A failed block's measurement is not folded into the
+                    // trend (noisy outlier), but the failure itself is
+                    // counted by the scheduler's release path.
                     let _ = bookkeeper.notify_block_returned(&block, cm.addr);
                     block.status = BlockStatus::Failed;
                     updated = scheduler.release_block(block);
@@ -986,8 +936,7 @@ impl Server {
                     if !pending.is_empty() {
                         self.retry_pending(
                             scheduler, bookkeeper, pending, worker_pools,
-                            task_block_durations,
-                        )?;
+                                )?;
                     }
                 }
             }

@@ -176,29 +176,25 @@ pub fn _run_blockwise_orchestrator(
         None
     };
 
-    // Dispatch to the appropriate runner. Both paths return a Python
-    // dict of `task_id → PyTaskState` plus optional run stats.
-    let (states_obj, run_stats_obj): (Py<PyAny>, Option<Py<PyAny>>) = if multiprocessing {
-        let result = _run_distributed_server(
+    // Dispatch to the appropriate runner. Both paths return a
+    // `(task_id → PyTaskState, tracking summary)` tuple — serial mode
+    // measures blocks the same way, so it reports the same summary.
+    let result: Py<PyAny> = if multiprocessing {
+        _run_distributed_server(
             py,
             pipeline.bind(py).as_any(),
             resources,
             progress_obj,
             "127.0.0.1",
             block_tracking,
-        )?;
-        let tup = result.bind(py);
-        let states: Py<PyAny> = tup.get_item(0)?.into_pyobject(py)?.into_any().unbind();
-        let stats: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
-        (states, Some(stats))
+        )?
+        .into_any()
     } else {
-        let states_map = _run_serial(py, pipeline.bind(py).as_any(), block_tracking)?;
-        let dict = pyo3::types::PyDict::new(py);
-        for (k, v) in states_map {
-            dict.set_item(k, v.into_pyobject(py)?)?;
-        }
-        (dict.into_any().unbind(), None)
+        _run_serial(py, pipeline.bind(py).as_any(), block_tracking)?
     };
+    let tup = result.bind(py);
+    let states_obj: Py<PyAny> = tup.get_item(0)?.into_pyobject(py)?.into_any().unbind();
+    let run_stats_obj: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
 
     // Call back into Python for the formatted post-run report.
     // Printing lives in Python because the per-worker stdout proxy is
@@ -211,17 +207,10 @@ pub fn _run_blockwise_orchestrator(
     // Resume visibility: INFO log per task that skipped blocks via
     // done markers (python logging — user-configurable, never forced).
     progress_mod.call_method1("_log_resume_summary", (&states_obj,))?;
-    if let Some(stats) = &run_stats_obj {
-        progress_mod.call_method1(
-            "_print_resource_utilization",
-            (stats, &order_py),
-        )?;
-    } else {
-        progress_mod.call_method1(
-            "_print_resource_utilization",
-            (py.None(), &order_py),
-        )?;
-    }
+    progress_mod.call_method1(
+        "_print_resource_utilization",
+        (&run_stats_obj, &order_py),
+    )?;
 
     // Abandoned tasks fail loudly: silently returning False loses the
     // reason a run produced no output (the classic v1 failure mode was
@@ -319,7 +308,7 @@ pub fn _run_serial(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     block_tracking: bool,
-) -> PyResult<HashMap<String, PyTaskState>> {
+) -> PyResult<Py<PyAny>> {
     let pipeline = coerce_pipeline_or_task(py, input)?;
     let core_pipeline = pipeline.borrow(py).to_core(py)?;
     crate::py_callbacks::clear_last_process_pyerr();
@@ -336,10 +325,17 @@ pub fn _run_serial(
             };
         }
     };
-    Ok(states
+    let (states, summaries) = states;
+    let states_py: HashMap<String, PyTaskState> = states
         .into_iter()
         .map(|(k, v)| (k, PyTaskState { inner: v }))
-        .collect())
+        .collect();
+    let summary_py = tracking_summary_to_py(py, &summaries)?;
+    let out = pyo3::types::PyTuple::new(
+        py,
+        &[states_py.into_pyobject(py)?.into_any(), summary_py],
+    )?;
+    Ok(out.into_any().unbind())
 }
 
 /// Run the distributed server with Rust-managed worker threads.
@@ -421,7 +417,7 @@ pub fn _run_distributed_server(
         libc::signal(libc::SIGINT, prev as libc::sighandler_t);
     }
 
-    let (states, run_stats) = match result {
+    let (states, summaries) = match result {
         Ok(v) => v,
         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
             return Err(PyErr::new::<pyo3::exceptions::PyKeyboardInterrupt, _>(
@@ -435,58 +431,41 @@ pub fn _run_distributed_server(
         .into_iter()
         .map(|(k, v)| (k, PyTaskState { inner: v }))
         .collect();
-    let stats_py = run_stats_to_py(py, &run_stats)?;
+    let stats_py = tracking_summary_to_py(py, &summaries)?;
 
     let result = pyo3::types::PyTuple::new(py, &[states_py.into_pyobject(py)?.into_any(), stats_py])?;
     Ok(result.unbind())
 }
 
-fn run_stats_to_py<'py>(
+/// Convert this run's per-task tracking aggregates into the dict the
+/// Python summary renderer consumes.
+///
+/// Everything here was measured per block inside the workers and folded by
+/// `block_tracking::TaskTracking` as blocks were recorded — there is no
+/// separate accumulator, so `blocks` cannot disagree with what the
+/// scheduler saw. Tasks without tracking configured simply don't appear,
+/// which is how the renderer knows to omit the resource panel.
+fn tracking_summary_to_py<'py>(
     py: Python<'py>,
-    s: &daisy_core::run_stats::RunStats,
+    summaries: &HashMap<String, daisy_core::block_tracking::TaskSummary>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let process = PyDict::new(py);
-    process.set_item("wall_time_secs", s.process.wall_time.as_secs_f64())?;
-    process.set_item("peak_rss_bytes", s.process.peak_rss_bytes)?;
-    process.set_item("peak_virt_bytes", s.process.peak_virt_bytes)?;
-    process.set_item("total_cpu_time_secs", s.process.total_cpu_time.as_secs_f64())?;
-    process.set_item("disk_read_bytes", s.process.disk_read_bytes)?;
-    process.set_item("disk_write_bytes", s.process.disk_write_bytes)?;
-    process.set_item("unavailable", s.process.unavailable)?;
-
     let per_task = PyDict::new(py);
-    for (task_id, t) in &s.per_task {
+    for (task_id, s) in summaries {
+        let (mean_ms, slope_ms) = s.block_ms_trend();
         let d = PyDict::new(py);
-        d.set_item("blocks_processed", t.blocks_processed)?;
-        d.set_item("max_concurrent_workers", t.max_concurrent_workers)?;
-        d.set_item("total_block_time_secs", t.total_block_time.as_secs_f64())?;
-        d.set_item("total_wall_time_secs", t.total_wall_time.as_secs_f64())?;
-        match t.total_cpu_time {
-            Some(c) => d.set_item("total_cpu_time_secs", c.as_secs_f64())?,
-            None => d.set_item("total_cpu_time_secs", py.None())?,
-        }
-        d.set_item("mean_block_ms", t.mean_block_ms)?;
-        d.set_item("block_ms_slope", t.block_ms_slope)?;
+        d.set_item("blocks", s.blocks_recorded)?;
+        d.set_item("failures", s.failures_recorded)?;
+        d.set_item("has_stats", s.has_stats)?;
+        d.set_item("total_cpu_secs", s.total_cpu_seconds)?;
+        d.set_item("total_block_secs", s.total_wall_seconds)?;
+        d.set_item("max_peak_rss_bytes", s.max_peak_rss_bytes)?;
+        d.set_item("io_read_bytes", s.total_io_read_bytes)?;
+        d.set_item("io_write_bytes", s.total_io_write_bytes)?;
+        d.set_item("mean_block_ms", mean_ms)?;
+        d.set_item("block_ms_slope", slope_ms)?;
         per_task.set_item(task_id, d)?;
     }
-
-    let per_worker = PyList::empty(py);
-    for w in &s.per_worker {
-        let d = PyDict::new(py);
-        d.set_item("task_id", &w.task_id)?;
-        d.set_item("worker_id", w.worker_id)?;
-        d.set_item("wall_time_secs", w.wall_time.as_secs_f64())?;
-        match w.cpu_time {
-            Some(c) => d.set_item("cpu_time_secs", c.as_secs_f64())?,
-            None => d.set_item("cpu_time_secs", py.None())?,
-        }
-        d.set_item("blocks_processed", w.blocks_processed)?;
-        per_worker.append(d)?;
-    }
-
     let out = PyDict::new(py);
-    out.set_item("process", process)?;
     out.set_item("per_task", per_task)?;
-    out.set_item("per_worker", per_worker)?;
     Ok(out.into_any())
 }

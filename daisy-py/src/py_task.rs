@@ -1,4 +1,4 @@
-use daisy_core::done_marker::DoneMarker;
+use daisy_core::block_tracking::TaskTracking;
 use daisy_core::task::{Fit, Task};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -120,6 +120,7 @@ pub struct PyTask {
     /// in `convert_task_tree`, not at construction, so the same
     /// `Task` instance picks up basedir changes between runs.
     pub done_marker_path: DoneMarkerSpec,
+    pub resource_tracking: bool,
     /// Per-worker resource cost; empty disables resource accounting.
     pub requires: HashMap<String, i64>,
     /// Cap on worker restarts before the task is abandoned. Default 10.
@@ -150,6 +151,7 @@ impl PyTask {
         max_retries=2,
         timeout=None,
         done_marker_path=None,
+        resource_tracking=false,
         requires=None,
         max_worker_restarts=10,
     ))]
@@ -166,6 +168,7 @@ impl PyTask {
         max_retries: u32,
         timeout: Option<&Bound<'_, PyAny>>,
         done_marker_path: Option<&Bound<'_, PyAny>>,
+        resource_tracking: bool,
         requires: Option<Bound<'_, PyDict>>,
         max_worker_restarts: u32,
     ) -> PyResult<Self> {
@@ -222,6 +225,7 @@ impl PyTask {
             check_function,
             process_function,
             done_marker_path,
+            resource_tracking,
             requires: reqs,
             max_worker_restarts,
             timeout_secs,
@@ -321,6 +325,7 @@ impl PyTask {
             check_function: self.check_function.as_ref().map(|f| f.clone_ref(py)),
             process_function: self.process_function.as_ref().map(|f| f.clone_ref(py)),
             done_marker_path: self.done_marker_path.clone(),
+            resource_tracking: self.resource_tracking,
             requires: self.requires.clone(),
             max_worker_restarts: self.max_worker_restarts,
             timeout_secs: self.timeout_secs,
@@ -360,9 +365,9 @@ impl PyTask {
         if !path.exists() {
             return Ok(None);
         }
-        DoneMarker::clear(path).map_err(|e| {
+        TaskTracking::clear(path).map_err(|e| {
             PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "failed to clear done-marker at {p}: {e}"
+                "failed to clear block tracking at {p}: {e}"
             ))
         })?;
         Ok(Some(p))
@@ -399,6 +404,7 @@ impl PyTask {
             check_function: None,
             process_function: None,
             done_marker_path: DoneMarkerSpec::Disabled,
+            resource_tracking: false,
             requires: HashMap::new(),
             max_worker_restarts: 10,
             timeout_secs: Some(DEFAULT_BLOCK_TIMEOUT_SECS),
@@ -431,8 +437,9 @@ impl PyTask {
             .max_retries(borrow.max_retries);
 
         if let Some(path) = borrow.done_marker_path.resolve(py, &borrow.task_id) {
-            builder = builder.done_marker_path(&path);
+            builder = builder.tracking_path(&path);
         }
+        builder = builder.resource_tracking(borrow.resource_tracking);
         if !borrow.requires.is_empty() {
             builder = builder.requires(borrow.requires.clone());
         }

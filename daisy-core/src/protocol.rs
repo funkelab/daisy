@@ -30,12 +30,29 @@ pub enum Message {
 const MAX_MESSAGE_SIZE: u32 = 64 * 1024 * 1024; // 64 MiB safety limit
 const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard();
 
+/// Wire-format version, sent as the first byte of every frame.
+///
+/// The payload is positional bincode, which is not self-describing: adding
+/// a field to any message (or to `Block`) silently changes the byte layout.
+/// Without a version marker a mismatched peer fails deep inside the
+/// decoder — `UnexpectedEnd`, or an `Option` tag read out of an unrelated
+/// string length — which tells an operator nothing about the real problem.
+/// The realistic way to get there is external cluster workers loading daisy
+/// from a different environment than the driver.
+///
+/// Bump this whenever the encoding of any `Message` variant changes.
+pub const PROTOCOL_VERSION: u8 = 1;
+
 /// Write a length-prefixed, bincode-encoded message to a TCP stream.
 pub async fn write_message(writer: &mut OwnedWriteHalf, msg: &Message) -> io::Result<()> {
     let encoded = bincode::encode_to_vec(msg, BINCODE_CONFIG)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
-    let len = encoded.len() as u32;
+    // Frame: u32 big-endian payload length, one version byte, payload.
+    // The length counts the version byte so old readers see a coherent
+    // frame boundary even though they cannot interpret the contents.
+    let len = (encoded.len() + 1) as u32;
     writer.write_all(&len.to_be_bytes()).await?;
+    writer.write_all(&[PROTOCOL_VERSION]).await?;
     writer.write_all(&encoded).await?;
     writer.flush().await?;
     Ok(())
@@ -57,9 +74,26 @@ pub async fn read_message(reader: &mut OwnedReadHalf) -> io::Result<Option<Messa
             format!("message too large: {len} bytes"),
         ));
     }
+    if len == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "empty message frame (missing protocol version byte)",
+        ));
+    }
     let mut buf = vec![0u8; len as usize];
     reader.read_exact(&mut buf).await?;
-    let (msg, _): (Message, usize) = bincode::decode_from_slice(&buf, BINCODE_CONFIG)
+    let version = buf[0];
+    if version != PROTOCOL_VERSION {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "daisy protocol version mismatch: peer speaks {version}, \
+                 this build speaks {PROTOCOL_VERSION}. Rebuild your workers \
+                 against the same daisy version as the driver."
+            ),
+        ));
+    }
+    let (msg, _): (Message, usize) = bincode::decode_from_slice(&buf[1..], BINCODE_CONFIG)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
     Ok(Some(msg))
 }

@@ -49,14 +49,18 @@ class Server:
     wraps process functions with per-worker logging context first.
 
     Most users go through `daisy.run_blockwise(...)`. Instantiate this
-    class directly when you want access to `last_run_stats` or
+    class directly when you want access to `last_tracking_summary` or
     `last_task_order` after the run."""
 
     def __init__(self, stop_event=None):
         self._stop_event = stop_event
         self.hostname = None
         self.port = None
-        self.last_run_stats = None
+        #: This run's per-task aggregates, agglomerated from the per-block
+        #: measurements the tracking layer wrote (``{"per_task": {...}}``).
+        #: Empty of resource figures unless a task set
+        #: ``resource_tracking=True``.
+        self.last_tracking_summary = None
         self.last_task_order = None
 
     def run_blockwise(
@@ -67,13 +71,13 @@ class Server:
         self.last_task_order = order
         observer = _resolve_observer(progress, order)
         try:
-            states, run_stats = _rs._run_distributed_server(
+            states, summary = _rs._run_distributed_server(
                 pipeline,
                 resources,
                 observer,
                 block_tracking=block_tracking,
             )
-            self.last_run_stats = run_stats
+            self.last_tracking_summary = summary
             _log_resume_summary(states)
             return states
         finally:
@@ -85,7 +89,7 @@ def _run_serial(pipeline, block_tracking=True):
     original process functions in-process — no subprocess wrapping."""
     pipeline = _prepare(_coerce_pipeline(pipeline), distributed=False)
     try:
-        states = _rs._run_serial(pipeline, block_tracking=block_tracking)
+        states, _summary = _rs._run_serial(pipeline, block_tracking=block_tracking)
         _log_resume_summary(states)
         return states
     finally:

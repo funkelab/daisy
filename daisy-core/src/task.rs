@@ -85,11 +85,18 @@ pub struct Task {
     /// function directly. The function typically launches a subprocess
     /// that connects back via TCP.
     pub spawn_function: Option<Arc<dyn SpawnWorker>>,
-    /// If `Some`, the scheduler / runner persists per-block "done"
-    /// state under this directory as a single-chunk Zarr v2 array. On
-    /// the next run, blocks already marked done are skipped before the
-    /// process function is called. See `crate::done_marker`.
-    pub done_marker_path: Option<PathBuf>,
+    /// If `Some`, the scheduler / runner persists per-block tracking
+    /// under this directory as a Zarr v3 group: which blocks are done
+    /// (so the next run skips them before the process function is
+    /// called), how many times each failed, and — when
+    /// `resource_tracking` is set — what each block cost. See
+    /// `crate::block_tracking`.
+    pub tracking_path: Option<PathBuf>,
+    /// Measure each block's resources (wall, CPU, peak RSS, IO) and
+    /// persist them alongside the done array. Requires
+    /// `tracking_path`; the measurement itself happens inside whoever
+    /// runs the block and rides home on `Block::stats`.
+    pub resource_tracking: bool,
     /// Per-worker resource cost. Empty map means this task does not
     /// participate in global resource accounting. When non-empty, the
     /// runner verifies at startup that one worker fits in the budget,
@@ -118,7 +125,8 @@ pub struct TaskBuilder {
     check_function: Option<Arc<dyn CheckBlock>>,
     process_function: Option<Arc<dyn ProcessBlock + Sync>>,
     spawn_function: Option<Arc<dyn SpawnWorker>>,
-    done_marker_path: Option<PathBuf>,
+    tracking_path: Option<PathBuf>,
+    resource_tracking: bool,
     requires: HashMap<String, i64>,
     max_worker_restarts: u32,
 }
@@ -138,7 +146,8 @@ impl TaskBuilder {
             check_function: None,
             process_function: None,
             spawn_function: None,
-            done_marker_path: None,
+            tracking_path: None,
+            resource_tracking: false,
             requires: HashMap::new(),
             max_worker_restarts: 10,
         }
@@ -199,8 +208,15 @@ impl TaskBuilder {
         self
     }
 
-    pub fn done_marker_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.done_marker_path = Some(path.into());
+    pub fn tracking_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.tracking_path = Some(path.into());
+        self
+    }
+
+    /// Measure and persist per-block resource usage. Needs
+    /// `tracking_path` (or a basedir on the Python side) to write to.
+    pub fn resource_tracking(mut self, enabled: bool) -> Self {
+        self.resource_tracking = enabled;
         self
     }
 
@@ -242,7 +258,8 @@ impl TaskBuilder {
             check_function: self.check_function,
             process_function: self.process_function,
             spawn_function: self.spawn_function,
-            done_marker_path: self.done_marker_path,
+            tracking_path: self.tracking_path,
+            resource_tracking: self.resource_tracking,
             requires: self.requires,
             max_worker_restarts: self.max_worker_restarts,
         }

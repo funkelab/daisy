@@ -1,19 +1,21 @@
-//! Resource-utilisation tracking for a single `run_blockwise` call.
+//! Low-level measurement helpers shared by the block-profiling layer.
 //!
-//! Three layers of measurement:
+//! Statistics themselves live with the blocks: `block_profile` measures a
+//! block inside the worker, the payload rides home on `Block::stats`, and
+//! `block_tracking` persists and aggregates it. This module holds only the
+//! two pieces that are useful on their own:
 //!
-//! - **Per-worker** — wall-clock alive, OS-thread CPU time, blocks
-//!   processed. Reported when the worker thread exits (signals through
-//!   the existing exit channel).
-//! - **Per-task aggregate** — sum across that task's workers, plus a
-//!   linear-regression fit `(release_index, duration_ms)` so the
-//!   "first block ran in 2 ms, last block ran in 12 ms" trend is
-//!   visible.
-//! - **Process-wide** — peak RSS, peak virtual, total CPU, total disk
-//!   I/O. Sampled every 200ms by a background task.
+//! - `thread_cpu_time` — per-OS-thread CPU accounting, so concurrent
+//!   thread workers don't contaminate each other's numbers.
+//! - `linear_trend` — the least-squares fit behind "blocks started at 2 ms
+//!   and ended at 12 ms", applied to the per-block wall times collected by
+//!   `block_tracking::TaskSummary`.
+//!
+//! There is deliberately no per-worker or process-wide stats struct here
+//! any more: a second accumulator alongside the tracking layer is exactly
+//! what made `blocks_processed` disagree with the scheduler's own counts.
 
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Read this thread's user+system CPU time. Returns None on platforms
 /// without a per-thread accessor (e.g. some BSDs / Windows MSYS).
@@ -118,60 +120,6 @@ fn macos_thread_cpu_time() -> Option<Duration> {
     }
 }
 
-/// Per-worker stats reported back when a worker thread exits.
-#[derive(Clone, Debug, Default)]
-pub struct WorkerStats {
-    pub task_id: String,
-    pub worker_id: u64,
-    pub wall_time: Duration,
-    /// `None` if the platform doesn't expose per-thread CPU.
-    pub cpu_time: Option<Duration>,
-    pub blocks_processed: u64,
-    /// Error that terminated this worker, if it exited dirty. Carried
-    /// back so the server can attach the cause to the task state.
-    pub last_error: Option<String>,
-}
-
-/// Per-task aggregate stats produced at the end of a run.
-#[derive(Clone, Debug, Default)]
-pub struct TaskStats {
-    pub task_id: String,
-    pub blocks_processed: u64,
-    pub max_concurrent_workers: usize,
-    /// Sum of per-block server-side durations (send-block → release-block).
-    pub total_block_time: Duration,
-    /// Wall time the task had at least one alive worker.
-    pub total_wall_time: Duration,
-    /// Sum of per-worker CPU time. None if any worker reported None.
-    pub total_cpu_time: Option<Duration>,
-    /// Linear regression of (release_index, duration_ms).
-    pub mean_block_ms: f64,
-    pub block_ms_slope: f64,
-}
-
-/// Process-wide snapshot. All counters are deltas relative to the
-/// process at run start (so disk_read = bytes read *during this run*).
-#[derive(Clone, Debug, Default)]
-pub struct ProcessStats {
-    pub wall_time: Duration,
-    pub peak_rss_bytes: u64,
-    pub peak_virt_bytes: u64,
-    /// Sum of CPU time across all threads in the process at the final
-    /// sample. Approximate — the OS only reports cumulative process CPU.
-    pub total_cpu_time: Duration,
-    pub disk_read_bytes: u64,
-    pub disk_write_bytes: u64,
-    /// True when sysinfo failed to find this process — stats are zeros.
-    pub unavailable: bool,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct RunStats {
-    pub process: ProcessStats,
-    pub per_task: HashMap<String, TaskStats>,
-    pub per_worker: Vec<WorkerStats>,
-}
-
 /// Least-squares fit of y = m*x + b, where x = 0, 1, ..., n-1.
 /// Returns (mean_y, slope_m). Slope is 0 for fewer than 2 points.
 pub fn linear_trend(y: &[f64]) -> (f64, f64) {
@@ -193,81 +141,6 @@ pub fn linear_trend(y: &[f64]) -> (f64, f64) {
     }
     let slope = if den == 0.0 { 0.0 } else { num / den };
     (mean_y, slope)
-}
-
-/// Build a `RunStats` from the raw inputs collected during a run.
-///
-/// `worker_stats` is the per-worker fold across all retired workers
-/// (including any still-alive workers whose stats were captured at
-/// shutdown).
-///
-/// `task_block_durations[task_id]` is the per-task list of release-side
-/// durations in millisecond, in the order each block's `ReleaseBlock`
-/// was observed by the server.
-pub fn build_run_stats(
-    started: Instant,
-    worker_stats: Vec<WorkerStats>,
-    task_block_durations: HashMap<String, Vec<f64>>,
-    process: ProcessStats,
-) -> RunStats {
-    let mut per_task: HashMap<String, TaskStats> = HashMap::new();
-
-    for ws in &worker_stats {
-        let entry = per_task
-            .entry(ws.task_id.clone())
-            .or_insert_with(|| TaskStats {
-                task_id: ws.task_id.clone(),
-                ..Default::default()
-            });
-        entry.blocks_processed += ws.blocks_processed;
-        entry.total_wall_time += ws.wall_time;
-        match (entry.total_cpu_time, ws.cpu_time) {
-            (Some(prev), Some(more)) => entry.total_cpu_time = Some(prev + more),
-            (Some(_), None) => entry.total_cpu_time = None,
-            (None, _) if entry.total_wall_time == ws.wall_time => {
-                // First worker; carry through whatever the worker had.
-                entry.total_cpu_time = ws.cpu_time;
-            }
-            _ => {}
-        }
-    }
-
-    for (task_id, durations) in task_block_durations {
-        let entry = per_task
-            .entry(task_id.clone())
-            .or_insert_with(|| TaskStats {
-                task_id: task_id.clone(),
-                ..Default::default()
-            });
-        let (mean, slope) = linear_trend(&durations);
-        entry.mean_block_ms = mean;
-        entry.block_ms_slope = slope;
-        entry.total_block_time =
-            Duration::from_secs_f64(durations.iter().sum::<f64>() / 1000.0);
-    }
-
-    // max_concurrent_workers — naive estimate: count of distinct worker
-    // ids that ever existed for the task. Real concurrent-peak tracking
-    // would require per-event sampling, which the runner does not do
-    // for stats; close enough for the report.
-    let mut counts: HashMap<String, usize> = HashMap::new();
-    for ws in &worker_stats {
-        *counts.entry(ws.task_id.clone()).or_insert(0) += 1;
-    }
-    for (task_id, count) in counts {
-        if let Some(entry) = per_task.get_mut(&task_id) {
-            entry.max_concurrent_workers = count;
-        }
-    }
-
-    let mut process_with_wall = process;
-    process_with_wall.wall_time = started.elapsed();
-
-    RunStats {
-        process: process_with_wall,
-        per_task,
-        per_worker: worker_stats,
-    }
 }
 
 #[cfg(test)]
