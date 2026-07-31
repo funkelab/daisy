@@ -22,14 +22,14 @@ All three are process-global; change them before calling
 
 from __future__ import annotations
 
-import typing
 import logging as _py_logging
+import os as _os
 import re
 import sys
 import threading
 import traceback as _py_traceback
+import typing
 from pathlib import Path
-
 
 # --- Public knobs ------------------------------------------------------------
 
@@ -82,9 +82,7 @@ def set_log_mode(mode: str) -> None:
     """
     global _LOG_MODE
     if mode not in _VALID_MODES:
-        raise ValueError(
-            f"mode must be one of {_VALID_MODES!r}, got {mode!r}"
-        )
+        raise ValueError(f"mode must be one of {_VALID_MODES!r}, got {mode!r}")
     _LOG_MODE = mode
 
 
@@ -228,8 +226,10 @@ def _assign_slot(task_id: str) -> int | None:
         # Reuse the already-narrowed `base` rather than re-querying (which
         # could race with a `set_log_basedir(None)` between the early
         # check above and now).
-        basename = (base / task_id / f"worker_{slot}") if task_id else (
-            base / f"worker_{slot}"
+        basename = (
+            (base / task_id / f"worker_{slot}")
+            if task_id
+            else (base / f"worker_{slot}")
         )
         basename.parent.mkdir(parents=True, exist_ok=True)
         # Truncate (mode "w") so each `run_blockwise` invocation gets a
@@ -278,11 +278,10 @@ class _WorkerLogContext:
         return False
 
 
-_IPYTHON_CELL_RE = re.compile(r'<ipython-input-(\d+)-[a-f0-9]+>')
+_IPYTHON_CELL_RE = re.compile(r"<ipython-input-(\d+)-[a-f0-9]+>")
 
 # Path of this package, used to strip daisy-internal frames from
 # tracebacks before rendering.
-import os as _os
 _DAISY_PKG_DIR = _os.path.abspath(_os.path.dirname(__file__))
 
 
@@ -299,8 +298,9 @@ def _strip_daisy_frames(tb):
         tb = tb.tb_next
     return tb
 
+
 # Traceback rendering knobs — see `set_traceback_style`.
-_TRACEBACK_STYLE = "plain"          # "plain" | "rich"
+_TRACEBACK_STYLE = "plain"  # "plain" | "rich"
 _TRACEBACK_LOCALS = False
 _TRACEBACK_WIDTH = 100
 _TRACEBACK_EXTRA_LINES = 2
@@ -310,8 +310,9 @@ _TRACEBACK_EXTRA_LINES = 2
 _TRACEBACK_LOCK = threading.Lock()
 
 
-def set_traceback_style(style: str, *, show_locals: bool = False,
-                        width: int = 100, extra_lines: int = 2) -> None:
+def set_traceback_style(
+    style: str, *, show_locals: bool = False, width: int = 100, extra_lines: int = 2
+) -> None:
     """Choose how block-failure tracebacks are formatted.
 
     - `"plain"` (default) — `traceback.format_exception` with IPython
@@ -327,9 +328,7 @@ def set_traceback_style(style: str, *, show_locals: bool = False,
     """
     global _TRACEBACK_STYLE, _TRACEBACK_LOCALS, _TRACEBACK_WIDTH, _TRACEBACK_EXTRA_LINES
     if style not in ("plain", "rich"):
-        raise ValueError(
-            f"style must be 'plain' or 'rich', got {style!r}"
-        )
+        raise ValueError(f"style must be 'plain' or 'rich', got {style!r}")
     if style == "rich":
         try:
             import rich.traceback  # noqa: F401
@@ -356,6 +355,7 @@ def _rewrite_rich_ipython_frames(tb_obj):
     rich's `linecache.getlines` lookup hits. Mutates `tb_obj` in
     place."""
     import linecache
+
     for stack in tb_obj.trace.stacks:
         for frame in stack.frames:
             m = _IPYTHON_CELL_RE.match(frame.filename)
@@ -393,10 +393,14 @@ def format_traceback(exc_type, exc, tb) -> str:
             if _TRACEBACK_STYLE == "rich":
                 try:
                     import io
+
                     from rich.console import Console
                     from rich.traceback import Traceback
+
                     tb_obj = Traceback.from_exception(
-                        exc_type, exc, user_tb,
+                        exc_type,
+                        exc,
+                        user_tb,
                         show_locals=_TRACEBACK_LOCALS,
                         extra_lines=_TRACEBACK_EXTRA_LINES,
                         locals_max_string=60,
@@ -408,7 +412,8 @@ def format_traceback(exc_type, exc, tb) -> str:
                         pass  # not catastrophic
                     buf = io.StringIO()
                     Console(
-                        file=buf, force_terminal=True,
+                        file=buf,
+                        force_terminal=True,
                         # `force_jupyter=False` is critical: when
                         # rich's Console auto-detects a Jupyter kernel
                         # it routes `.print()` through
@@ -451,7 +456,7 @@ def emit_failure(message: str) -> None:
     if key is not None and mode in ("file", "both"):
         files = _slot_files.get(key)
         if files is not None:
-            file_obj = files[1]   # .err
+            file_obj = files[1]  # .err
     if file_obj is not None:
         try:
             file_obj.write(message)

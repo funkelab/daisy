@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Lint/type CI (`lint.yaml`): `ruff check` + `ruff format --check` with a
+  pinned rule set (pyflakes, pycodestyle errors, import sorting) and
+  `ty check` over the python package, both via `uv run --only-group lint`
+  (no Rust build needed in CI). The repo is fully clean under all three;
+  the self-comparing upstream `benchmarks/` are excluded from lint pending
+  a rewrite.
+
 ### Fixed
 
 - `daisy.Block` (compat surface) now accepts `funlib.geometry` ROIs in its

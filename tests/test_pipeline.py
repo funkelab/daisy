@@ -1,9 +1,8 @@
 """Tests for the Rust-backed Pipeline DSL — `+` (sequential) and `|`
 (parallel) composition over `Task` and `Pipeline` instances."""
 
-import pytest
-
 import daisy.v2 as daisy
+import pytest
 from daisy.v2 import Pipeline
 
 
@@ -110,6 +109,7 @@ def test_pipeline_rejects_cycles(tmp_path):
     constructor — `+` / `|` can't produce one) raises at conversion
     time when the pipeline is handed to a runner."""
     import daisy.logging as gl
+
     gl.set_log_basedir(tmp_path / "logs")
 
     a, b = _task("a"), _task("b")
@@ -190,6 +190,7 @@ def test_pipeline_run_blockwise_respects_block_level_dependencies(tmp_path):
     def make(task_id):
         def proc(block):
             order.append((task_id, block.block_id[1]))
+
         return daisy.Task(
             task_id=task_id,
             total_roi=daisy.Roi([0], [40]),
@@ -205,11 +206,10 @@ def test_pipeline_run_blockwise_respects_block_level_dependencies(tmp_path):
     # For each downstream block, its matching upstream block must
     # appear earlier in the execution order.
     pos = {entry: i for i, entry in enumerate(order)}
-    for (tid_up, tid_down) in [("a", "b"), ("b", "c")]:
+    for tid_up, tid_down in [("a", "b"), ("b", "c")]:
         for block_idx in {bi for tid, bi in order if tid == tid_down}:
             assert pos[(tid_up, block_idx)] < pos[(tid_down, block_idx)], (
-                f"{tid_down}/{block_idx} ran before its upstream "
-                f"{tid_up}/{block_idx}"
+                f"{tid_down}/{block_idx} ran before its upstream {tid_up}/{block_idx}"
             )
 
 

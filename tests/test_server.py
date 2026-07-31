@@ -1,6 +1,6 @@
 """Port of daisy's test_server.py — serial server execution test."""
 
-from daisy import Task, Roi, run_blockwise
+from daisy import Roi, Task, run_blockwise
 
 
 def process_block(block):

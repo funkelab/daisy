@@ -37,7 +37,9 @@ def test_serial_fails_fast_on_exception():
 
     with pytest.raises(ValueError, match="from inside process_function"):
         daisy.run_blockwise(
-            [_task("boom", boom)], multiprocessing=False, progress=False,
+            [_task("boom", boom)],
+            multiprocessing=False,
+            progress=False,
         )
 
     # Fail-fast: only the very first block ever ran.
@@ -53,7 +55,9 @@ def test_serial_clean_run_unchanged():
         seen.append(block.block_id)
 
     result = daisy.run_blockwise(
-        [_task("clean", ok)], multiprocessing=False, progress=False,
+        [_task("clean", ok)],
+        multiprocessing=False,
+        progress=False,
     )
     assert result is True
     assert len(seen) == 4
@@ -71,5 +75,7 @@ def test_serial_traceback_preserved():
 
     with pytest.raises(CustomError, match="custom error message"):
         daisy.run_blockwise(
-            [_task("boom", boom)], multiprocessing=False, progress=False,
+            [_task("boom", boom)],
+            multiprocessing=False,
+            progress=False,
         )

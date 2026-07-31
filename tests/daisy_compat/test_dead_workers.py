@@ -10,10 +10,9 @@ import os
 import subprocess
 import sys
 
-import pytest
+from daisy.logging import set_log_basedir
 
 import daisy
-from daisy.logging import set_log_basedir
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -33,7 +32,11 @@ def test_dead_worker_replacement(tmp_path):
 
     def start_worker():
         result = subprocess.run(
-            [sys.executable, "tests/daisy_compat/process_block_or_die.py", str(tmp_path)]
+            [
+                sys.executable,
+                "tests/daisy_compat/process_block_or_die.py",
+                str(tmp_path),
+            ]
         )
         if result.returncode != 0:
             raise SystemExit(result.returncode)
@@ -67,7 +70,11 @@ def test_dead_worker_replacement_migrated(tmp_path):
 
     def start_worker():
         result = subprocess.run(
-            [sys.executable, "tests/daisy_compat/process_block_or_die.py", str(tmp_path)]
+            [
+                sys.executable,
+                "tests/daisy_compat/process_block_or_die.py",
+                str(tmp_path),
+            ]
         )
         if result.returncode != 0:
             raise SystemExit(result.returncode)

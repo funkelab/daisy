@@ -8,8 +8,10 @@ and what daisy tells you about it.
 ```python
 import daisy
 
+
 def process(block):
     raise RuntimeError("broken import on this node")
+
 
 task = daisy.Task(
     "my-step",
@@ -66,10 +68,10 @@ server = daisy.Server()
 states = server.run_blockwise([task])
 
 state = states["my-step"]
-state.abandoned           # True
-state.abandon_reason      # "worker restart cap exhausted"
-state.last_worker_error   # "RuntimeError: broken import on this node"
-state.orphaned_count      # 8
+state.abandoned  # True
+state.abandon_reason  # "worker restart cap exhausted"
+state.last_worker_error  # "RuntimeError: broken import on this node"
+state.orphaned_count  # 8
 ```
 
 See {doc}`design/ABANDONMENT` for the mechanics (counter invariants, the

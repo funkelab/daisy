@@ -10,7 +10,7 @@ A subsystem-by-subsystem comparison of how the two implementations differ, with 
 
 ```python
 while not self.stop_event.is_set():
-    self._handle_client_messages()   # blocks up to 0.1s on queue.get()
+    self._handle_client_messages()  # blocks up to 0.1s on queue.get()
     self._check_for_lost_blocks()
     self.worker_pools.check_worker_health()
     if current_time - last_time > 1:
@@ -78,9 +78,9 @@ Message::ReleaseBlock { block } => {
 **Daisy**: workers are `multiprocessing.Process` objects spawned by Python. The `process` attribute is `None` when stopped, a `Process` when running. Health monitoring is done by `TaskWorkerPools` which calls `reap_dead_workers()` and spawns replacements. Worker spawning, health checks, and cleanup all live in Python.
 
 ```python
-self.process = None          # initial
+self.process = None  # initial
 self.process = Process(...)  # after start
-self.process = None          # after stop
+self.process = None  # after stop
 ```
 
 **Daisy**: workers are `std::thread` instances spawned and managed entirely by the Rust server. Each worker thread calls the Python `process_function` via PyO3's GIL acquisition (`Python::attach`). The server distinguishes two worker types based on function arity:

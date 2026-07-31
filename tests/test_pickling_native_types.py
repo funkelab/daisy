@@ -13,9 +13,17 @@ import pytest
 import daisy
 
 
-@pytest.mark.parametrize("cls_name", [
-    "Roi", "Coordinate", "Block", "BlockStatus", "TaskState", "Task",
-])
+@pytest.mark.parametrize(
+    "cls_name",
+    [
+        "Roi",
+        "Coordinate",
+        "Block",
+        "BlockStatus",
+        "TaskState",
+        "Task",
+    ],
+)
 def test_native_classes_declare_their_module(cls_name):
     cls = getattr(daisy._daisy, cls_name)
     assert cls.__module__ == "daisy._daisy"

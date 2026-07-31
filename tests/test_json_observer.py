@@ -42,9 +42,18 @@ def test_json_observer_writes_lines_to_stream():
     events = [json.loads(ln) for ln in lines]
     # Schema sanity per line.
     required = {
-        "t", "event", "task", "total", "ready", "processing",
-        "completed", "skipped", "failed", "orphaned",
-        "restarts", "failures",
+        "t",
+        "event",
+        "task",
+        "total",
+        "ready",
+        "processing",
+        "completed",
+        "skipped",
+        "failed",
+        "orphaned",
+        "restarts",
+        "failures",
     }
     for ev in events:
         assert required.issubset(ev.keys()), f"missing keys in {ev}"
@@ -100,6 +109,7 @@ def test_json_observer_path_and_stream_are_mutually_exclusive():
     """Passing both `path=` and `stream=` is a configuration error
     we catch up front rather than silently picking one."""
     import pytest
+
     buf = io.StringIO()
     with pytest.raises(ValueError):
         daisy.JsonProgressObserver(path="/tmp/x.jsonl", stream=buf)

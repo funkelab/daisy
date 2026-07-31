@@ -17,7 +17,7 @@ import pytest
 
 fg = pytest.importorskip("funlib.geometry")
 
-import daisy.v2 as d2
+import daisy.v2 as d2  # noqa: E402 — importorskip must run first
 
 
 def test_native_roi_eq_funlib_roi():

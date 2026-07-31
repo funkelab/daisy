@@ -117,9 +117,9 @@ Every runner accepts `Pipeline | Task` (a singleton task is auto-promoted to a o
 
 ```python
 daisy.run_blockwise(pipeline_or_task, ...)
-daisy.run_blockwise(pipeline_or_task, multiprocessing=False)   # serial
+daisy.run_blockwise(pipeline_or_task, multiprocessing=False)  # serial
 daisy.Server().run_blockwise(pipeline_or_task)
-daisy.Scheduler(pipeline_or_task)                              # debug only
+daisy.Scheduler(pipeline_or_task)  # debug only
 ```
 
 The coercion is `_to_pipeline(x)` in `daisy/_task.py`:
@@ -141,8 +141,9 @@ Existing daisy 1.x code uses `Task(upstream_tasks=[…])` and `run_blockwise([a,
 ```python
 seen = transitive_closure(tasks, via=_get_task_upstream)
 pipe = Pipeline.from_task(seen[0])
-for t in seen[1:]: pipe = pipe | Pipeline.from_task(t)
-for (up, down) in edges_from_side_table:
+for t in seen[1:]:
+    pipe = pipe | Pipeline.from_task(t)
+for up, down in edges_from_side_table:
     pipe = pipe | (Pipeline.from_task(up) + Pipeline.from_task(down))
 ```
 

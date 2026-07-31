@@ -77,6 +77,12 @@ dev = [
     "pytest>=8",
     "pytest-timeout>=2",
 ]
+# lint group is intentionally project-free: CI runs `uv run --only-group lint`
+# so no Rust toolchain / maturin build is needed for style and type checks
+lint = [
+    "ruff==0.16.1",
+    "ty==0.0.65",
+]
 examples = [
     "ipykernel>=7.2.0",
     "lsd-lite>=1.0.0",
@@ -98,3 +104,19 @@ docs = [
     "jupyter-cache>=1.0",
     "linkify-it-py>=2.0",
 ]
+
+[tool.ruff]
+# The upstream bundled benchmarks are self-comparing relics of the source
+# anonymization (duplicate `import daisy` arms, duplicate dict keys) — they
+# need a rewrite, not a lint pass. Everything else is linted.
+extend-exclude = ["benchmarks"]
+
+[tool.ruff.lint]
+# Deliberately pinned rule set (ruff's defaults drift across versions):
+# pyflakes + pycodestyle errors + import sorting — matches the style pass
+# in PR #71. Opinionated rule families (S, BLE, SIM, ...) are opt-in later.
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# jupytext-style cell scripts: config cells run before heavy imports
+"examples/*" = ["E402"]

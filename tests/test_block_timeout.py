@@ -60,6 +60,7 @@ def test_slow_block_is_reclaimed_and_succeeds_on_retry():
 def test_persistently_slow_blocks_eventually_fail():
     """If every attempt times out, the block is permanently failed
     after `max_retries` reclaim cycles. The run still terminates."""
+
     def always_slow(block):
         time.sleep(1.0)
 
@@ -93,6 +94,7 @@ def test_persistently_slow_blocks_eventually_fail():
 def test_no_timeout_lets_block_run_indefinitely():
     """With `timeout=None` (default), a slow block isn't reclaimed —
     the bookkeeper waits for the worker to release it normally."""
+
     def slow(block):
         time.sleep(0.3)
 

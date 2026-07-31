@@ -2,11 +2,10 @@ import logging
 import subprocess
 import sys
 
-import pytest
+from daisy.logging import set_log_basedir
 from filelock import FileLock
 
 import daisy
-from daisy.logging import set_log_basedir
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -21,7 +20,9 @@ def test_workers_close(tmp_path):
     num_workers = 5
 
     def start_worker():
-        subprocess.run([sys.executable, "tests/daisy_compat/process_block.py", f"{tmp_path}"])
+        subprocess.run(
+            [sys.executable, "tests/daisy_compat/process_block.py", f"{tmp_path}"]
+        )
 
     task = daisy.Task(
         "test_server_task",
@@ -51,7 +52,9 @@ def test_workers_close_migrated(tmp_path):
     num_workers = 5
 
     def start_worker():
-        subprocess.run([sys.executable, "tests/daisy_compat/process_block.py", f"{tmp_path}"])
+        subprocess.run(
+            [sys.executable, "tests/daisy_compat/process_block.py", f"{tmp_path}"]
+        )
 
     task = daisy.Task(
         "test_server_task",

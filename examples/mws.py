@@ -37,10 +37,14 @@ import argparse
 
 _parser = argparse.ArgumentParser(add_help=False)
 _parser.add_argument(
-    "--mode", choices=["block_function", "worker_function"], default=None,
+    "--mode",
+    choices=["block_function", "worker_function"],
+    default=None,
 )
 _parser.add_argument(
-    "--multiprocessing", action=argparse.BooleanOptionalAction, default=None,
+    "--multiprocessing",
+    action=argparse.BooleanOptionalAction,
+    default=None,
 )
 _args, _ = _parser.parse_known_args()
 
@@ -56,19 +60,17 @@ print(f"MODE={MODE}  MULTIPROCESSING={MULTIPROCESSING}")
 
 # %%
 import tempfile
-import threading
 import time
 from pathlib import Path
 
+import daisy.logging as gl
+import daisy.v2 as daisy
 import lsd_lite
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
 import zarr
-
-import daisy.v2 as daisy
-import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_mws_"))
 gl.set_log_basedir(_TMP / "logs")
@@ -96,10 +98,10 @@ MARKER_PATH = _TMP / "markers.zarr" / TASK_ID
 FAILING_TILE = (1, 2)  # block-row, block-col in the 4×4 grid
 
 NEIGHBORHOOD = [
-    [0, 1],   # right (short-range, attractive)
-    [1, 0],   # down  (short-range, attractive)
-    [0, 3],   # right-3 (long-range, repulsive)
-    [3, 0],   # down-3  (long-range, repulsive)
+    [0, 1],  # right (short-range, attractive)
+    [1, 0],  # down  (short-range, attractive)
+    [0, 3],  # right-3 (long-range, repulsive)
+    [3, 0],  # down-3  (long-range, repulsive)
 ]
 
 
@@ -127,7 +129,9 @@ def random_disc_segmentation(height, width, n_discs, seed=0):
 
 
 GT = random_disc_segmentation(H, W, N_DISCS)
-AFFINITIES = lsd_lite.get_affs(GT, NEIGHBORHOOD, dist="equality").astype(np.float32) - 0.5
+AFFINITIES = (
+    lsd_lite.get_affs(GT, NEIGHBORHOOD, dist="equality").astype(np.float32) - 0.5
+)
 OUTPUT = np.zeros((H, W), dtype=np.uint32)
 
 fig, axes = plt.subplots(1, 3, figsize=(13, 4))
@@ -143,13 +147,17 @@ for r in range(BLOCK, H, BLOCK):
 for c in range(BLOCK, W, BLOCK):
     axes[2].axvline(c - 0.5, color="yellow", linewidth=1.0)
 fr, fc = FAILING_TILE
-axes[2].add_patch(mpatches.Rectangle(
-    (fc * BLOCK - 0.5, fr * BLOCK - 0.5), BLOCK, BLOCK,
-    fill=False, edgecolor="red", linewidth=2.5,
-))
-axes[2].set_title(
-    f"{H // BLOCK}×{W // BLOCK} block grid (failing tile in red)"
+axes[2].add_patch(
+    mpatches.Rectangle(
+        (fc * BLOCK - 0.5, fr * BLOCK - 0.5),
+        BLOCK,
+        BLOCK,
+        fill=False,
+        edgecolor="red",
+        linewidth=2.5,
+    )
 )
+axes[2].set_title(f"{H // BLOCK}×{W // BLOCK} block grid (failing tile in red)")
 axes[2].axis("off")
 fig.tight_layout()
 
@@ -164,6 +172,7 @@ fig.tight_layout()
 # Per-block label ids only have local meaning, so we shift each
 # block's labels into a disjoint global range keyed on `block_id` —
 # fully deterministic regardless of which worker picks which block up.
+
 
 # %%
 def _tile_idx(block):
@@ -198,6 +207,7 @@ def expensive_model_load():
 def make_worker(process_fn):
     """Return a zero-arg worker that drives its own block loop. Lets us
     reuse `process_block` in worker-function mode."""
+
     def worker():
         expensive_model_load()
         client = daisy.Client()
@@ -250,10 +260,16 @@ def show_run(run_info):
     fig, axes = plt.subplots(1, 2, figsize=(9, 4.5))
 
     axes[0].imshow(label_to_rgb(run_info["snapshot"]), interpolation="nearest")
-    axes[0].add_patch(mpatches.Rectangle(
-        (fc * BLOCK - 0.5, fr * BLOCK - 0.5), BLOCK, BLOCK,
-        fill=False, edgecolor="red", linewidth=2.0,
-    ))
+    axes[0].add_patch(
+        mpatches.Rectangle(
+            (fc * BLOCK - 0.5, fr * BLOCK - 0.5),
+            BLOCK,
+            BLOCK,
+            fill=False,
+            edgecolor="red",
+            linewidth=2.0,
+        )
+    )
     axes[0].set_title(
         f"output after {run_info['label']}\n"
         f"executed={run_info['executed']} skipped={run_info['skipped']} "
@@ -262,7 +278,8 @@ def show_run(run_info):
     axes[0].axis("off")
 
     marker = np.asarray(zarr.open(str(MARKER_PATH), mode="r")[:]).reshape(
-        H // BLOCK, W // BLOCK,
+        H // BLOCK,
+        W // BLOCK,
     )
     axes[1].imshow(marker, cmap="Greens", vmin=0, vmax=1, interpolation="nearest")
     axes[1].set_title(f"done-marker  ({int(marker.sum())}/{marker.size} tiles done)")
@@ -270,7 +287,11 @@ def show_run(run_info):
     axes[1].set_ylabel("block row")
     for (r, c), v in np.ndenumerate(marker):
         axes[1].text(
-            c, r, str(int(v)), ha="center", va="center",
+            c,
+            r,
+            str(int(v)),
+            ha="center",
+            va="center",
             color="white" if v else "black",
         )
 
@@ -286,6 +307,7 @@ def run(label, task):
         states = daisy.Server().run_blockwise([task], progress=False)
     else:
         from daisy._runner import _run_serial
+
         states = _run_serial([task])
     elapsed = time.perf_counter() - t0
     s = states[TASK_ID]
@@ -294,15 +316,17 @@ def run(label, task):
     # that was pre-skipped via the marker counts toward both. We split
     # them here so `executed` is unambiguously "blocks that ran".
     executed = s.completed_count - s.skipped_count
-    RUNS.append({
-        "label": label,
-        "elapsed_ms": elapsed * 1e3,
-        "executed": executed,
-        "skipped": s.skipped_count,
-        "failed": s.failed_count,
-        "orphaned": s.orphaned_count,
-        "snapshot": snap,
-    })
+    RUNS.append(
+        {
+            "label": label,
+            "elapsed_ms": elapsed * 1e3,
+            "executed": executed,
+            "skipped": s.skipped_count,
+            "failed": s.failed_count,
+            "orphaned": s.orphaned_count,
+            "snapshot": snap,
+        }
+    )
     print(
         f"{label:24s}  executed={executed:>2}  "
         f"skipped={s.skipped_count:>2}  failed={s.failed_count:>2}  "

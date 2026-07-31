@@ -31,8 +31,8 @@ import os
 import pickle
 import struct
 import subprocess
-import tempfile
 import sys
+import tempfile
 
 #: exit code the worker child uses when it self-terminates because a block
 #: exceeded ``Task(timeout=...)`` (see ``_subprocess_worker``).
@@ -92,7 +92,7 @@ def read_payload(stream):
     try:
         import dill as _pickle
     except ImportError:
-        _pickle = pickle
+        import pickle as _pickle
     return _pickle.loads(body)
 
 
@@ -126,6 +126,7 @@ def make_spawn_function(process_function, timeout=None):
                 stderr=errbuf,
                 env=env,
             )
+            assert proc.stdin is not None  # stdin=PIPE above
             try:
                 proc.stdin.write(payload)
                 proc.stdin.close()

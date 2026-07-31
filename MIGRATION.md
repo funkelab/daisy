@@ -106,11 +106,15 @@ v2 introduces format identifiers under the v2 name; existing daisy 1.x stores we
 
   ```python
   def start_worker(*, context):
-      subprocess.run([
-          "sbatch", "--wait",   # <- block until the job finishes (see below)
-          "--export", f"DAISY_CONTEXT={context.to_env()}",
-          "worker.sh",
-      ])
+      subprocess.run(
+          [
+              "sbatch",
+              "--wait",  # <- block until the job finishes (see below)
+              "--export",
+              f"DAISY_CONTEXT={context.to_env()}",
+              "worker.sh",
+          ]
+      )
   ```
 
   The keyword-only parameter doesn't change the function's positional arity, so it still classifies as a spawn function; `context` supports dict access (`context["worker_id"]`) and `to_env()` for forwarding.
@@ -142,6 +146,7 @@ Or in code:
 
 ```python
 import warnings
+
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="daisy.v1_compat")
 ```
 

@@ -1,7 +1,8 @@
 """Port of daisy's test_dependency_graph.py — 3 tests (6 parameterized variants)."""
 
-from daisy import BlockwiseDependencyGraph, Task, Block, Roi
 import pytest
+
+from daisy import Block, BlockwiseDependencyGraph, Roi, Task
 
 total_roi = Roi([0], [12])
 read_roi = Roi([0], [5])
@@ -49,8 +50,7 @@ num_blocks = [
 ]
 
 
-@pytest.mark.parametrize("task_blocks", list(zip(tasks, num_blocks)),
-                         ids=names)
+@pytest.mark.parametrize("task_blocks", list(zip(tasks, num_blocks)), ids=names)
 def test_block_enumeration(task_blocks):
     task, expected_num_blocks = task_blocks
     graph = BlockwiseDependencyGraph(
@@ -108,7 +108,6 @@ def test_shrink_downstream_upstream_equivalence():
         total_read_roi=Roi([0], [100]),
     )
 
-    remaining_blocks = set(b.block_id for b in graph.root_gen())
     root_blocks = {b.block_id: b for b in graph.root_gen()}
 
     visited = set()

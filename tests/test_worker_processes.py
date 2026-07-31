@@ -165,9 +165,9 @@ def test_subprocess_workers_are_the_default(tmp_path):
     out = str(tmp_path)
 
     def record_pid(block):
+        import os as _os
         import time as _time
         from pathlib import Path
-        import os as _os
 
         Path(out, f"pid-{_os.getpid()}-{block.block_id[1]}").touch()
         _time.sleep(0.05)  # keep blocks around long enough for all workers
@@ -200,8 +200,8 @@ def test_worker_processes_false_runs_in_server_process(tmp_path):
     out = str(tmp_path)
 
     def record_pid(block):
-        from pathlib import Path
         import os as _os
+        from pathlib import Path
 
         Path(out, f"pid-{_os.getpid()}-{block.block_id[1]}").touch()
 

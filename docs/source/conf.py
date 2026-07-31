@@ -118,6 +118,7 @@ html_theme_options = {
 
 # -- Symlink examples into tutorials/ at build start -------------------------
 
+
 def _link_examples(app):
     """Mirror `examples/*.py` into `docs/source/tutorials/` so myst-nb
     discovers them as notebooks (via jupytext py:percent). Symlinks are

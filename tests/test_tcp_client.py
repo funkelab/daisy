@@ -9,10 +9,8 @@ handles all message types.
 """
 
 import tempfile
-import threading
 
-from daisy import Task, Roi, Block, BlockStatus, Scheduler, run_blockwise
-import pytest
+from daisy import BlockStatus, Roi, Scheduler, Task, run_blockwise
 
 
 def test_client_acquire_release():

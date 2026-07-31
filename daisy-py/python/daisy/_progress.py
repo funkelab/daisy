@@ -49,6 +49,7 @@ def _print_execution_summary(states, task_order=None):
     """Daisy-style post-run report. Writes to the real stdout even if the
     per-worker log proxy is currently installed."""
     import sys
+
     out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
     # the saved handle can be a test harness's (or host app's) capture
     # object that has since been closed — never let the summary crash a run
@@ -94,20 +95,22 @@ def _print_execution_summary(states, task_order=None):
 
     name_w = max(len("task"), max(len(r[0]) for r in rows))
     cols = [
-        (name_w + 2,  f"{'task':<{name_w + 2}}"),   # name + status symbol
-        (7,           f"{'blocks':>7}"),
-        (10,          f"{'completed':>10}"),
-        (7,           f"{'skipped':>7}"),
-        (6,           f"{'failed':>6}"),
-        (8,           f"{'orphaned':>8}"),
+        (name_w + 2, f"{'task':<{name_w + 2}}"),  # name + status symbol
+        (7, f"{'blocks':>7}"),
+        (10, f"{'completed':>10}"),
+        (7, f"{'skipped':>7}"),
+        (6, f"{'failed':>6}"),
+        (8, f"{'orphaned':>8}"),
     ]
     p()
     p("    " + "  ".join(text for _, text in cols))
     p("    " + "  ".join("─" * w for w, _ in cols))
     for task_id, status, total, completed, skipped, failed, orphaned in rows:
         first = f"{task_id} {status}".ljust(name_w + 2)
-        p(f"    {first}  {total:>7}  {completed:>10}  "
-          f"{skipped:>7}  {failed:>6}  {orphaned:>8}")
+        p(
+            f"    {first}  {total:>7}  {completed:>10}  "
+            f"{skipped:>7}  {failed:>6}  {orphaned:>8}"
+        )
 
     # Show the FIRST failure's traceback inline — one traceback, not N;
     # the root cause is almost always the first error, and the rest are
@@ -133,20 +136,22 @@ def _print_execution_summary(states, task_order=None):
             continue
         t = getattr(state, "timeout_secs", None)
         from daisy._daisy import DEFAULT_BLOCK_TIMEOUT_SECS
+
         is_default = t is not None and t == DEFAULT_BLOCK_TIMEOUT_SECS
         shown = f"{t:g}s" if t is not None else "the configured timeout"
         p()
-        p(f"    {reclaims} block attempt(s) in task '{tid}' exceeded the "
-          f"block timeout ({shown}{' — the default' if is_default else ''}; "
-          f"pass Task(timeout=...) to raise it for slow blocks)")
+        p(
+            f"    {reclaims} block attempt(s) in task '{tid}' exceeded the "
+            f"block timeout ({shown}{' — the default' if is_default else ''}; "
+            f"pass Task(timeout=...) to raise it for slow blocks)"
+        )
 
     log_basedir = _worker_log.get_log_basedir()
     files_written = log_basedir is not None and _worker_log.get_log_mode() != "console"
     if failed_tasks and files_written:
         p()
         if len(failed_tasks) == 1:
-            p(f"    See worker logs for details under "
-              f"{log_basedir / failed_tasks[0]}/")
+            p(f"    See worker logs for details under {log_basedir / failed_tasks[0]}/")
         else:
             p(f"    See worker logs for failed tasks under {log_basedir}/")
             for tid in failed_tasks:
@@ -173,9 +178,13 @@ class _TqdmObserver:
     def _bar(self, task_id, total):
         if task_id not in self._bars:
             from tqdm.auto import tqdm
+
             self._bars[task_id] = tqdm(
-                total=total, desc=self._desc(task_id, "▶", 0),
-                unit="block", leave=True, dynamic_ncols=True,
+                total=total,
+                desc=self._desc(task_id, "▶", 0),
+                unit="block",
+                leave=True,
+                dynamic_ncols=True,
             )
         return self._bars[task_id]
 
@@ -219,15 +228,20 @@ class _TqdmObserver:
             if delta > 0:
                 bar.update(delta)
             self._maybe_update_desc(
-                task_id, "▶", int(state.worker_restart_count),
+                task_id,
+                "▶",
+                int(state.worker_restart_count),
             )
-            bar.set_postfix({
-                "⧗": int(state.pending_count),
-                "▶": int(state.processing_count),
-                "✔": int(state.completed_count),
-                "✗": int(state.failed_count),
-                "∅": int(state.orphaned_count),
-            }, refresh=False)
+            bar.set_postfix(
+                {
+                    "⧗": int(state.pending_count),
+                    "▶": int(state.processing_count),
+                    "✔": int(state.completed_count),
+                    "✗": int(state.failed_count),
+                    "∅": int(state.orphaned_count),
+                },
+                refresh=False,
+            )
 
     def on_finish(self, states):
         # Promote the trailing emoji to reflect final outcome and close.
@@ -242,7 +256,10 @@ class _TqdmObserver:
             else:
                 symbol = "✔"
             self._maybe_update_desc(
-                task_id, symbol, int(state.worker_restart_count), refresh=True,
+                task_id,
+                symbol,
+                int(state.worker_restart_count),
+                refresh=True,
             )
             bar.close()
 
@@ -356,6 +373,7 @@ def _print_resource_utilization(stats, task_order=None):
     if stats is None:
         return
     import sys
+
     out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
     # the saved handle can be a test harness's (or host app's) capture
     # object that has since been closed — never let the summary crash a run
@@ -398,10 +416,11 @@ def _print_resource_utilization(stats, task_order=None):
 
     p()
     p("  Per-task:")
-    p(f"    {'task':<14}{'blocks':>8}{'max conc':>10}"
-      f"    {'mean ms ∠ slope':<22}{'cpu busy':>10}{'wall':>10}")
-    p(f"    {'─' * 14}{'─' * 8}{'─' * 10}    "
-      f"{'─' * 22}{'─' * 10}{'─' * 10}")
+    p(
+        f"    {'task':<14}{'blocks':>8}{'max conc':>10}"
+        f"    {'mean ms ∠ slope':<22}{'cpu busy':>10}{'wall':>10}"
+    )
+    p(f"    {'─' * 14}{'─' * 8}{'─' * 10}    {'─' * 22}{'─' * 10}{'─' * 10}")
     for task_id in _ordered_states(per_task, task_order):
         t = per_task[task_id]
         blocks = int(t.get("blocks_processed", 0))
@@ -415,5 +434,7 @@ def _print_resource_utilization(stats, task_order=None):
         busy = (block_total / worker_wall * 100.0) if worker_wall > 0 else 0.0
         wall_t = worker_wall
         trend = f"{mean_ms:6.2f} ∠ {slope:+.4f}"
-        p(f"    {task_id:<14}{blocks:>8}{max_conc:>10}"
-          f"    {trend:<22}{busy:>9.0f}%{wall_t:>9.2f}s")
+        p(
+            f"    {task_id:<14}{blocks:>8}{max_conc:>10}"
+            f"    {trend:<22}{busy:>9.0f}%{wall_t:>9.2f}s"
+        )

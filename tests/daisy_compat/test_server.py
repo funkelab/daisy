@@ -55,6 +55,4 @@ def test_basic_migrated(multiprocessing):
         max_retries=2,
         timeout=None,
     )
-    assert daisy.run_blockwise(
-        [task], multiprocessing=multiprocessing, progress=False
-    )
+    assert daisy.run_blockwise([task], multiprocessing=multiprocessing, progress=False)

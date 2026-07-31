@@ -8,7 +8,7 @@ compiled `.so`.
 
 from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Self
 
 # -- Geometry primitives ------------------------------------------------
 
@@ -51,7 +51,6 @@ class Roi:
     def __hash__(self) -> int: ...
     def __repr__(self) -> str: ...
 
-
 # -- Blocks -------------------------------------------------------------
 
 class BlockStatus:
@@ -63,14 +62,16 @@ class BlockStatus:
     def __hash__(self) -> int: ...
 
 class Block:
-    def __init__(
-        self,
+    # PyO3 wires the constructor as __new__; declare it (not just
+    # __init__) so subclasses' super().__new__(cls, ...) type-checks.
+    def __new__(
+        cls,
         total_roi: Roi,
         read_roi: Roi,
         write_roi: Roi,
-        block_id: tuple[str, int] | None = ...,
         task_id: str | None = ...,
-    ) -> None: ...
+        block_id: int | None = ...,
+    ) -> Self: ...
     @property
     def total_roi(self) -> Roi: ...
     @property
@@ -85,11 +86,9 @@ class Block:
     def __eq__(self, other: object) -> bool: ...
     def __hash__(self) -> int: ...
 
-
 # -- Task state ---------------------------------------------------------
 
 DEFAULT_BLOCK_TIMEOUT_SECS: float
-
 
 class TaskState:
     @property
@@ -122,14 +121,12 @@ class TaskState:
     def last_worker_error(self) -> str | None: ...
     @property
     def first_worker_error(self) -> str | None: ...
-
     def worker_start_count(self) -> int: ...
     @property
     def timeout_reclaim_count(self) -> int: ...
     @property
     def timeout_secs(self) -> float | None: ...
     def is_done(self) -> bool: ...
-
 
 # -- Task ---------------------------------------------------------------
 
@@ -153,7 +150,7 @@ class Task:
         done_marker_path: str | bool | None = ...,
         requires: dict[str, int] | None = ...,
         max_worker_restarts: int = ...,
-    ) -> Task: ...
+    ) -> Self: ...
 
     # Read-only views of the constructor args.
     @property
@@ -194,7 +191,6 @@ class Task:
     def __add__(self, other: Task | Pipeline) -> Pipeline: ...
     def __or__(self, other: Task | Pipeline) -> Pipeline: ...
 
-
 # -- Pipeline -----------------------------------------------------------
 
 class Pipeline:
@@ -228,7 +224,6 @@ class Pipeline:
     def __ror__(self, other: Task | Pipeline) -> Pipeline: ...
     def __repr__(self) -> str: ...
 
-
 # -- Dependency graph ---------------------------------------------------
 
 class BlockwiseDependencyGraph:
@@ -258,7 +253,6 @@ class DependencyGraph:
     def upstream(self, block: Block) -> list[Block]: ...
     def downstream(self, block: Block) -> list[Block]: ...
 
-
 # -- Scheduler ----------------------------------------------------------
 
 class Scheduler:
@@ -269,7 +263,6 @@ class Scheduler:
     def task_states(self) -> dict[str, TaskState]: ...
     @property
     def dependency_graph(self) -> DependencyGraph: ...
-
 
 # -- Client / Context (worker-side) -------------------------------------
 
@@ -300,17 +293,14 @@ class SyncClient:
     def disconnect(self) -> None: ...
     def is_connected(self) -> bool: ...
 
-
 # -- Module-level functions --------------------------------------------
 
 def set_done_marker_basedir(path: str | None) -> None: ...
 def get_done_marker_basedir() -> Path | None: ...
-
 def _run_serial(
     input: Pipeline | Task,
     block_tracking: bool = ...,
 ) -> dict[str, TaskState]: ...
-
 def _run_distributed_server(
     input: Pipeline | Task,
     resources: dict[str, int] | None = ...,
@@ -318,7 +308,6 @@ def _run_distributed_server(
     host: str = ...,
     block_tracking: bool = ...,
 ) -> tuple[dict[str, TaskState], dict[str, Any]]: ...
-
 def _run_blockwise_orchestrator(
     input: Pipeline | Task,
     multiprocessing: bool = ...,
@@ -326,5 +315,4 @@ def _run_blockwise_orchestrator(
     progress: bool | object | None = ...,
     block_tracking: bool = ...,
 ) -> dict[str, TaskState]: ...
-
 def _topo_order(input: Pipeline | Task) -> list[str]: ...

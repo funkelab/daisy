@@ -11,9 +11,8 @@ basedir explicitly inside the test body — `set_log_basedir(...)`
 is idempotent.
 """
 
-import pytest
-
 import daisy.logging as gl
+import pytest
 
 
 @pytest.fixture(autouse=True)

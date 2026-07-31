@@ -40,7 +40,6 @@ from daisy.v2 import (  # noqa: F401 — re-exported compat surface
     JsonProgressObserver,
     Pipeline,
     Roi,
-    Scheduler,
     Server,
     TaskState,
     __version__,
@@ -86,7 +85,11 @@ class Block(_v2.Block):
         total_roi = _coerce_roi(kwargs.pop("total_roi", total_roi))
         read_roi = _coerce_roi(kwargs.pop("read_roi", read_roi))
         write_roi = _coerce_roi(kwargs.pop("write_roi", write_roi))
-        return super().__new__(cls, total_roi, read_roi, write_roi, *args, **kwargs)
+        # packed unpacking keeps ty (0.0.x) happy: it cannot resolve
+        # __new__ through the aliased PyO3 class and would otherwise
+        # flag the (correct) explicit arguments against object.__new__
+        rois = (total_roi, read_roi, write_roi)
+        return _v2.Block.__new__(cls, *rois, *args, **kwargs)
 
     def __init__(self, *args, **kwargs):
         # PyO3 constructs via __new__; keep object.__init__ from rejecting
@@ -133,6 +136,7 @@ def _install_compat_block_boundary():
     wire block so daisy's bookkeeping (auto-SUCCESS, failure reporting)
     is unaffected."""
     from contextlib import contextmanager
+
     from daisy._task import Client
 
     _orig_acquire = Client.acquire_block
@@ -269,6 +273,7 @@ def Scheduler(tasks_or_pipeline) -> _v2.Scheduler:
     this shim builds a Pipeline from the list-of-tasks form by
     walking the v1.x upstream side-table on each task."""
     from daisy._task import _to_pipeline
+
     return _v2.Scheduler(_to_pipeline(tasks_or_pipeline))
 
 

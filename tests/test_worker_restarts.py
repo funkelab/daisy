@@ -153,8 +153,9 @@ def test_abandoned_upstream_unblocks_downstream():
 
     # The downstream task never got input, so is_done() must still
     # become true via orphan accounting.
-    assert states["downstream"].is_done(), \
+    assert states["downstream"].is_done(), (
         "downstream hung after upstream was abandoned"
+    )
     assert states["downstream"].orphaned_count > 0
     assert states["downstream"].completed_count == 0
 
@@ -163,8 +164,10 @@ def _block_holding_worker():
     """0-arg worker that acquires blocks one at a time and crashes
     while holding one. Reproduces the race between the in-flight
     block's release message and the worker-thread exit signal."""
-    import daisy as g
     import time
+
+    import daisy as g
+
     client = g.Client()
     while True:
         with client.acquire_block() as block:
@@ -200,8 +203,9 @@ def test_abandonment_handles_in_flight_block_release_race():
         server = daisy.Server()
         states = server.run_blockwise([task], progress=False)
         state = states["race_test"]
-        assert state.is_done(), \
+        assert state.is_done(), (
             "run hung — late block release flipped is_done() back to false"
+        )
         assert state.worker_restart_count == 2
 
 
@@ -254,6 +258,7 @@ def test_block_function_success_does_not_kill_worker():
     """The worker only exits dirty on failure. A clean run should
     leave `worker_restart_count` and `worker_failure_count` at zero
     regardless of how many blocks went through."""
+
     def fine(block):
         pass
 
@@ -328,8 +333,9 @@ def test_healthy_upstream_does_not_repopulate_abandoned_downstream():
     states = server.run_blockwise([upstream, downstream], progress=False)
 
     assert states["healthy_upstream"].is_done()
-    assert states["crashy_downstream"].is_done(), \
+    assert states["crashy_downstream"].is_done(), (
         "downstream's ready_count was repopulated by upstream releases"
+    )
     # Downstream's blocks accounted as orphaned by abandonment.
     assert states["crashy_downstream"].orphaned_count == 8
     assert states["crashy_downstream"].failed_count == 0
@@ -338,6 +344,7 @@ def test_healthy_upstream_does_not_repopulate_abandoned_downstream():
 def test_clean_run_does_not_count_failures():
     """Workers that exit cleanly (drained queue) should not bump
     `worker_failure_count` regardless of how many run."""
+
     def fine(b):
         pass
 
@@ -363,7 +370,6 @@ def test_abandonment_raises_from_run_blockwise_with_cause():
     message must carry the task id, restart accounting, and the original
     worker error. `Server.run_blockwise` (tested above) stays non-raising
     for introspection."""
-    import pytest
 
     def crash(block):
         raise ValueError("broken import on node xyz")
@@ -439,6 +445,7 @@ def test_successful_run_has_no_abandonment_metadata():
         progress=False,
     )
 
+
 def test_worker_start_budget_bounds_clean_exit_churn():
     """A spawn function that returns cleanly without its worker ever
     processing a block (e.g. `subprocess.run(..., check=False)` around
@@ -495,7 +502,7 @@ def test_worker_recycling_consumes_the_start_budget():
     def one_block_then_quit():
         client = daisy.Client()
         # process exactly one block, then exit cleanly
-        with client.acquire_block() as block:
+        with client.acquire_block() as _block:  # noqa: F841 — acquiring IS the point
             pass
 
     task = daisy.Task(
@@ -526,6 +533,7 @@ def test_queue_drained_exits_do_not_abandon():
     """Workers that exit because the queue drained must not push a
     completed task toward abandonment, even when far more workers were
     requested than there was work for them."""
+
     def fine(b):
         pass
 

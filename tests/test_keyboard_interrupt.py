@@ -31,6 +31,7 @@ def _fire_sigint_after(seconds):
     def fire():
         time.sleep(seconds)
         os.kill(os.getpid(), signal.SIGINT)
+
     threading.Thread(target=fire, daemon=True).start()
 
 

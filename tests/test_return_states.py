@@ -48,9 +48,12 @@ def test_partial_failures_return_states_without_raising():
     assert st.completed_count == 3
     assert not st.abandoned
     # and the bool form agrees
-    assert daisy.run_blockwise(
-        _task("flaky2", half_broken, total=60, max_retries=0), progress=False
-    ) is False
+    assert (
+        daisy.run_blockwise(
+            _task("flaky2", half_broken, total=60, max_retries=0), progress=False
+        )
+        is False
+    )
 
 
 def test_abandonment_still_raises_with_return_states():

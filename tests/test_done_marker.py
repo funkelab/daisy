@@ -10,11 +10,11 @@ And the safety check:
 """
 
 import shutil
-import tempfile
 from pathlib import Path
 
-import daisy
 from daisy._runner import _run_serial
+
+import daisy
 
 
 def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
@@ -236,6 +236,7 @@ def test_resume_emits_info_log(tmp_path, caplog):
 
     daisy.set_done_marker_basedir(tmp_path / "markers")
     try:
+
         def run(calls):
             task = daisy.Task(
                 task_id="resumed_task",

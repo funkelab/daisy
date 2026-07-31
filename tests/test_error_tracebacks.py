@@ -18,7 +18,7 @@ import daisy
 
 def _inner_helper(block):
     lookup = {}
-    return lookup[block.block_id[1]]        # the buggy line
+    return lookup[block.block_id[1]]  # the buggy line
 
 
 def _outer_helper(block):
@@ -44,6 +44,7 @@ def _summary_for(states):
 
     buf = io.StringIO()
     import daisy.logging as _wl
+
     saved = _wl._saved_stdout
     _wl._saved_stdout = buf
     try:
@@ -61,7 +62,7 @@ def test_summary_contains_first_failure_traceback_subprocess_mode():
     tb = st.first_worker_error
     assert tb is not None
     assert "Traceback (most recent call last)" in tb
-    assert "lookup[block.block_id[1]]" in tb          # the user's source line
+    assert "lookup[block.block_id[1]]" in tb  # the user's source line
     assert "_inner_helper" in tb and "_outer_helper" in tb
     out = _summary_for(states)
     assert "First failure in task 'tb_demo':" in out
@@ -90,7 +91,7 @@ def test_abandonment_error_contains_full_traceback():
         total_roi=daisy.Roi([0], [40]),
         read_roi=daisy.Roi([0], [10]),
         write_roi=daisy.Roi([0], [10]),
-        process_function=_crashing_worker,   # 0-arg spawn fn
+        process_function=_crashing_worker,  # 0-arg spawn fn
         read_write_conflict=False,
         max_workers=1,
         max_retries=0,
@@ -120,4 +121,4 @@ def test_traceback_capping(monkeypatch):
         tb = _task_mod._capped_traceback()
     assert len(tb.splitlines()) <= 5 + 1
     assert tb.splitlines()[0] == "... (traceback truncated) ..."
-    assert "bottom" in tb                     # the tail is kept
+    assert "bottom" in tb  # the tail is kept

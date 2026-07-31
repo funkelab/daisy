@@ -22,9 +22,11 @@ Requires Python ≥ 3.11.
 ```python
 import daisy
 
+
 def process(block):
     # do work on block.read_roi, write to block.write_roi
     print(f"processing {block.block_id}: {block.write_roi}")
+
 
 task = daisy.Task(
     task_id="example",

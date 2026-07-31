@@ -27,8 +27,8 @@ import tempfile
 import time
 from pathlib import Path
 
-import daisy.v2 as daisy
 import daisy.logging as gl
+import daisy.v2 as daisy
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_stress_"))
 gl.set_log_basedir(_TMP / "logs")
@@ -44,9 +44,9 @@ print(f"output paths under: {_TMP}")
 
 # %%
 NUM_BLOCKS = 35_000
-WORKER_DEATH_RATE = 1.0 / 3_000   # ~10 worker deaths per task
+WORKER_DEATH_RATE = 1.0 / 3_000  # ~10 worker deaths per task
 MAX_WORKERS = 4
-MAX_WORKER_RESTARTS = 4         # unlikely to make it all the way through
+MAX_WORKER_RESTARTS = 4  # unlikely to make it all the way through
 
 # %% [markdown]
 # ## The worker
@@ -57,6 +57,7 @@ MAX_WORKER_RESTARTS = 4         # unlikely to make it all the way through
 # retry), then re-raises — which propagates out of `worker()` and
 # kills the thread. Rust spawns a new worker.
 
+
 # %%
 def worker():
     client = daisy.Client()
@@ -66,16 +67,19 @@ def worker():
                 return
             if random.random() < WORKER_DEATH_RATE:
                 raise RuntimeError("Simulated worker crash")
-            
+
+
 def process(block):
     if random.random() < WORKER_DEATH_RATE:
         raise RuntimeError("Simulated block failure")
+
 
 # %% [markdown]
 # ## Three chained tasks
 #
 # `extract → predict → label`. Streaming dependency means downstream
 # tasks start picking up blocks as soon as upstream produces them.
+
 
 # %%
 def make_task(task_id):
@@ -103,5 +107,7 @@ while not completed:
     t0 = time.perf_counter()
     completed = pipeline.run_blockwise()
     elapsed = time.perf_counter() - t0
-    print(f"\nrun_blockwise returned completed={completed}, total elapsed = {elapsed:.2f} s")
+    print(
+        f"\nrun_blockwise returned completed={completed}, total elapsed = {elapsed:.2f} s"
+    )
 print(f"\nlogs and any failure tracebacks: {_TMP / 'logs'}")

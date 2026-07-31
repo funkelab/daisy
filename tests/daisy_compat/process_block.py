@@ -1,10 +1,10 @@
-import daisy as daisy
-
-import time
 import random
 import sys
+import time
 
 from filelock import FileLock
+
+import daisy as daisy
 
 tmp_path = sys.argv[1]
 

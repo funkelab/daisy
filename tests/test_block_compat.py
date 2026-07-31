@@ -18,8 +18,12 @@ def test_block_constructs_from_funlib_rois():
 
 
 def test_block_constructs_from_native_rois_too():
-    b = daisy.Block(daisy.v2.Roi((0,), (40,)), daisy.v2.Roi((0,), (10,)),
-                    daisy.v2.Roi((0,), (10,)), task_id="t")
+    b = daisy.Block(
+        daisy.v2.Roi((0,), (40,)),
+        daisy.v2.Roi((0,), (10,)),
+        daisy.v2.Roi((0,), (10,)),
+        task_id="t",
+    )
     assert isinstance(b.read_roi, fg.Roi)
     assert b.block_id[0] == "t"
 

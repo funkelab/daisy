@@ -8,8 +8,9 @@ is always above its descendants, but independent chains aren't
 interleaved gratuitously.
 """
 
-import daisy
 from daisy._daisy import _topo_order
+
+import daisy
 
 
 def _task(task_id):

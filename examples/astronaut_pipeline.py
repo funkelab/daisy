@@ -25,15 +25,14 @@ import threading
 import time
 from pathlib import Path
 
+import daisy.logging as gl
+import daisy.v2 as daisy
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import label as scipy_label
 from skimage.data import astronaut
 from skimage.filters import sobel
 from skimage.segmentation import watershed
-
-import daisy.v2 as daisy
-import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_astronaut_pipeline_"))
 gl.set_log_basedir(_TMP / "logs")
@@ -46,8 +45,10 @@ print(f"output paths under: {_TMP}")
 INPUT = astronaut()  # (512, 512, 3) uint8
 H, W = INPUT.shape[:2]
 BLOCK = 32
-print(f"input: {INPUT.shape}, dtype={INPUT.dtype}, "
-      f"block grid: {H // BLOCK}×{W // BLOCK} = {(H // BLOCK) * (W // BLOCK)} blocks")
+print(
+    f"input: {INPUT.shape}, dtype={INPUT.dtype}, "
+    f"block grid: {H // BLOCK}×{W // BLOCK} = {(H // BLOCK) * (W // BLOCK)} blocks"
+)
 
 plt.figure(figsize=(5, 5))
 plt.imshow(INPUT, interpolation="nearest")
@@ -62,9 +63,9 @@ plt.axis("off")
 # numpy arrays are fine.
 
 # %%
-EDGES   = np.zeros((H, W),    dtype=np.uint8)   # 0–255
-LABELS  = np.zeros((H, W),    dtype=np.uint32)  # global per-block ids
-OUTPUT  = np.zeros((H, W, 3), dtype=np.uint8)
+EDGES = np.zeros((H, W), dtype=np.uint8)  # 0–255
+LABELS = np.zeros((H, W), dtype=np.uint32)  # global per-block ids
+OUTPUT = np.zeros((H, W, 3), dtype=np.uint8)
 
 # Per-task concurrency tracking, so we can plot how the dispatcher
 # distributes workers across the pipeline.
@@ -79,12 +80,14 @@ def _record(task_id, kind):
             _alive[task_id] += 1
         elif kind == "exit":
             _alive[task_id] -= 1
-        _timeline.append({
-            "t": time.perf_counter(),
-            "task": task_id,
-            "kind": kind,
-            "alive": dict(_alive),
-        })
+        _timeline.append(
+            {
+                "t": time.perf_counter(),
+                "task": task_id,
+                "kind": kind,
+                "alive": dict(_alive),
+            }
+        )
 
 
 # %% [markdown]
@@ -94,6 +97,7 @@ def _record(task_id, kind):
 # and write to `EDGES`. No halo — Sobel uses reflection padding at
 # block boundaries, which is fine for this demo (the resulting block
 # seams are visible in the output, on purpose).
+
 
 # %%
 def step_edges(block):
@@ -106,7 +110,9 @@ def step_edges(block):
         rs, cs = shape[0], shape[1]
 
         gray = INPUT[r0 : r0 + rs, c0 : c0 + cs].mean(axis=-1) / 255.0
-        EDGES[r0 : r0 + rs, c0 : c0 + cs] = (sobel(gray) * 255).clip(0, 255).astype(np.uint8)
+        EDGES[r0 : r0 + rs, c0 : c0 + cs] = (
+            (sobel(gray) * 255).clip(0, 255).astype(np.uint8)
+        )
     finally:
         _record("edges", "exit")
 
@@ -121,6 +127,7 @@ def step_edges(block):
 # though it's pure CPU work in reality, the dispatcher will only
 # schedule one watershed worker at a time because the global budget
 # only has `"gpu": 1`.
+
 
 # %%
 def step_segment(block):
@@ -150,6 +157,7 @@ def step_segment(block):
 # For each segment in this block, replace its pixels with the average
 # RGB colour of the *original* image over that segment's mask. Output
 # is a low-poly-style abstraction of the astronaut.
+
 
 # %%
 def step_recolor(block):
@@ -201,7 +209,7 @@ segment_task = daisy.Task(
     write_roi=daisy.Roi([0, 0], [BLOCK, BLOCK]),
     process_function=step_segment,
     read_write_conflict=False,
-    max_workers=4,        # cap is 4, but global budget caps at 1
+    max_workers=4,  # cap is 4, but global budget caps at 1
     max_retries=0,
     requires={"gpu": 1},
 )
@@ -247,6 +255,7 @@ axes[1].imshow(EDGES, cmap="gray")
 axes[1].set_title("2. Sobel edges")
 axes[1].axis("off")
 
+
 # Hash-coloured labels.
 def label_to_rgb(seg, bg_colour=(0, 0, 0)):
     seg = np.asarray(seg).astype(np.int64)
@@ -286,17 +295,32 @@ fig.tight_layout()
 # %%
 t0 = _timeline[0]["t"]
 times = [(e["t"] - t0) * 1e3 for e in _timeline]
-edges_alive   = [e["alive"]["edges"]   for e in _timeline]
+edges_alive = [e["alive"]["edges"] for e in _timeline]
 segment_alive = [e["alive"]["segment"] for e in _timeline]
 recolor_alive = [e["alive"]["recolor"] for e in _timeline]
 
 panels = [
-    ("edges (CPU)",       edges_alive,   "#4878CF", 4,
-     "max_workers=3 — shares cpu=4 with recolor"),
-    ("segment ('GPU')",   segment_alive, "#956CB4", 1,
-     "max_workers=4 — capped by gpu budget = 1"),
-    ("recolor (CPU)",     recolor_alive, "#6ACC65", 4,
-     "max_workers=4 — shares cpu=4 with edges"),
+    (
+        "edges (CPU)",
+        edges_alive,
+        "#4878CF",
+        4,
+        "max_workers=3 — shares cpu=4 with recolor",
+    ),
+    (
+        "segment ('GPU')",
+        segment_alive,
+        "#956CB4",
+        1,
+        "max_workers=4 — capped by gpu budget = 1",
+    ),
+    (
+        "recolor (CPU)",
+        recolor_alive,
+        "#6ACC65",
+        4,
+        "max_workers=4 — shares cpu=4 with edges",
+    ),
 ]
 fig, axes = plt.subplots(3, 1, figsize=(11, 6.5), sharex=True)
 for ax, (label, data, colour, cap, subtitle) in zip(axes, panels):

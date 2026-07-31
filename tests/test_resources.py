@@ -19,8 +19,17 @@ import pytest
 import daisy
 
 
-def _make_task(task_id, *, max_workers, requires=None, blocks=8, hold_ms=20,
-               concurrency_observer=None, total=80, block=10):
+def _make_task(
+    task_id,
+    *,
+    max_workers,
+    requires=None,
+    blocks=8,
+    hold_ms=20,
+    concurrency_observer=None,
+    total=80,
+    block=10,
+):
     counts = {"alive": 0, "peak": 0}
     lock = threading.Lock()
 
@@ -84,7 +93,9 @@ def test_two_tasks_share_a_resource(tmp_path):
             with cross_lock:
                 cross_alive[task_id] += 1
                 combined = cross_alive["a"] + cross_alive["b"]
-                cross_alive["combined_peak"] = max(cross_alive["combined_peak"], combined)
+                cross_alive["combined_peak"] = max(
+                    cross_alive["combined_peak"], combined
+                )
             try:
                 time.sleep(0.02)
             finally:
@@ -167,7 +178,9 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
             with cross_lock:
                 cross_alive[task_id] += 1
                 combined = cross_alive["filter"] + cross_alive["agglom"]
-                cross_alive["combined_peak"] = max(cross_alive["combined_peak"], combined)
+                cross_alive["combined_peak"] = max(
+                    cross_alive["combined_peak"], combined
+                )
             try:
                 time.sleep(0.02)
             finally:

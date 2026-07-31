@@ -11,7 +11,6 @@ logging machinery.
 
 import daisy._daisy as _rs
 from daisy import logging as _worker_log
-
 from daisy._progress import _log_resume_summary
 from daisy._task import (
     _to_pipeline,
@@ -60,14 +59,19 @@ class Server:
         self.last_run_stats = None
         self.last_task_order = None
 
-    def run_blockwise(self, pipeline, resources=None, progress=True, block_tracking=True):
+    def run_blockwise(
+        self, pipeline, resources=None, progress=True, block_tracking=True
+    ):
         pipeline = _prepare(_coerce_pipeline(pipeline))
         order = _rs._topo_order(pipeline)
         self.last_task_order = order
         observer = _resolve_observer(progress, order)
         try:
             states, run_stats = _rs._run_distributed_server(
-                pipeline, resources, observer, block_tracking=block_tracking,
+                pipeline,
+                resources,
+                observer,
+                block_tracking=block_tracking,
             )
             self.last_run_stats = run_stats
             _log_resume_summary(states)
@@ -96,6 +100,7 @@ def _resolve_observer(progress, task_order):
         return None
     if progress is True:
         from daisy._progress import _TqdmObserver
+
         return _TqdmObserver(task_order=task_order)
     return progress
 
@@ -103,9 +108,7 @@ def _resolve_observer(progress, task_order):
 def _all_succeeded(states) -> bool:
     """True iff every block of every task completed (skipped blocks are
     folded into completed_count by the scheduler)."""
-    return all(
-        s.completed_count == s.total_block_count for s in states.values()
-    )
+    return all(s.completed_count == s.total_block_count for s in states.values())
 
 
 def run_blockwise(

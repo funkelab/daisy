@@ -12,8 +12,6 @@ untouched.
 """
 
 import os
-import subprocess
-import sys
 import time
 
 import pytest
@@ -91,8 +89,7 @@ def test_shim_workers_get_distinct_identities():
         open(os.path.join(outdir, f"w{ctx['worker_id']}_p{os.getpid()}"), "w").close()
         time.sleep(0.05)  # hold the block so all workers participate
 
-    task = _mk_task(record_identity, n_blocks=32, max_workers=8,
-                    task_id="shim_ctx")
+    task = _mk_task(record_identity, n_blocks=32, max_workers=8, task_id="shim_ctx")
     ok = daisy.run_blockwise([task], progress=False)
     assert ok
     worker_ids = {f.split("_")[0] for f in os.listdir(outdir)}

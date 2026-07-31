@@ -4,8 +4,9 @@ Block IDs and ordering match daisy exactly, using the same funlib-compatible
 generalized Cantor pairing function.
 """
 
-from daisy import Scheduler, Task, Block, BlockStatus, Roi
 import pytest
+
+from daisy import Block, BlockStatus, Roi, Scheduler, Task
 
 
 def process_block(block):
@@ -125,13 +126,17 @@ def test_simple_no_conflicts(task_no_conflicts):
     scheduler = Scheduler([task_no_conflicts])
 
     block = scheduler.acquire_block(task_no_conflicts.task_id)
-    expected = Block(Roi([0], [3]), Roi([0], [3]), Roi([1], [1]), task_id="test_1d", block_id=1)
+    expected = Block(
+        Roi([0], [3]), Roi([0], [3]), Roi([1], [1]), task_id="test_1d", block_id=1
+    )
     assert block.read_roi == expected.read_roi
     assert block.write_roi == expected.write_roi
     assert block.block_id == expected.block_id
 
     block = scheduler.acquire_block(task_no_conflicts.task_id)
-    expected = Block(Roi([1], [3]), Roi([1], [3]), Roi([2], [1]), task_id="test_1d", block_id=2)
+    expected = Block(
+        Roi([1], [3]), Roi([1], [3]), Roi([2], [1]), task_id="test_1d", block_id=2
+    )
     assert block.read_roi == expected.read_roi
     assert block.write_roi == expected.write_roi
     assert block.block_id == expected.block_id
@@ -141,7 +146,9 @@ def test_simple_acquire_block(task_1d):
     scheduler = Scheduler([task_1d])
     block = scheduler.acquire_block(task_1d.task_id)
 
-    expected = Block(Roi([1], [3]), Roi([1], [3]), Roi([2], [1]), task_id="test_1d", block_id=2)
+    expected = Block(
+        Roi([1], [3]), Roi([1], [3]), Roi([2], [1]), task_id="test_1d", block_id=2
+    )
     assert block.read_roi == expected.read_roi
     assert block.write_roi == expected.write_roi
     assert block.block_id == expected.block_id
@@ -191,7 +198,9 @@ def test_simple_release_block(task_1d):
     scheduler.release_block(block)
     block = scheduler.acquire_block(task_1d.task_id)
 
-    expected = Block(Roi([0], [3]), Roi([0], [3]), Roi([1], [1]), task_id="test_1d", block_id=1)
+    expected = Block(
+        Roi([0], [3]), Roi([0], [3]), Roi([1], [1]), task_id="test_1d", block_id=1
+    )
     assert block.read_roi == expected.read_roi
     assert block.write_roi == expected.write_roi
     assert block.block_id == expected.block_id
@@ -200,7 +209,12 @@ def test_simple_release_block(task_1d):
 def test_complete_task(task_2d):
     scheduler = Scheduler([task_2d])
 
-    for level_ids in [(12, 23, 25, 40), (8, 17, 19, 32), (7, 16, 18, 31), (4, 11, 13, 24)]:
+    for level_ids in [
+        (12, 23, 25, 40),
+        (8, 17, 19, 32),
+        (7, 16, 18, 31),
+        (4, 11, 13, 24),
+    ]:
         blocks = []
         for b in level_ids:
             block = scheduler.acquire_block(task_2d.task_id)

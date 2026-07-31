@@ -67,8 +67,7 @@ def test_zombie_regression_hung_block_cleaned_up(tmp_path):
         open(pids / str(os.getpid()), "w").close()
         time.sleep(30)
 
-    task = _task(hang, task_id="hangs", timeout=1, max_retries=0,
-                 max_workers=2)
+    task = _task(hang, task_id="hangs", timeout=1, max_retries=0, max_workers=2)
     t0 = time.monotonic()
     ok = daisy.run_blockwise([task], progress=False)
     wall = time.monotonic() - t0

@@ -9,9 +9,9 @@ This replaces daisy 1.x's per-task `num_workers` (which had no notion of cross-t
 Each task declares what one of *its* workers consumes:
 
 ```python
-extract  = daisy.Task(..., requires={"cpu": 1}, max_workers=8)
-predict  = daisy.Task(..., requires={"gpu": 1, "cpu": 4}, max_workers=4)
-relabel  = daisy.Task(..., requires={"cpu": 1}, max_workers=8)
+extract = daisy.Task(..., requires={"cpu": 1}, max_workers=8)
+predict = daisy.Task(..., requires={"gpu": 1, "cpu": 4}, max_workers=4)
+relabel = daisy.Task(..., requires={"cpu": 1}, max_workers=8)
 ```
 
 The runner is given a global budget:

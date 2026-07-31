@@ -10,12 +10,13 @@ Backwards-compat aliases (e.g. `num_workers=` on Task) live in
 `daisy.v1_compat`, not here.
 """
 
-from contextlib import contextmanager
 import copy
 import inspect
 import logging
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
+from typing import cast
 
 import daisy._daisy as _rs
 from daisy import logging as _worker_log
@@ -113,6 +114,8 @@ class Task(_rs.Task):
     always calls the original function in-process and is unaffected.
     """
 
+    _worker_processes: bool | None
+
     def __new__(cls, *args, worker_processes=None, **kwargs):
         _warn_if_racy_spawn_function(args, kwargs)
         check_fn = kwargs.get("check_function")
@@ -144,7 +147,7 @@ class Task(_rs.Task):
                     "process_function; 0-argument spawn functions already "
                     "manage their own worker processes"
                 )
-        instance = super().__new__(cls, *args, **kwargs)
+        instance = cast("Task", super().__new__(cls, *args, **kwargs))
         instance._worker_processes = worker_processes
         return instance
 
@@ -248,8 +251,7 @@ def _to_pipeline(x):
     if isinstance(x, (list, tuple)):
         return _build_pipeline_from_tasks(x)
     raise TypeError(
-        "expected a Pipeline, a Task, or a list of tasks; "
-        f"got {type(x).__name__}"
+        f"expected a Pipeline, a Task, or a list of tasks; got {type(x).__name__}"
     )
 
 
@@ -328,6 +330,7 @@ class Client:
         # see as the value the master set) when the key is missing.
         if "logdir" not in context:
             from daisy.logging import get_log_basedir
+
             basedir = get_log_basedir()
             if basedir is not None:
                 context["logdir"] = str(basedir)
@@ -374,12 +377,16 @@ class Client:
             block.status = BlockStatus.FAILED
             try:
                 _worker_log.logger.warning(
-                    "block %s failed: %s", block.block_id, e,
+                    "block %s failed: %s",
+                    block.block_id,
+                    e,
                 )
                 _worker_log.emit_failure(
                     f"block {block.block_id} failed:\n"
                     + _worker_log.format_traceback(
-                        type(e), e, e.__traceback__,
+                        type(e),
+                        e,
+                        e.__traceback__,
                     )
                 )
             except Exception:
@@ -432,6 +439,7 @@ def _wrap_for_worker_logging(task):
     orig_wants_context = "context" in (argspec.kwonlyargs or [])
 
     if nargs == 0:
+
         def wrapped(*, context=None):
             with _worker_log._WorkerLogContext(task_id):
                 try:
@@ -440,27 +448,36 @@ def _wrap_for_worker_logging(task):
                     return orig()
                 except BaseException as e:
                     _worker_log.logger.warning(
-                        "worker function %s failed: %s", task_id, e,
+                        "worker function %s failed: %s",
+                        task_id,
+                        e,
                     )
                     _worker_log.emit_failure(
                         _worker_log.format_traceback(
-                            type(e), e, e.__traceback__,
+                            type(e),
+                            e,
+                            e.__traceback__,
                         )
                     )
                     raise
     else:
+
         def wrapped(block):
             with _worker_log._WorkerLogContext(task_id):
                 try:
                     return orig(block)
                 except BaseException as e:
                     _worker_log.logger.warning(
-                        "block %s failed: %s", block.block_id, e,
+                        "block %s failed: %s",
+                        block.block_id,
+                        e,
                     )
                     _worker_log.emit_failure(
                         f"block {block.block_id} failed:\n"
                         + _worker_log.format_traceback(
-                            type(e), e, e.__traceback__,
+                            type(e),
+                            e,
+                            e.__traceback__,
                         )
                     )
                     raise

@@ -1,11 +1,8 @@
-from daisy import BlockwiseDependencyGraph
-from daisy import Task
-from daisy import Block
-from daisy import Roi
+import logging
 
 import pytest
 
-import logging
+from daisy import Block, BlockwiseDependencyGraph, Roi, Task
 
 logger = logging.getLogger(__name__)
 
