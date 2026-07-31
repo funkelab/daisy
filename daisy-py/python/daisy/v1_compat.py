@@ -44,8 +44,10 @@ from daisy.v2 import (  # noqa: F401 — re-exported compat surface
     TaskState,
     __version__,
     get_done_marker_basedir,
+    get_tracking_basedir,
     profile_block,
     set_done_marker_basedir,
+    set_tracking_basedir,
 )
 from daisy.v2 import run_blockwise as _v2_run_blockwise
 
@@ -318,6 +320,8 @@ __all__ = [
     "__version__",
     "profile_block",
     "get_done_marker_basedir",
+    "get_tracking_basedir",
     "run_blockwise",
     "set_done_marker_basedir",
+    "set_tracking_basedir",
 ]

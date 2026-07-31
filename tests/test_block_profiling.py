@@ -6,7 +6,6 @@ workers all report the same thing. These tests pin that equivalence — the
 bug being fixed was subprocess-mode blocks reporting nothing at all.
 """
 
-import os
 import subprocess
 import sys
 import textwrap
@@ -93,7 +92,9 @@ def test_profile_block_records_a_failing_block():
     assert block.stats is not None
 
 
-@pytest.mark.parametrize("worker_processes", [False, True], ids=["threads", "subprocess"])
+@pytest.mark.parametrize(
+    "worker_processes", [False, True], ids=["threads", "subprocess"]
+)
 def test_blocks_counted_in_both_worker_modes(tmp_path, worker_processes):
     """The regression this overhaul fixes: subprocess mode used to report
     zero blocks because only the in-process worker loop counted."""

@@ -1,128 +1,231 @@
-"""Resource-utilisation report sanity tests.
+"""The end-of-run summary, agglomerated from per-block measurements.
 
-Each test exercises the dispatcher with a deliberately-shaped workload
-and inspects the `last_run_stats` dict captured on the Server.
+These tests replace an older file that had to pin thread mode to see any
+counts at all — that pin existed *because* only the in-process worker loop
+incremented `blocks_processed`. The whole point of the redesign is that the
+numbers no longer depend on where the block ran, so the equivalence across
+modes is asserted here rather than worked around.
+
+`linear_trend`'s own maths is unit-tested in Rust; what matters at this
+level is that the trend is fed real per-block wall times.
 """
 
 import time
 
+import pytest
+
 import daisy
 
 
-def _make_server():
-    return daisy.Server()
-
-
-def test_stats_dict_has_expected_keys():
-    server = _make_server()
-    task = daisy.Task(
-        task_id="basic",
-        total_roi=daisy.Roi([0], [40]),
+def _tracked_task(task_id, tmp_path, process_function, **kw):
+    return daisy.Task(
+        task_id=task_id,
+        total_roi=daisy.Roi([0], kw.pop("total", [40])),
         read_roi=daisy.Roi([0], [10]),
         write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
+        process_function=process_function,
         read_write_conflict=False,
-        max_workers=2,
+        max_workers=kw.pop("max_workers", 2),
         max_retries=0,
-        # thread mode: blocks_processed accounting is only visible for
-        # in-process workers (see RUN_STATS.md gap note)
-        worker_processes=False,
+        tracking_path=str(tmp_path / f"tracking_{task_id}"),
+        resource_tracking=True,
+        **kw,
     )
-    server.run_blockwise([task])
-    s = server.last_run_stats
-    assert "process" in s
-    assert "per_task" in s
-    assert "per_worker" in s
-    assert "basic" in s["per_task"]
-    pt = s["per_task"]["basic"]
+
+
+def _run(task):
+    server = daisy.Server()
+    states = server.run_blockwise([task], progress=False)
+    return states, server.last_tracking_summary["per_task"][task.task_id]
+
+
+def _busy(_block):
+    acc = 0
+    for i in range(150_000):
+        acc += i * i
+    return acc
+
+
+def test_summary_shape(tmp_path):
+    """The keys the renderer and users rely on."""
+    _, s = _run(_tracked_task("shape", tmp_path, _busy, worker_processes=False))
     for key in (
-        "blocks_processed",
-        "max_concurrent_workers",
-        "total_block_time_secs",
-        "total_wall_time_secs",
+        "blocks",
+        "failures",
+        "has_stats",
+        "total_cpu_secs",
+        "total_block_secs",
+        "max_peak_rss_bytes",
+        "io_read_bytes",
+        "io_write_bytes",
         "mean_block_ms",
         "block_ms_slope",
     ):
-        assert key in pt, f"missing key {key}"
-    assert pt["blocks_processed"] == 4
+        assert key in s, f"missing summary key {key}"
 
 
-def test_constant_workload_reports_near_zero_slope():
-    server = _make_server()
-    task = daisy.Task(
-        task_id="flat",
-        total_roi=daisy.Roi([0], [200]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: time.sleep(0.001),
-        read_write_conflict=False,
-        max_workers=1,  # serial-ish for clean trend
-        max_retries=0,
+@pytest.mark.parametrize(
+    "mode_kwargs, mode",
+    [({"worker_processes": False}, "threads"), ({}, "subprocess")],
+    ids=["threads", "subprocess"],
+)
+def test_block_count_matches_the_scheduler_in_every_mode(tmp_path, mode_kwargs, mode):
+    """The regression under test: subprocess mode used to report 0 blocks.
+
+    `blocks` and `completed_count` are the same event counted once, so they
+    must agree exactly — in both modes.
+    """
+    task = _tracked_task(f"count_{mode}", tmp_path, _busy, **mode_kwargs)
+    states, s = _run(task)
+    assert states[task.task_id].completed_count == 4
+    assert int(s["blocks"]) == 4
+    assert s["has_stats"], f"{mode} blocks must arrive measured"
+
+
+def test_cpu_and_wall_are_plausible(tmp_path):
+    """CPU-bound work should burn CPU comparable to its wall time; the
+    numbers must be real measurements, not zeros or wild values."""
+    _, s = _run(_tracked_task("plausible", tmp_path, _busy, worker_processes=False))
+    cpu = float(s["total_cpu_secs"])
+    block = float(s["total_block_secs"])
+    assert cpu > 0, "busy work must register CPU time"
+    assert block > 0
+    # A tight arithmetic loop is on-CPU essentially all of its wall time.
+    assert 0.4 < cpu / block < 1.6, f"cpu/wall ratio implausible: {cpu}/{block}"
+    assert int(s["max_peak_rss_bytes"]) > 0
+
+
+def test_sleeping_blocks_burn_wall_but_not_cpu(tmp_path):
+    """The converse check — this is what distinguishes an IO-bound task in
+    the summary, so it must not be conflated with CPU time."""
+
+    def sleeper(_block):
+        time.sleep(0.02)
+
+    _, s = _run(_tracked_task("sleepy", tmp_path, sleeper, worker_processes=False))
+    cpu = float(s["total_cpu_secs"])
+    block = float(s["total_block_secs"])
+    assert block > 0.05, f"4 blocks x 20ms should show up as wall time: {block}"
+    assert cpu < block / 2, f"sleeping must not be counted as CPU: {cpu} vs {block}"
+
+
+def test_constant_workload_reports_near_zero_slope(tmp_path):
+    """Uniform blocks → flat trend. Deliberately generous: this asserts the
+    trend is fed real data, not that a loaded machine is quiet."""
+    _, s = _run(
+        _tracked_task(
+            "flat", tmp_path, _busy, total=[200], max_workers=1, worker_processes=False
+        )
     )
-    server.run_blockwise([task])
-    s = server.last_run_stats["per_task"]["flat"]
-    # 1 ms per block; slope should be tiny.
-    assert s["mean_block_ms"] >= 0.5  # we know we waited at least 1ms
-    assert abs(s["block_ms_slope"]) < 0.05, (
-        f"expected near-zero slope on a constant workload, got {s['block_ms_slope']}"
-    )
+    assert int(s["blocks"]) == 20
+    assert float(s["mean_block_ms"]) > 0
+    mean = float(s["mean_block_ms"])
+    slope = float(s["block_ms_slope"])
+    # Slope is ms-per-block; scale-free comparison against the mean.
+    assert abs(slope) < mean, f"expected a flat-ish trend: mean={mean} slope={slope}"
 
 
-def test_slowing_workload_reports_positive_slope():
-    """A workload whose per-block sleep grows linearly with the call
-    index should produce a clearly positive slope."""
-    counter = {"i": 0}
+def test_slowing_workload_reports_positive_slope(tmp_path):
+    """Blocks that get slower must show a positive slope — this is the
+    diagnostic the trend exists for."""
+    import os
+
+    counter = tmp_path / "seen"
+    counter.mkdir()
 
     def slowing(block):
-        i = counter["i"]
-        counter["i"] += 1
-        # Block i sleeps (1 + 0.05 * i) ms — slope of +0.05 ms/block.
-        time.sleep(0.001 + 0.00005 * i)
+        # Per-block sleep grows with how many blocks have run before it.
+        n = len(os.listdir(counter))
+        (counter / str(block.block_id[1])).touch()
+        time.sleep(0.005 + 0.004 * n)
 
-    server = _make_server()
+    _, s = _run(
+        _tracked_task(
+            "slowing",
+            tmp_path,
+            slowing,
+            total=[100],
+            max_workers=1,
+            worker_processes=False,
+        )
+    )
+    assert int(s["blocks"]) == 10
+    assert float(s["block_ms_slope"]) > 1.0, f"expected a rising trend: {s}"
+
+
+def test_untracked_task_reports_no_summary(tmp_path):
+    """No tracking configured → nothing to summarise, and the renderer
+    omits the panel rather than printing zeros."""
     task = daisy.Task(
-        task_id="slowing",
-        total_roi=daisy.Roi([0], [400]),
+        task_id="untracked",
+        total_roi=daisy.Roi([0], [40]),
         read_roi=daisy.Roi([0], [10]),
         write_roi=daisy.Roi([0], [10]),
-        process_function=slowing,
+        process_function=_busy,
         read_write_conflict=False,
-        max_workers=1,  # serial so the trend is unambiguous
-        max_retries=0,
-    )
-    server.run_blockwise([task])
-    s = server.last_run_stats["per_task"]["slowing"]
-    assert s["blocks_processed"] == 40
-    # The injected slope is 0.05 ms/block; in practice we measure a bit
-    # more (TCP roundtrip floor), but the *sign* and order of magnitude
-    # should be right.
-    assert s["block_ms_slope"] > 0.02, (
-        f"expected positive slope on slowing workload, got {s['block_ms_slope']}"
-    )
-
-
-def test_per_worker_stats_present_and_blocks_account():
-    server = _make_server()
-    task = daisy.Task(
-        task_id="multi",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: time.sleep(0.001),
-        read_write_conflict=False,
-        max_workers=4,
-        max_retries=0,
-        # thread mode: per-worker block accounting is only visible for
-        # in-process workers (subprocess blocks are the documented run-stats
-        # gap, see docs/source/design/RUN_STATS.md); this test documents the
-        # thread-mode stats machinery.
+        max_workers=1,
         worker_processes=False,
     )
-    server.run_blockwise([task])
-    s = server.last_run_stats
-    workers = s["per_worker"]
-    assert all(w["task_id"] == "multi" for w in workers)
-    total_processed = sum(int(w["blocks_processed"]) for w in workers)
-    assert total_processed == 8
-    # Every worker should have a non-zero wall_time recorded.
-    assert all(w["wall_time_secs"] > 0 for w in workers)
+    server = daisy.Server()
+    states = server.run_blockwise([task], progress=False)
+    assert states["untracked"].completed_count == 4
+    assert server.last_tracking_summary["per_task"] == {}
+
+
+def _render(summary):
+    """Render a summary and return what it printed.
+
+    The renderer writes to the *saved* real stdout on purpose, so that a
+    worker-log stdout proxy can't swallow the report. Pointing that at a
+    buffer exercises the real path; pytest's own capture replaces
+    `sys.__stdout__` and would not see it.
+    """
+    import io
+
+    from daisy._progress import _print_resource_utilization
+
+    from daisy import logging as _worker_log
+
+    buf = io.StringIO()
+    previous = _worker_log._saved_stdout
+    _worker_log._saved_stdout = buf
+    try:
+        _print_resource_utilization(summary)
+    finally:
+        _worker_log._saved_stdout = previous
+    return buf.getvalue()
+
+
+def test_renderer_omits_panel_without_measurements():
+    """Nothing at all when no task measured anything — a table of zeros is
+    worse than no table."""
+    assert _render(None) == ""
+    assert _render({"per_task": {}}) == ""
+    assert _render({"per_task": {"t": {"has_stats": False, "blocks": 4}}}) == ""
+
+
+def test_renderer_prints_measured_totals():
+    """And renders real figures when there are measurements."""
+    out = _render(
+        {
+            "per_task": {
+                "seg": {
+                    "has_stats": True,
+                    "blocks": 12,
+                    "failures": 2,
+                    "total_cpu_secs": 1.5,
+                    "total_block_secs": 2.0,
+                    "max_peak_rss_bytes": 1024 * 1024,
+                    "io_read_bytes": 2048,
+                    "io_write_bytes": 4096,
+                    "mean_block_ms": 166.7,
+                    "block_ms_slope": -0.5,
+                }
+            }
+        }
+    )
+    assert "Resource Utilization" in out
+    assert "blocks measured : 12" in out
+    assert "seg" in out
+    # CPU-per-block-second is the IO-vs-CPU-bound hint.
+    assert "0.75" in out

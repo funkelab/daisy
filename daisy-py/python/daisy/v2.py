@@ -28,7 +28,9 @@ from daisy._task import (
     Scheduler,
     Task,
     get_done_marker_basedir,
+    get_tracking_basedir,
     set_done_marker_basedir,
+    set_tracking_basedir,
 )
 
 # Pipeline is implemented entirely in Rust; the operators on Python
@@ -73,7 +75,9 @@ __all__ = [
     "__version__",
     "BlockStats",
     "get_done_marker_basedir",
+    "get_tracking_basedir",
     "run_blockwise",
     "profile_block",
     "set_done_marker_basedir",
+    "set_tracking_basedir",
 ]

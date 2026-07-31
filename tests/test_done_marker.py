@@ -12,6 +12,7 @@ And the safety check:
 import shutil
 from pathlib import Path
 
+import pytest
 from daisy._runner import _run_serial
 
 import daisy
@@ -32,7 +33,7 @@ def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
         read_write_conflict=rw_conflict,
         max_workers=2,
         max_retries=0,
-        done_marker_path=str(marker_path),
+        tracking_path=str(marker_path),
     )
     return task, calls
 
@@ -81,7 +82,7 @@ def test_resume_with_multiprocessing_server(tmp_path):
             read_write_conflict=False,
             max_workers=2,
             max_retries=0,
-            done_marker_path=str(marker_path),
+            tracking_path=str(marker_path),
         )
 
     daisy.Server().run_blockwise([make_mp_task(1)])
@@ -121,7 +122,7 @@ def test_layout_mismatch_errors_with_rm_instructions(tmp_path):
 def test_global_basedir_resolves_per_task(tmp_path):
     """Setting `set_done_marker_basedir(...)` should auto-resolve markers
     for tasks that don't pass an explicit `done_marker_path`."""
-    daisy.set_done_marker_basedir(tmp_path / "auto")
+    daisy.set_tracking_basedir(tmp_path / "auto")
     try:
         task1, calls1 = make_task("auto_task", marker_path=None)
         # Override: omit done_marker_path so it falls back to basedir.
@@ -156,13 +157,13 @@ def test_global_basedir_resolves_per_task(tmp_path):
         _run_serial([task2])
         assert len(calls2) == 0
     finally:
-        daisy.set_done_marker_basedir(None)
+        daisy.set_tracking_basedir(None)
 
 
 def test_per_task_disable_overrides_basedir(tmp_path):
-    """`done_marker_path=False` should turn the marker OFF for that task
+    """`tracking_path=False` should turn the marker OFF for that task
     even when the global basedir is set."""
-    daisy.set_done_marker_basedir(tmp_path / "auto2")
+    daisy.set_tracking_basedir(tmp_path / "auto2")
     try:
         calls1 = []
         task1 = daisy.Task(
@@ -174,7 +175,7 @@ def test_per_task_disable_overrides_basedir(tmp_path):
             read_write_conflict=False,
             max_workers=1,
             max_retries=0,
-            done_marker_path=False,
+            tracking_path=False,
         )
         _run_serial([task1])
         assert len(calls1) == 4
@@ -192,12 +193,12 @@ def test_per_task_disable_overrides_basedir(tmp_path):
             read_write_conflict=False,
             max_workers=1,
             max_retries=0,
-            done_marker_path=False,
+            tracking_path=False,
         )
         _run_serial([task2])
         assert len(calls2) == 4
     finally:
-        daisy.set_done_marker_basedir(None)
+        daisy.set_tracking_basedir(None)
 
 
 def test_no_optin_means_no_tracking(tmp_path, monkeypatch):
@@ -234,7 +235,7 @@ def test_resume_emits_info_log(tmp_path, caplog):
     and reports it as an INFO record on the daisy logger."""
     import logging
 
-    daisy.set_done_marker_basedir(tmp_path / "markers")
+    daisy.set_tracking_basedir(tmp_path / "markers")
     try:
 
         def run(calls):
@@ -262,4 +263,123 @@ def test_resume_emits_info_log(tmp_path, caplog):
         msg = resumed[0].getMessage()
         assert "4/4" in msg and "resumed_task" in msg
     finally:
-        daisy.set_done_marker_basedir(None)
+        daisy.set_tracking_basedir(None)
+
+
+def test_tracking_is_a_zarr_group_with_done_and_failures(tmp_path):
+    """The layout is a Zarr v3 group, not a bare array: `done` and
+    `failures` are always present as sibling arrays, and the group carries
+    the task hash used for layout validation."""
+    import json
+
+    task = daisy.Task(
+        task_id="grouped",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=1,
+        tracking_path=str(tmp_path / "tracking"),
+        worker_processes=False,
+    )
+    _run_serial([task])
+
+    root = tmp_path / "tracking"
+    group_meta = json.loads((root / "zarr.json").read_text())
+    assert group_meta["node_type"] == "group"
+    assert group_meta["zarr_format"] == 3
+    assert group_meta["attributes"]["daisy_task_hash"]
+
+    for child, dtype in (("done", "uint8"), ("failures", "uint32")):
+        meta = json.loads((root / child / "zarr.json").read_text())
+        assert meta["node_type"] == "array", child
+        assert meta["data_type"] == dtype, child
+        assert meta["shape"] == [4], child
+        # Single chunk, raw little-endian bytes, so daisy can mmap it.
+        assert (root / child / "c" / "0").is_file(), child
+
+    # Resource arrays are absent without resource_tracking.
+    assert not (root / "cpu_seconds").exists()
+
+
+def test_legacy_array_layout_is_refused_with_rm_instructions(tmp_path):
+    """A tracking directory written by an older daisy is a bare array. It
+    must be refused with the actionable message rather than a confusing
+    metadata error — the user needs to know to delete it."""
+    import json
+
+    root = tmp_path / "legacy"
+    root.mkdir()
+    (root / "zarr.json").write_text(
+        json.dumps(
+            {
+                "zarr_format": 3,
+                "node_type": "array",
+                "shape": [4],
+                "data_type": "uint8",
+                "attributes": {"daisy_task_hash": "hash-from-an-older-daisy"},
+            }
+        )
+    )
+
+    task = daisy.Task(
+        task_id="legacy",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=1,
+        tracking_path=str(root),
+        worker_processes=False,
+    )
+    with pytest.raises(Exception) as excinfo:
+        _run_serial([task])
+    assert "rm -rf" in str(excinfo.value)
+
+
+def test_done_marker_names_still_work_but_warn(tmp_path):
+    """`done_marker_path` / `set_done_marker_basedir` are deprecated aliases
+    — the directory outgrew the name — but must keep working."""
+    with pytest.warns(DeprecationWarning, match="tracking_path"):
+        task = daisy.Task(
+            task_id="aliased",
+            total_roi=daisy.Roi([0], [20]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: None,
+            read_write_conflict=False,
+            max_workers=1,
+            done_marker_path=str(tmp_path / "aliased"),
+            worker_processes=False,
+        )
+    _run_serial([task])
+    assert (tmp_path / "aliased" / "done").is_dir()
+
+    with pytest.warns(DeprecationWarning, match="set_tracking_basedir"):
+        daisy.set_done_marker_basedir(str(tmp_path / "basedir"))
+    try:
+        with pytest.warns(DeprecationWarning, match="get_tracking_basedir"):
+            assert daisy.get_done_marker_basedir() is not None
+        # The canonical getter reports the same thing without warning.
+        assert daisy.get_tracking_basedir() == (tmp_path / "basedir")
+    finally:
+        daisy.set_tracking_basedir(None)
+
+
+def test_passing_both_path_names_is_rejected(tmp_path):
+    """Ambiguity is a mistake worth surfacing rather than silently
+    preferring one."""
+    with pytest.raises(TypeError, match="not both"):
+        daisy.Task(
+            task_id="both",
+            total_roi=daisy.Roi([0], [20]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: None,
+            read_write_conflict=False,
+            max_workers=1,
+            tracking_path=str(tmp_path / "a"),
+            done_marker_path=str(tmp_path / "b"),
+        )

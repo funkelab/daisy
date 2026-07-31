@@ -9,6 +9,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Run statistics are now an optional per-block layer.** Set
+  `Task(resource_tracking=True)` and every block comes back carrying what it
+  cost — wall time, CPU time, peak RSS, IO bytes — measured inside whoever
+  ran it, so thread, subprocess and external cluster workers all report the
+  same thing. Measurements are persisted into the task's tracking group
+  beside the done array, one element per block, and the end-of-run summary
+  is a fold over exactly what was written.
+
+  This replaces a parallel accounting layer that disagreed with the
+  scheduler: `blocks_processed` was only incremented in the in-process
+  worker loop, so the default subprocess mode and external workers reported
+  `blocks 0`. There is now one counter, not two.
+
+  New: `daisy.profile_block(block)` context manager (applied automatically;
+  use it directly only to narrow what gets measured), `Block.stats`,
+  `daisy.BlockStats`.
+
+  **Removed**: `Server.last_run_stats` (replaced by
+  `Server.last_tracking_summary`), and internally `WorkerStats`,
+  `TaskStats`, `ProcessStats`, `RunStats`, `build_run_stats`, the 200 ms
+  `sysinfo` process sampler, and the `sysinfo` dependency. The old
+  process-wide panel (peak RSS / cpu efficiency / disk IO) is gone; the same
+  ground is covered by agglomerating per-block measurements, and the panel
+  is omitted entirely when no task opted in rather than printing zeros.
+
+- **BREAKING (on-disk): the per-task tracking directory is now a Zarr v3
+  group**, holding `done` and `failures` — plus the resource arrays when
+  enabled — as sibling arrays, instead of a single bare `done` array.
+  Directories written by an earlier daisy are refused with the existing
+  actionable error ("Delete it to start fresh: `rm -rf ...`"). Delete stale
+  tracking directories; completed work will be re-done once.
+
+- **BREAKING (wire): the frame format gained a protocol version byte**, and
+  `Block` gained a field, so a driver and its workers must run the same
+  daisy build. Previously a mismatch failed deep in the decoder
+  (`UnexpectedEnd`, or an `Option` tag parsed out of an unrelated string
+  length) — or, in one direction, silently dropped the trailing bytes. A
+  mismatch now reports both versions and says to rebuild the workers. The
+  realistic exposure is external cluster workers loading daisy from a
+  different environment than the driver.
+
+- `Task(tracking_path=...)` and `daisy.set_tracking_basedir(...)` /
+  `get_tracking_basedir()` are the canonical names now that the directory
+  holds more than done state. `done_marker_path` /
+  `set_done_marker_basedir` / `get_done_marker_basedir` keep working and
+  emit a `DeprecationWarning`.
+
+### Added
+
+- `failures`: per-block count of failed attempts, written whenever tracking
+  is on at all (independent of `resource_tracking`), covering both
+  worker-reported failures and timeout reclaims.
+
+
+### Changed
+
 - Subprocess-worker payloads are serialized with **cloudpickle** instead of
   dill (optional dependency `daisy[worker-processes]` now installs
   cloudpickle). Both ship functions by value; they differ on *modules* a

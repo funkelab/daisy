@@ -1,31 +1,77 @@
-# Done markers
+# Block tracking (done markers, failures, resource stats)
 
-Persistent on-disk record of which blocks have completed. Lets a partial run resume from where it left off without re-doing finished work. This is daisy v2-specific — daisy 1.x has a `check_function` hook for the same purpose, but no built-in persistence layer.
+Persistent on-disk record of what happened to each block. Lets a partial run
+resume from where it left off without re-doing finished work, and — when
+`resource_tracking=True` — records what each block cost. This is daisy
+v2-specific: daisy 1.x has a `check_function` hook for resumption, but no
+built-in persistence layer and no per-block accounting.
+
+Configured with `Task(tracking_path=...)` or globally with
+`daisy.set_tracking_basedir(...)`, which resolves to `<basedir>/<task_id>`.
+(`done_marker_path` / `set_done_marker_basedir` still work as deprecated
+aliases — the directory outgrew the name.)
 
 ## What's stored
 
-For each task with `done_marker_path` set, daisy writes a single-chunk Zarr v3 array. One byte per block:
+A **Zarr v3 group** whose children are single-chunk arrays, all sharing one
+element-per-block grid index, so they line up element-for-element:
 
-- `0`: not yet done
-- `1`: marked successful
+| array | dtype | when | meaning |
+|---|---|---|---|
+| `done` | uint8 | always | `1` = block completed |
+| `failures` | uint32 | always | failed attempts for this block |
+| `wall_seconds` | float32 | `resource_tracking` | elapsed time in the block |
+| `cpu_seconds` | float32 | `resource_tracking` | user+system CPU |
+| `peak_rss_bytes` | uint64 | `resource_tracking` | process peak RSS at block end |
+| `io_read_bytes` | uint64 | `resource_tracking` | bytes read via syscalls |
+| `io_write_bytes` | uint64 | `resource_tracking` | bytes written via syscalls |
+| `gpu_util_pct` | float32 | `resource_tracking` | reserved (NaN) |
+| `gpu_mem_bytes` | uint64 | `resource_tracking` | reserved (0) |
 
-The array is laid out flat in block-id order. Block IDs are the cantor-pyramid numbers the dependency graph computes (matching daisy's funlib block ordering exactly), so block N's status sits at byte offset N.
+See `RUN_STATS.md` for what the resource figures mean and their caveats.
+
+The index is the **C-order grid coordinate**: `(block.write_roi.offset -
+total_roi.offset) / write_roi.shape`, flattened row-major. Boundary blocks
+that fall outside the grid (possible under `Fit::Overhang` / `Fit::Shrink`)
+are simply not addressable and are skipped.
 
 ## On-disk layout
 
 ```
-<done_marker_path>/
-├── zarr.json                      ← Zarr v3 group/array metadata
-├── c/0/0/.../0                    ← single chunk, one byte per block
-└── (daisy-only) zarr.json
-    contains a custom field daisy_task_hash
+<tracking_path>/
+├── zarr.json              ← Zarr v3 *group* metadata, holds daisy_task_hash
+├── done/
+│   ├── zarr.json          ← array metadata (uint8)
+│   └── c/0/0/.../0        ← single chunk, one element per block
+├── failures/
+│   ├── zarr.json          ← array metadata (uint32)
+│   └── c/0/0/.../0
+└── … one directory per stat array, same shape
 ```
 
-The chunk path follows Zarr v3 conventions: `c/<idx>/<idx>/...` where idxes are 0 because there's one chunk total. The whole thing is a single-chunk Zarr — chosen so users can `zarr.open()` the path in NumPy / Python and read the byte array directly with no daisy dependency.
+Chunk paths follow Zarr v3 conventions: `c/<idx>/<idx>/...`, all-zero
+because there is exactly one chunk per array. Everything is written with
+only the `bytes` codec (little-endian, no compression) so each chunk file is
+a raw element array daisy can mmap — and so any zarr v3 reader can open the
+group while a run is in flight:
+
+```python
+import zarr
+
+g = zarr.open_group("tracking/segment", mode="r")
+g["done"][:]  # uint8 grid of completion flags
+g["failures"][1, 2]  # how many attempts the block at grid (1,2) burned
+```
+
+**This layout changed.** Earlier daisy wrote a bare Zarr *array* at this
+path rather than a group. Such a directory is refused with the usual
+actionable `LayoutMismatch` ("Delete it to start fresh: `rm -rf ...`")
+rather than a confusing metadata error — both because the hash domain
+separator changed and because the node type is checked explicitly.
 
 ## Memory mapping
 
-Reads and writes go through `memmap2::MmapMut`. `is_done(block)` is a single mmap read; `mark_success(block)` is a single byte store. No syscalls per block.
+Reads and writes go through `memmap2::MmapMut`, one mmap per array. `is_done(block)` is a single mmap read; recording a block is a handful of element stores. No syscalls per block.
 
 The mmap is allocated upfront for the full block count. For a 1M-block task, that's 1 MiB of address space (and a 1 MiB sparse file on disk that grows as bytes are touched). For 1B blocks: 1 GiB. The OS handles paging.
 

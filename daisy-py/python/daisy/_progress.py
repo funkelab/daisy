@@ -369,10 +369,22 @@ def _format_bytes(n):
 
 
 def _print_resource_utilization(stats, task_order=None):
-    """Daisy-style post-run report of resource utilisation."""
+    """Post-run resource report, agglomerated from per-block measurements.
+
+    Every figure here is a fold over what the tracking layer wrote as
+    blocks came back — `blocks` is the same count the scheduler completed,
+    because it is the same counter. Tasks that did not opt into
+    `resource_tracking` have no resource figures, so the panel is omitted
+    rather than printing a table of zeros.
+    """
     if stats is None:
         return
     import sys
+
+    per_task = (stats.get("per_task") or {}) if hasattr(stats, "get") else {}
+    measured = {k: v for k, v in per_task.items() if v.get("has_stats")}
+    if not measured:
+        return
 
     out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
     # the saved handle can be a test harness's (or host app's) capture
@@ -386,55 +398,49 @@ def _print_resource_utilization(stats, task_order=None):
         except ValueError:  # closed file raced us
             pass
 
-    process = stats.get("process") or {}
-    per_task = stats.get("per_task") or {}
-    if not per_task and (process.get("unavailable", False) or not process):
-        return
+    total_cpu = sum(float(t.get("total_cpu_secs", 0.0)) for t in measured.values())
+    total_block = sum(float(t.get("total_block_secs", 0.0)) for t in measured.values())
+    peak_rss = max(int(t.get("max_peak_rss_bytes", 0)) for t in measured.values())
+    io_r = sum(int(t.get("io_read_bytes", 0)) for t in measured.values())
+    io_w = sum(int(t.get("io_write_bytes", 0)) for t in measured.values())
+    n_blocks = sum(int(t.get("blocks", 0)) for t in measured.values())
 
     p()
     p("Resource Utilization")
     p("--------------------")
-
-    wall = process.get("wall_time_secs", 0.0)
-    cpu_total = process.get("total_cpu_time_secs", 0.0)
-    rss = process.get("peak_rss_bytes", 0)
-    disk_r = process.get("disk_read_bytes", 0)
-    disk_w = process.get("disk_write_bytes", 0)
-    cpu_eff = (cpu_total / wall) if wall > 0 else 0.0
-
     p()
-    p("  Process:")
-    p(f"    peak RSS       : {_format_bytes(rss)}")
-    p(f"    total CPU time : {cpu_total:.2f} s   (across all threads)")
-    p(f"    wall time      : {wall:.2f} s")
-    p(f"    cpu efficiency : {cpu_eff:.2f}x   (≈ {cpu_eff:.1f} cores busy on average)")
-    p(f"    disk read      : {_format_bytes(disk_r)}")
-    p(f"    disk write     : {_format_bytes(disk_w)}")
-
-    if not per_task:
-        return
+    p("  Totals (summed over measured blocks):")
+    p(f"    blocks measured : {n_blocks}")
+    p(f"    CPU time        : {total_cpu:.2f} s")
+    p(f"    in-block time   : {total_block:.2f} s")
+    if total_block > 0:
+        # How much CPU each second of block time consumed: ~1.0 means
+        # CPU-bound, well under 1.0 means the blocks were waiting on IO.
+        p(
+            f"    CPU per block-s : {total_cpu / total_block:.2f}"
+            "   (≈1.0 CPU-bound, «1.0 IO-bound)"
+        )
+    p(f"    peak RSS        : {_format_bytes(peak_rss)}   (largest single worker)")
+    p(f"    IO read         : {_format_bytes(io_r)}")
+    p(f"    IO write        : {_format_bytes(io_w)}")
 
     p()
     p("  Per-task:")
     p(
-        f"    {'task':<14}{'blocks':>8}{'max conc':>10}"
-        f"    {'mean ms ∠ slope':<22}{'cpu busy':>10}{'wall':>10}"
+        f"    {'task':<14}{'blocks':>8}{'fails':>7}"
+        f"    {'mean ms ∠ slope':<22}{'cpu s':>9}{'peak RSS':>11}"
     )
-    p(f"    {'─' * 14}{'─' * 8}{'─' * 10}    {'─' * 22}{'─' * 10}{'─' * 10}")
-    for task_id in _ordered_states(per_task, task_order):
-        t = per_task[task_id]
-        blocks = int(t.get("blocks_processed", 0))
-        max_conc = int(t.get("max_concurrent_workers", 0))
+    p(f"    {'─' * 14}{'─' * 8}{'─' * 7}    {'─' * 22}{'─' * 9}{'─' * 11}")
+    for task_id in _ordered_states(measured, task_order):
+        t = measured[task_id]
+        blocks = int(t.get("blocks", 0))
+        fails = int(t.get("failures", 0))
         mean_ms = float(t.get("mean_block_ms", 0.0))
         slope = float(t.get("block_ms_slope", 0.0))
-        # CPU busy = sum(block durations) / sum(worker wall) — what
-        # fraction of the time a worker had a block in hand vs. idle.
-        block_total = float(t.get("total_block_time_secs", 0.0))
-        worker_wall = float(t.get("total_wall_time_secs", 0.0))
-        busy = (block_total / worker_wall * 100.0) if worker_wall > 0 else 0.0
-        wall_t = worker_wall
+        cpu = float(t.get("total_cpu_secs", 0.0))
+        rss = int(t.get("max_peak_rss_bytes", 0))
         trend = f"{mean_ms:6.2f} ∠ {slope:+.4f}"
         p(
-            f"    {task_id:<14}{blocks:>8}{max_conc:>10}"
-            f"    {trend:<22}{busy:>9.0f}%{wall_t:>9.2f}s"
+            f"    {task_id:<14}{blocks:>8}{fails:>7}"
+            f"    {trend:<22}{cpu:>8.2f}s{_format_bytes(rss):>11}"
         )

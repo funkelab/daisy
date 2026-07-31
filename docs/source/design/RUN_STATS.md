@@ -1,130 +1,180 @@
 # Run statistics
 
-Per-worker, per-task, and process-wide statistics collected during a run. Surfaced after the run as the **Resource Utilization** report. Not in daisy.
+Statistics are an **optional layer over normal processing**. Nothing about
+scheduling changes when you turn them on: a task with
+`resource_tracking=True` simply expects the blocks it hands out to come back
+carrying what they cost, and those measurements are written into the same
+mmap'd Zarr group that already records which blocks are done.
 
-## What gets collected
+There is deliberately **one** counter. `blocks` in the summary is the number
+of blocks the tracking layer recorded, which is the same event the scheduler
+counts as completion — they cannot drift apart, because there is no second
+accumulator to drift.
 
-Three nested layers, defined in daisy-core/src/run_stats.rs:
+## Why measurement lives in the worker
 
-```rust
-pub struct RunStats {
-    pub process: ProcessStats,
-    pub per_task: HashMap<String, TaskStats>,
-    pub per_worker: Vec<WorkerStats>,
-}
+The measurement is taken by whoever ran the block, not by the server:
+
+- A **thread worker** is measured in Rust around the call into Python.
+- A **subprocess-shim worker** and any **external cluster worker** are
+  measured inside `Client.acquire_block`, which every such worker goes
+  through.
+
+That is the only vantage point that yields the same numbers in every mode. A
+server-side timer can measure the round trip (and still does, for the
+timeout deadline), but it cannot see CPU time, memory or IO inside another
+process — let alone on another node.
+
+The payload rides home on the block itself (`Block.stats`), inside the
+existing `ReleaseBlock` / `BlockFailed` messages. **Statistics add no
+protocol traffic and no new message types.**
+
+```
+worker (any mode)                          server
+  profile enter → snapshot counters
+  user block fn runs
+  profile exit  → block.stats = deltas
+  release_block(block) ──ReleaseBlock──▶  TaskTracking::record(&block)
+                                            ├─ mmap: done[i]=1, cpu[i], …
+                                            └─ running aggregates
+                                          end of run: summary = aggregates
 ```
 
-**ProcessStats**: peak RSS, peak virtual memory, total process CPU time, disk read/written bytes, wall time. Sampled every 200ms by a background tokio task using `sysinfo`.
+## What is measured
 
-**TaskStats** (per task): total blocks processed, max concurrent workers, total wall time across workers, total block-processing time, total CPU time (where available), mean block duration in ms, **slope** of block duration over time.
+| field | source | meaning |
+|---|---|---|
+| `wall_seconds` | `Instant` around the call | elapsed time in the block |
+| `cpu_seconds` | `getrusage(RUSAGE_THREAD)` / mach `thread_info` | user+system CPU, **per thread** so concurrent workers don't contaminate each other |
+| `io_read_bytes`, `io_write_bytes` | `/proc/self/task/<tid>/io` (`rchar`/`wchar`), falling back to `/proc/self/io` | bytes through the syscall layer, including page-cache hits |
+| `peak_rss_bytes` | `ru_maxrss` | see the caveat below |
+| `gpu_util_pct`, `gpu_mem_bytes` | — | **reserved**; written NaN / 0 |
 
-**WorkerStats** (per worker thread): task it served, worker id, wall time, CPU time, blocks processed.
+Unsupported platforms report zero rather than failing.
 
-## How worker stats arrive
+### Caveat: peak RSS is process-wide
 
-Each worker thread holds a RAII `ExitNotifier` that fires on Drop:
+`ru_maxrss` is a monotonic high-water mark for the whole process, so
+`peak_rss_bytes` reads as "how large had this process grown by the time this
+block finished" — not "what this block allocated". In subprocess mode (the
+default) each worker is its own process handling one block at a time, which
+makes it a useful per-worker figure. In thread mode every concurrent block
+reports the same process-wide number. This is documented rather than
+papered over; a true per-block figure would need allocator interposition.
 
-```rust
-impl Drop for ExitNotifier {
-    fn drop(&mut self) {
-        self.stats.wall_time = self.started.elapsed();
-        self.stats.cpu_time = match (thread_cpu_time(), self.start_cpu) {
-            (Some(now), Some(then)) => Some(now.saturating_sub(then)),
-            ...
-        };
-        let _ = self.tx.send(std::mem::take(&mut self.stats));
-    }
-}
+### GPU is reserved, not faked
+
+The schema slots exist so that adding NVML later cannot change the on-disk
+layout, and they are written as NaN / 0 — never as a plausible-looking zero
+a reader might mistake for a measurement. Populating them needs a sampling
+loop (GPU utilisation is an instantaneous reading, not a counter) plus an
+NVML dependency.
+
+## Where it is written
+
+The per-task tracking group, alongside the done array — see
+`DONE_MARKERS.md` for the layout. One element per block, indexed by C-order
+grid coordinate, so every stat array lines up element-for-element with
+`done`:
+
+```python
+import zarr
+
+g = zarr.open_group("tracking/segment", mode="r")
+g["cpu_seconds"][1, 2]  # what the block at grid (1, 2) cost
+g["done"][1, 2]  # …and whether it finished
 ```
 
-The channel send is best-effort (`let _ = ...`) — if the receiver has already been dropped (run is finalizing) we don't care. The notifier fires on every return path including panics, so even a worker that unwinds with a Rust panic still records its stats.
+Because the arrays persist across runs, the *summary* is built from this
+run's running aggregates (held by `TaskTracking`), not by re-reading whole
+arrays — otherwise a resumed run would report the cost of work it skipped.
 
-`thread_cpu_time()` is platform-specific:
-- Linux: `getrusage(RUSAGE_THREAD)` syscall.
-- macOS: `thread_info(THREAD_BASIC_INFO)` Mach syscall.
-- Other: returns `None`, CPU time isn't reported.
+## Failure counts come for free
 
-## Known gap: spawn-mode blocks are invisible to worker stats
+`failures` is written whenever tracking is on at all, independent of
+`resource_tracking`: every failed attempt increments that block's counter,
+whether it will be retried or is permanent, and whether it was reported by a
+worker or reclaimed by the timeout. A block with a high failure count and
+`done == 1` is one that eventually succeeded after a fight.
 
-`WorkerStats.blocks_processed` (and the derived mean-ms / cpu-busy / slope
-figures) is incremented only in the in-process worker thread's block loop.
-In worker-function (spawn) mode the blocks are processed by *external*
-subprocesses the stats layer never observes, so the per-task panel reports
-`blocks 0` — and a per-task "wall" that is the sum of idle worker-thread
-lifetimes — while the execution summary (fed by the scheduler's release
-accounting) is correct.
-
-### Planned enhancement: `daisy.profile_block`
-
-The intended fix is to stop assuming the server has insight into worker
-internals and instead let profiling data travel *with the block*:
-
-- a `daisy.profile_block(block)` context manager usable in any worker code
-  (including hand-rolled workers on cluster nodes) that records wall time,
-  CPU time, and peak-RSS delta around the wrapped code and attaches the
-  result to the block;
-- the `ReleaseBlock` / `BlockFailed` messages carry the optional profile
-  payload back to the server, which feeds run stats from it — identical
-  accounting for thread-mode, shim (`worker_processes=True`), and fully
-  external workers;
-- 1-arg process functions get wrapped in `profile_block` automatically, so
-  the default experience needs no user code.
-
-Until then, treat the per-task worker-stats panel as meaningful only for
-block-function (thread) mode.
-
-## Per-block durations
-
-The bookkeeper records `Instant::now()` when a block is sent to a worker. When the block is returned, `notify_block_returned` returns the elapsed `Duration`. The scheduler pushes this into a per-task `Vec<f64>` of millisecond durations as releases come in.
-
-Failed blocks are deliberately not recorded — they're noisy outliers that would skew the mean and slope.
-
-## The slope
-
-`run_stats::linear_trend(&[f64]) -> (mean, slope)` is a closed-form ordinary least-squares fit of `(release_index, duration_ms)`. `release_index` is 0..N in the order blocks were released.
-
-What it tells you:
-
-- **Slope ≈ 0**: block durations are stable. The workload is steady-state.
-- **Slope > 0**: blocks are getting slower as the run progresses. Often a sign of memory pressure, growing data structures, fragmented storage, or thermal throttling.
-- **Slope < 0**: blocks are getting faster. Caches warming up, model JIT compilation, dispatch-overhead amortization on small blocks.
-
-The slope is reported as ms-per-block as the run progresses, so a slope of `+0.05` means each successive block takes 0.05ms longer on average than the one before. Over 100k blocks that's a 5-second drift.
-
-## Output format
-
-Printed as part of `daisy.run_blockwise(...)`:
+## What the user sees
 
 ```
 Resource Utilization
 --------------------
 
-  Process:
-    peak RSS       : 1.2 GB
-    total CPU time : 142.3 s   (across all threads)
-    wall time      : 38.7 s
-    cpu efficiency : 3.7x   (≈ 3.7 cores busy on average)
-    disk read      : 2.4 GB
-    disk write     : 510.0 MB
+  Totals (summed over measured blocks):
+    blocks measured : 12
+    CPU time        : 0.09 s
+    in-block time   : 0.34 s
+    CPU per block-s : 0.27   (≈1.0 CPU-bound, «1.0 IO-bound)
+    peak RSS        : 27.0 MB   (largest single worker)
+    IO read         : 198.3 KB
+    IO write        : 937.5 KB
 
   Per-task:
-    task          blocks  max conc    mean ms ∠ slope          cpu busy      wall
-    ──────────── ─────── ─────────    ──────────────────────  ─────────  ────────
-    extract        99997         4    1.42  ∠ +0.0012             89%      35.1s
-    predict        99997         2    8.24  ∠ -0.0008             71%      36.4s
-    label          99997         8    0.31  ∠ +0.0001             64%      37.2s
+    task            blocks  fails    mean ms ∠ slope           cpu s   peak RSS
+    ─────────────────────────────    ──────────────────────────────────────────
+    segment             12      0     28.27 ∠ -0.1883          0.09s    27.0 MB
 ```
 
-The `∠` is just decoration to make the trend readable in monospace.
+That run's blocks each slept 20 ms and then burned a little CPU, which is
+why `CPU per block-s` reads 0.27 rather than ≈1.0. `blocks measured : 12`
+agreeing with the execution summary's `completed 12` is the property this
+redesign exists to guarantee — in subprocess mode (the default here) the old
+code printed `blocks 0`.
 
-## Why a slope and not a histogram
+`mean ms ∠ slope` is a least-squares fit over per-block wall times in
+completion order (`run_stats::linear_trend`): a positive slope means blocks
+got slower as the run progressed. The panel is **omitted entirely** when no
+task opted into resource tracking — a table of zeros is worse than no table.
 
-A histogram tells you the distribution — useful but the user can compute it themselves from the per-block timings if we expose them. The slope is the one summary statistic that surfaces a *trend* from a `Vec<f64>`, and trends are what people actually care about (regressions over time, memory bloat, cache thrashing). Two numbers — mean + slope — fit on a one-line dashboard.
+Programmatic access: `daisy.Server().last_tracking_summary`, keyed
+`{"per_task": {task_id: {...}}}`.
 
-For users who want the raw distribution, `JsonProgressObserver` (see `daisy-py/python/daisy/_progress.py`) emits one line of JSON per task per state change with the full counter snapshot — pipe it into `jq` or a dashboard for histogram analysis.
+## Narrowing what gets measured
 
-## Where to look
+daisy wraps the whole block body. To exclude your own setup, or to measure a
+narrower region, use the context manager directly — the first measurement
+attached wins, so an inner scope beats the automatic outer one:
 
-- `daisy-core/src/run_stats.rs` — types and `linear_trend`.
-- `daisy-core/src/server.rs::run_blockwise` — the `process_stats` sampler and the `task_block_durations` collection.
-- `daisy-py/python/daisy/_progress.py::_print_resource_utilization` — formatting.
+```python
+def process(block):
+    data = expensive_setup()  # not measured
+    with daisy.profile_block(block):  # measured
+        compute(data, block)
+```
+
+## Enforcement
+
+A task with `resource_tracking=True` and no tracking directory is a
+configuration error, raised at run start rather than silently measuring into
+the void. And if a block comes back *unmeasured* to a task that expects
+measurements, the run fails naming `daisy.profile_block` — reachable only by
+a client that bypasses `daisy.Client` entirely (a hand-rolled protocol
+implementation), since every daisy-provided path measures automatically.
+
+## What this replaced
+
+Until this redesign, `blocks_processed` was incremented in exactly one
+place: the in-process worker thread's loop. Subprocess workers (the default)
+and external cluster workers never touched it, so the per-task panel
+reported `blocks 0` for the modes most people run, and the run-stats tests
+had to pin thread mode to see any counts at all. The fix was not another
+accumulator but removing the split: measure where the work happens, persist
+through the layer that already tracks blocks, and let the summary be a fold
+over that.
+
+Deleted along the way: `WorkerStats`, `TaskStats`, `ProcessStats`,
+`RunStats`, `build_run_stats`, the 200 ms `sysinfo` process sampler (and the
+`sysinfo` dependency), and `Server.last_run_stats`. `thread_cpu_time` and
+`linear_trend` survive in `run_stats.rs` because both are still used.
+
+## Implementation pointers
+
+- `daisy-core/src/block_profile.rs` — `BlockStats`, `BlockProfiler`
+- `daisy-core/src/block_tracking.rs` — the zarr group, per-block writes, aggregates
+- `daisy-py/src/py_profile.rs` — `daisy.profile_block`
+- `daisy-py/python/daisy/_task.py` — the `Client.acquire_block` seam
+- `daisy-py/python/daisy/_progress.py` — `_print_resource_utilization`
+- `tests/test_block_profiling.py` — cross-mode equivalence, persistence, enforcement

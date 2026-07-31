@@ -44,21 +44,53 @@ def _capped_traceback() -> str:
     return tb
 
 
-def set_done_marker_basedir(path) -> None:
-    """Set the global base directory for per-task done-marker arrays.
+def set_tracking_basedir(path) -> None:
+    """Set the global base directory for per-task block tracking.
 
-    When a `Task` is constructed with `done_marker_path=None` (the
-    default) and a basedir is set, the marker for that task lives at
-    `<basedir>/<task_id>`. Set to `None` to disable auto-resolution
-    against this basedir — `daisy.logging.LOG_BASEDIR` is then the
-    final fallback before "no marker".
+    When a `Task` is constructed with `tracking_path=None` (the default)
+    and a basedir is set, that task's tracking group lives at
+    `<basedir>/<task_id>`: which blocks are done, how often each failed,
+    and — with `resource_tracking=True` — what each block cost. Set to
+    `None` to disable auto-resolution, which leaves tracking off unless a
+    task passes an explicit path.
+
+    Tracking is opt-in on purpose: persistent skip-state anchored to a
+    default location meant a rerun of changed code could silently skip
+    everything.
     """
     _rs.set_done_marker_basedir(str(path) if path is not None else None)
 
 
-def get_done_marker_basedir() -> Path | None:
+def get_tracking_basedir() -> Path | None:
+    """The global block-tracking base directory, or None if unset."""
     p = _rs.get_done_marker_basedir()
     return p if p is None else Path(p)
+
+
+def set_done_marker_basedir(path) -> None:
+    """Deprecated alias for `set_tracking_basedir`.
+
+    Renamed because the directory holds more than done state now —
+    failure counts and per-block resource measurements live beside it.
+    """
+    warnings.warn(
+        "set_done_marker_basedir() is deprecated; use set_tracking_basedir(). "
+        "The directory now holds failure counts and resource measurements "
+        "alongside the done markers.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    set_tracking_basedir(path)
+
+
+def get_done_marker_basedir() -> Path | None:
+    """Deprecated alias for `get_tracking_basedir`."""
+    warnings.warn(
+        "get_done_marker_basedir() is deprecated; use get_tracking_basedir().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return get_tracking_basedir()
 
 
 # Direct re-exports — no Python wrappers. The Rust types provide the
@@ -117,6 +149,24 @@ class Task(_rs.Task):
     _worker_processes: bool | None
 
     def __new__(cls, *args, worker_processes=None, **kwargs):
+        # `tracking_path` is the canonical name; the Rust constructor still
+        # takes `done_marker_path`, kept as a deprecated alias because the
+        # directory now holds failure counts and resource measurements too.
+        if "tracking_path" in kwargs:
+            if "done_marker_path" in kwargs:
+                raise TypeError(
+                    "pass either tracking_path or done_marker_path, not both "
+                    "(done_marker_path is the deprecated alias)"
+                )
+            kwargs["done_marker_path"] = kwargs.pop("tracking_path")
+        elif "done_marker_path" in kwargs:
+            warnings.warn(
+                "Task(done_marker_path=...) is deprecated; use "
+                "Task(tracking_path=...). The directory now holds failure "
+                "counts and resource measurements alongside the done markers.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         _warn_if_racy_spawn_function(args, kwargs)
         check_fn = kwargs.get("check_function")
         if check_fn is None and len(args) > _CHECK_FN_ARG_INDEX:
@@ -127,8 +177,8 @@ class Task(_rs.Task):
                 "for EVERY block, and its result persists nowhere — every "
                 "rerun pays the full check cost again. For resuming "
                 "interrupted or repeated runs, prefer the built-in done "
-                "markers (Task(done_marker_path=...) or "
-                "daisy.set_done_marker_basedir(...)): one mmap'd byte per "
+                "markers (Task(tracking_path=...) or "
+                "daisy.set_tracking_basedir(...)): one mmap'd byte per "
                 "block, written on completion, checked in ~microseconds. "
                 "Keep check_function only when the ground truth genuinely "
                 "lives in your output data (e.g. verifying non-empty zarr "
