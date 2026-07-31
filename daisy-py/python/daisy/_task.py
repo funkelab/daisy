@@ -369,6 +369,15 @@ class Client:
             yield None
             return
         reported = False
+        # Measure the block here so every worker that goes through this
+        # loop is covered: daisy's own subprocess shim and any hand-written
+        # cluster worker alike. Measuring inside the worker is what makes
+        # the numbers mode-independent, and doing it at this single seam is
+        # why 0-arg workers need no extra code. A user who wants tighter
+        # scoping can still use `daisy.profile_block(block)` inside their
+        # function — the first measurement attached wins.
+        profiler = _rs.profile_block(block)
+        profiler.__enter__()
         try:
             yield block
             if block.status == BlockStatus.PROCESSING:
@@ -402,6 +411,10 @@ class Client:
                 pass
             raise
         finally:
+            # Attach before the block goes back: the server reads stats off
+            # the released block, and a failed block's cost is worth
+            # recording too.
+            profiler.__exit__(None, None, None)
             if block.status != BlockStatus.SUCCESS:
                 block.status = BlockStatus.FAILED
             if not reported:

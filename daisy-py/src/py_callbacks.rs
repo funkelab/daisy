@@ -83,11 +83,25 @@ impl CheckBlock for PyCheckBlock {
 /// Acquires the GIL on each call to invoke the Python function.
 pub struct PyProcessBlock {
     py_fn: Py<PyAny>,
+    /// Whether to measure each block. Mirrors the task's
+    /// `resource_tracking`, so an unmeasured run costs nothing.
+    resource_tracking: bool,
 }
 
 impl PyProcessBlock {
     pub fn new(py_fn: Py<PyAny>) -> Self {
-        Self { py_fn }
+        Self {
+            py_fn,
+            resource_tracking: false,
+        }
+    }
+
+    /// Enable per-block measurement for this callback.
+    pub fn with_resource_tracking(py_fn: Py<PyAny>, resource_tracking: bool) -> Self {
+        Self {
+            py_fn,
+            resource_tracking,
+        }
     }
 }
 
@@ -99,7 +113,18 @@ impl ProcessBlock for PyProcessBlock {
     fn process(&self, block: &mut Block) -> Result<(), DaisyError> {
         Python::attach(|py| {
             let py_block = PyBlock::from_core(block.clone());
+            // Thread mode measures here rather than through the Python
+            // context manager: same measurement code, no GIL round trip,
+            // and it covers the whole call including anything the user
+            // does before their own `profile_block` (if they add one).
+            let profiler = self
+                .resource_tracking
+                .then(daisy_core::block_profile::BlockProfiler::start);
             let result: PyResult<Py<PyAny>> = self.py_fn.call1(py, (py_block.clone(),));
+            // Carry back whatever the function attached; fall back to our
+            // own measurement. Done for failures too, so a failing block's
+            // cost is still recorded.
+            block.stats = py_block.inner.stats.or_else(|| profiler.map(|p| p.finish()));
             match result {
                 Ok(_) => {
                     block.status = py_block.inner.status;

@@ -5,6 +5,7 @@ mod py_callbacks;
 pub(crate) mod py_context;
 mod py_dep_graph;
 mod py_pipeline;
+mod py_profile;
 mod py_roi;
 mod py_scheduler;
 mod py_server;
@@ -32,6 +33,8 @@ fn _daisy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRoi>()?;
     m.add_class::<PyBlock>()?;
     m.add_class::<PyBlockStatus>()?;
+    m.add_class::<crate::py_block::PyBlockStats>()?;
+    m.add_class::<crate::py_profile::PyBlockProfile>()?;
     m.add_class::<PyTask>()?;
     m.add_class::<PyTaskState>()?;
     m.add_class::<PyScheduler>()?;
@@ -40,6 +43,9 @@ fn _daisy(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySyncClient>()?;
     m.add_class::<PyPipeline>()?;
     m.add_class::<PyContext>()?;
+    m.add_function(wrap_pyfunction!(py_profile::profile_block, m)?)?;
+    m.add_function(wrap_pyfunction!(py_profile::measure_block_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(py_profile::_measure_now, m)?)?;
     m.add_function(wrap_pyfunction!(py_task::set_done_marker_basedir, m)?)?;
     m.add_function(wrap_pyfunction!(py_task::get_done_marker_basedir, m)?)?;
     m.add_function(wrap_pyfunction!(py_server::_run_serial, m)?)?;

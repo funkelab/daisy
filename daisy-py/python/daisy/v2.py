@@ -41,6 +41,11 @@ Roi = _rs.Roi
 Coordinate = _rs.Coordinate
 Block = _rs.Block
 BlockStatus = _rs.BlockStatus
+BlockStats = _rs.BlockStats
+
+# Per-block resource measurement. daisy applies this automatically; call
+# it explicitly only to narrow what gets measured within a block.
+profile_block = _rs.profile_block
 TaskState = _rs.TaskState
 BlockwiseDependencyGraph = _rs.BlockwiseDependencyGraph
 DependencyGraph = _rs.DependencyGraph
@@ -66,7 +71,9 @@ __all__ = [
     "Task",
     "TaskState",
     "__version__",
+    "BlockStats",
     "get_done_marker_basedir",
     "run_blockwise",
+    "profile_block",
     "set_done_marker_basedir",
 ]

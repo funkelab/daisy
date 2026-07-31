@@ -32,6 +32,7 @@ from daisy.v1_compat import (
     TaskState,
     __version__,
     get_done_marker_basedir,
+    profile_block,
     run_blockwise,
     set_done_marker_basedir,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "Task",
     "TaskState",
     "__version__",
+    "profile_block",
     "get_done_marker_basedir",
     "get_worker_log_basename",
     "run_blockwise",
