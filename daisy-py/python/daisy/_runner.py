@@ -14,8 +14,8 @@ from daisy import logging as _worker_log
 from daisy._progress import _log_resume_summary
 from daisy._task import (
     _to_pipeline,
+    _wrap_for_subprocess_workers,
     _wrap_for_worker_logging,
-    _wrap_for_worker_processes,
 )
 
 
@@ -28,14 +28,14 @@ def _prepare(pipeline, distributed=True):
     """Wrap every task in the pipeline for execution, returning a new
     Pipeline with the same edge structure.
 
-    On distributed paths, 1-arg process functions are first converted
-    to subprocess workers (`_wrap_for_worker_processes`, the
-    ``worker_processes`` default) unless the task opted for thread mode;
-    serial execution (`distributed=False`) always runs the original
-    function in-process. Both paths then get `_wrap_for_worker_logging`."""
+    On distributed paths every process function is first converted into a
+    spawn function that runs it in a dedicated worker subprocess
+    (`_wrap_for_subprocess_workers`); serial execution
+    (`distributed=False`) runs the original function in-process. Both paths
+    then get `_wrap_for_worker_logging`."""
     tasks = list(pipeline.tasks)
     if distributed:
-        tasks = [_wrap_for_worker_processes(t) for t in tasks]
+        tasks = [_wrap_for_subprocess_workers(t) for t in tasks]
     wrapped = [_wrap_for_worker_logging(t) for t in tasks]
     # Edges are exposed as (Task, Task) pairs of the original tasks;
     # remap them to the wrapped clones (same index in the new task list).

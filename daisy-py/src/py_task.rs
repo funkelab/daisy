@@ -468,7 +468,11 @@ impl PyTask {
             if nargs == 0 {
                 builder = builder.spawn_function(PySpawnWorker::new(process_fn.clone_ref(py)));
             } else {
-                builder = builder.process_function(PyProcessBlock::with_resource_tracking(
+                // Only the serial path gets here: the distributed runner
+                // wraps 1-arg block functions into a 0-arg spawn function
+                // before building the core task, so every distributed
+                // worker is a subprocess.
+                builder = builder.process_function(PyProcessBlock::new(
                     process_fn.clone_ref(py),
                     borrow.resource_tracking,
                 ));

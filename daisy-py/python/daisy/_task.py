@@ -108,47 +108,30 @@ TaskState = _rs.TaskState
 Scheduler = _rs.Scheduler
 Context = _rs.Context
 
-# positional indices in the `_rs.Task` constructor signature (task_id,
-# total_roi, read_roi, write_roi, process_function, check_function,
-# read_write_conflict, fit, max_workers, max_retries, timeout, ...)
-_PROCESS_FN_ARG_INDEX = 4
+# positional index of `check_function` in the `_rs.Task` constructor
+# signature (task_id, total_roi, read_roi, write_roi, process_function,
+# check_function, ...)
 _CHECK_FN_ARG_INDEX = 5
-_MAX_WORKERS_ARG_INDEX = 8
-_TIMEOUT_ARG_INDEX = 10
 
 
 class Task(_rs.Task):
-    """`_rs.Task` plus the Python-side ``worker_processes`` option.
+    """`_rs.Task` plus Python-side construction-time checks and the
+    ``tracking_path`` alias.
 
-    ``worker_processes`` controls how a 1-arg (block) process function
-    is executed by the distributed runner:
-
-    - ``None`` (default): **worker subprocesses** — the function is
-      serialized (cloudpickle when available) and each worker slot runs it in
-      a real OS process via ``daisy._worker_processes``. CPU-bound
-      python work scales with ``max_workers``, and ``timeout=`` gets
-      true preemption (a stuck block kills its worker process).
-    - ``False``: in-process **threads** (one per worker slot, sharing
-      the GIL). Only faster for the narrow case of block functions
-      that release the GIL for essentially their entire runtime — pure
-      I/O waits or single-threaded C-library calls — and then only by
-      ~15%; any meaningful pure-python fraction makes threads
-      dramatically slower (measured: 1.7x slower at 10% python glue,
-      28x at 100%). Also the mode to use when workers must share large
-      read-only in-process memory. No timeout preemption: the block
-      timeout still bounds RETRIES of a slow block, but the stuck
-      thread itself cannot be killed and may run until process exit.
-    - ``True``: subprocesses, requested explicitly — construction
-      fails loudly for a 0-arg spawn function instead of ignoring the
-      flag.
+    Every worker on the distributed run paths is a dedicated OS process:
+    a 1-arg block function is serialized and run by
+    ``daisy._subprocess_worker`` in the standard acquire/process/release
+    loop, and a 0-arg worker function is serialized and called in its own
+    process (where it may in turn ``srun``/``sbatch`` something else).
+    There is no in-process worker mode, so CPU-bound python scales with
+    ``max_workers`` and ``timeout=`` can preempt a stuck block for real.
 
     Serial execution (``run_blockwise(..., multiprocessing=False)``)
-    always calls the original function in-process and is unaffected.
+    calls the original function in-process, single-threaded — the mode for
+    pdb, closures over live objects, and in-process assertions.
     """
 
-    _worker_processes: bool | None
-
-    def __new__(cls, *args, worker_processes=None, **kwargs):
+    def __new__(cls, *args, **kwargs):
         # `tracking_path` is the canonical name; the Rust constructor still
         # takes `done_marker_path`, kept as a deprecated alias because the
         # directory now holds failure counts and resource measurements too.
@@ -167,7 +150,6 @@ class Task(_rs.Task):
                 DeprecationWarning,
                 stacklevel=2,
             )
-        _warn_if_racy_spawn_function(args, kwargs)
         check_fn = kwargs.get("check_function")
         if check_fn is None and len(args) > _CHECK_FN_ARG_INDEX:
             check_fn = args[_CHECK_FN_ARG_INDEX]
@@ -186,20 +168,7 @@ class Task(_rs.Task):
                 UserWarning,
                 stacklevel=2,
             )
-        if worker_processes:
-            if len(args) > _PROCESS_FN_ARG_INDEX:
-                fn = args[_PROCESS_FN_ARG_INDEX]
-            else:
-                fn = kwargs.get("process_function")
-            if _block_fn_arity(fn) != 1:
-                raise TypeError(
-                    "worker_processes=True requires a 1-argument (block) "
-                    "process_function; 0-argument spawn functions already "
-                    "manage their own worker processes"
-                )
-        instance = cast("Task", super().__new__(cls, *args, **kwargs))
-        instance._worker_processes = worker_processes
-        return instance
+        return cast("Task", super().__new__(cls, *args, **kwargs))
 
     def __init__(self, *args, **kwargs):
         # PyO3 constructs via __new__; override so object.__init__
@@ -207,69 +176,45 @@ class Task(_rs.Task):
         pass
 
 
-def _warn_if_racy_spawn_function(args, kwargs):
-    """Legacy 0-arg spawn functions read their identity from the
-    process-global DAISY_CONTEXT env var, which concurrent slow spawns can
-    overwrite (measured: 8 concurrent sbatch-style spawns all captured the
-    same worker_id). They keep working — but nudge toward the race-free
-    signature when the race is actually possible (max_workers > 1)."""
-    fn = kwargs.get("process_function")
-    if fn is None and len(args) > _PROCESS_FN_ARG_INDEX:
-        fn = args[_PROCESS_FN_ARG_INDEX]
-    if not callable(fn):
-        return
-    try:
-        spec = inspect.getfullargspec(fn)
-    except TypeError:
-        return
-    positional = [a for a in spec.args if a != "self"]
-    if positional or spec.varargs:
-        return  # block function (1-arg) or unusual signature — not spawn-style
-    if "context" in spec.kwonlyargs:
-        return  # race-free signature already
-    workers = kwargs.get("max_workers")
-    if workers is None and len(args) > _MAX_WORKERS_ARG_INDEX:
-        workers = args[_MAX_WORKERS_ARG_INDEX]
-    if workers is None or int(workers) <= 1:
-        return  # a single worker cannot race with itself
-    warnings.warn(
-        "this task's 0-argument spawn function reads DAISY_CONTEXT from the "
-        "process environment, which can race under concurrent worker spawns "
-        "(workers may inherit each other's worker_id). It still works, but "
-        "prefer the race-free form: declare `def start_worker(*, context):` "
-        "and forward `context.to_env()` to your worker command explicitly.",
-        UserWarning,
-        stacklevel=3,
-    )
-
-
 def _block_fn_arity(fn):
+    """Positional arity of a process function: 0 means a worker function
+    that drives its own loop, anything else means a block function called
+    once per block. Mirrors the dispatch in `py_task.rs::to_core`."""
     if not callable(fn):
-        return None
-    fn_args = inspect.getfullargspec(fn).args
+        return 0
+    try:
+        fn_args = inspect.getfullargspec(fn).args
+    except TypeError:
+        return 0  # builtin or C callable with no introspectable signature
     return len([a for a in fn_args if a != "self"])
 
 
-def _wrap_for_worker_processes(task):
-    """Return `task`, or a shallow clone whose 1-arg process_function is
-    replaced by a subprocess-spawning 0-arg function (the
-    ``worker_processes`` default). Applied by the *distributed* run paths
-    only — serial execution always runs the original function in-process.
+def _wrap_for_subprocess_workers(task):
+    """Return a shallow clone of `task` whose `process_function` is replaced
+    by a 0-arg spawn function that runs the original in a dedicated worker
+    subprocess.
 
-    Tasks constructed directly as `_rs.Task` (no python subclass, no
-    `_worker_processes` attribute) get the default too: subprocess
-    workers unless explicitly opted out.
+    Applied by the *distributed* run paths to every task, whatever the
+    function's arity — subprocesses are the only distributed execution
+    model. A 1-arg block function is run by the child in the standard
+    `Client.acquire_block()` loop; a 0-arg worker function is simply called
+    by the child, which keeps daisy 1.x's process-per-worker semantics and
+    lets the function shell out to `srun`/`sbatch` from there.
+
+    Serial execution runs the original function in-process instead, so it
+    never comes through here.
     """
     fn = task.process_function
-    if fn is None or _block_fn_arity(fn) != 1:
-        return task
-    if getattr(task, "_worker_processes", None) is False:
+    if fn is None:
         return task
 
     from daisy._worker_processes import make_spawn_function
 
+    arity = 0 if _block_fn_arity(fn) == 0 else 1
     clone = copy.copy(task)
-    clone.process_function = make_spawn_function(fn, timeout=task.timeout_secs)
+    clone.process_function = make_spawn_function(
+        fn, arity=arity, timeout=task.timeout_secs
+    )
     return clone
 
 

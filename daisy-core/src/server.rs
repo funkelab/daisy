@@ -1,6 +1,5 @@
 use crate::block::BlockStatus;
 use crate::block_bookkeeper::BlockBookkeeper;
-use crate::client::Client;
 use crate::protocol::{read_message, write_message, Message};
 use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
 use crate::block_tracking::TaskSummary;
@@ -447,10 +446,14 @@ impl Server {
         Ok((snapshot_counters(&scheduler.task_states), summaries))
     }
 
-    /// Spawn a worker thread for a task. For 1-arg process functions, the
-    /// thread creates a TCP client, loops acquiring blocks, and calls the
-    /// function. For 0-arg spawn functions, the thread calls the function
-    /// directly (it manages its own Client/subprocess).
+    /// Spawn a worker for a task. Every worker is a spawn function: the
+    /// thread created here only *launches* it and waits, so the block
+    /// function itself always runs in a dedicated OS process (daisy's
+    /// python layer wraps 1-arg block functions into a spawn function that
+    /// starts `python -m daisy._subprocess_worker`). There is no
+    /// in-process execution path — CPU-bound work therefore scales with
+    /// worker count regardless of the GIL, and `Task::timeout` can preempt
+    /// a stuck block by killing its process.
     ///
     /// `exit_tx` is signalled (best-effort) right before the thread
     /// returns, so the main loop can rebalance immediately on worker
@@ -490,74 +493,7 @@ impl Server {
                 },
             };
 
-            if let Some(ref process_fn) = task.process_function {
-                // 1-arg block processor: connect via TCP, loop.
-                let rt = match tokio::runtime::Runtime::new() {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        error!(worker_id, error = %e, "failed to create runtime");
-                        notifier.exit.last_error = Some(format!("failed to create runtime: {e}"));
-                        return false;
-                    }
-                };
-                let mut client = match rt.block_on(Client::connect(&host, port, &task_id)) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!(worker_id, error = %e, "failed to connect");
-                        notifier.exit.last_error = Some(format!("failed to connect to server: {e}"));
-                        return false;
-                    }
-                };
-                // Any block failure kills this worker. The runner
-                // then refills (counting toward `worker_restart_count`)
-                // until the cap is hit, at which point abandonment
-                // fires. This unifies block-function and
-                // worker-function semantics: in both modes,
-                // `worker_restart_count` counts failed work
-                // attempts, and `max_worker_restarts` caps how many
-                // failures the runner tolerates before giving up.
-                loop {
-                    match rt.block_on(client.acquire_block()) {
-                        Ok(Some(mut block)) => {
-                            block.status = crate::block::BlockStatus::Processing;
-                            match process_fn.process(&mut block) {
-                                Ok(()) => {
-                                    if block.status == crate::block::BlockStatus::Processing {
-                                        block.status = crate::block::BlockStatus::Success;
-                                    }
-                                }
-                                Err(e) => {
-                                    warn!(worker_id, error = %e, "block processing failed");
-                                    notifier.exit.last_error = Some(format!("{e}"));
-                                    block.status = crate::block::BlockStatus::Failed;
-                                }
-                            }
-                            let was_failure =
-                                block.status == crate::block::BlockStatus::Failed;
-                            if let Err(e) = rt.block_on(client.release_block(block)) {
-                                error!(worker_id, error = %e, "failed to release block");
-                                notifier.exit.last_error = Some(format!("failed to release block: {e}"));
-                                return false;
-                            }
-                            if was_failure {
-                                debug!(worker_id, "exiting dirty after failed block");
-                                let _ = rt.block_on(client.disconnect());
-                                return false;
-                            }
-                        }
-                        Ok(None) => {
-                            debug!(worker_id, "no more blocks, exiting");
-                            break;
-                        }
-                        Err(e) => {
-                            debug!(worker_id, error = %e, "acquire failed");
-                            return false;
-                        }
-                    }
-                }
-                let _ = rt.block_on(client.disconnect());
-                true // clean exit
-            } else if let Some(ref spawn_fn) = task.spawn_function {
+            if let Some(ref spawn_fn) = task.spawn_function {
                 // resource_tracking rides along so the worker can skip
                 // measuring entirely when nobody asked for stats — the
                 // server would only discard them.
@@ -577,6 +513,22 @@ impl Server {
                         false // should respawn
                     }
                 }
+            } else if task.process_function.is_some() {
+                // A block function reached the distributed runner without
+                // being wrapped into a spawn function. daisy's own python
+                // layer always wraps (see `_wrap_for_subprocess_workers`),
+                // so this only happens when a `daisy_core::Task` is built
+                // directly with a `ProcessBlock` and handed to `Server`.
+                // There is nowhere to run it: the distributed path executes
+                // blocks in worker processes only. Fail loudly rather than
+                // silently completing zero blocks.
+                let msg = "task has a process_function but no spawn_function: the \
+                           distributed runner executes blocks in worker processes \
+                           only. Wrap the block function into a spawn function, or \
+                           use the serial path (`run_serial`) to run it in-process.";
+                error!(worker_id, task_id = %task_id, "{msg}");
+                notifier.exit.last_error = Some(msg.to_string());
+                false
             } else {
                 true
             }

@@ -1,19 +1,35 @@
-"""Subprocess workers: run a 1-arg ``process_function`` in real OS
-processes. This is the DEFAULT execution mode for block functions on the
-distributed run paths; ``Task(worker_processes=False)`` opts into
-GIL-sharing thread workers instead.
+"""Worker subprocesses: every distributed daisy worker is its own OS process.
 
-Thread workers execute block functions on Rust threads that each take the
-GIL per block — CPU-bound python work therefore does not parallelize (and
-typically slows down) as ``max_workers`` grows. Benchmarks across workload
-mixes show threads win only when the block function releases the GIL for
-essentially its entire runtime (pure I/O waits, single-threaded C-library
-calls), and then only by ~15%; with just 10% pure-python glue threads are
-1.7x slower, at 30% python 8x slower, at 100% python 28x slower. Subprocess
-workers are flat across every mix, hence the default. The function is
-serialized once per run and each worker slot launches
-``python -m daisy._subprocess_worker``, which deserializes it and runs the
-standard ``Client.acquire_block()`` loop.
+There is exactly one execution model on the distributed run paths. Whatever
+a task's ``process_function`` is, the runner turns it into a 0-arg *spawn
+function* that launches ``python -m daisy._subprocess_worker`` and waits:
+
+- a **1-arg block function** ``f(block)`` is run by the child in the standard
+  ``Client.acquire_block()`` loop;
+- a **0-arg worker function** ``f()`` (or ``f(*, context)``) is simply called
+  by the child, which is free to open its own ``daisy.Client()``, or to
+  ``srun``/``sbatch`` a further process.
+
+Both kinds therefore get real parallelism (CPU-bound python scales with
+``max_workers`` because there is no shared GIL), real timeout preemption
+(a stuck block's process can be killed), and per-process resource figures
+that mean what they say. daisy 1.x behaved the same way, via
+``multiprocessing.Process``; v2 cannot fork — the Rust server runs a tokio
+runtime per worker thread and forking a multithreaded process is unsafe —
+so it spawns and serializes instead.
+
+The cost of dropping in-process (thread) workers is small and bounded:
+roughly 15% for block functions that release the GIL for essentially their
+entire runtime (pure I/O waits, single-threaded C-library calls), which was
+the only case where threads won at all, plus the loss of free shared
+read-only memory — pass a path and ``numpy.memmap`` it in the child
+instead. Anything with a meaningful pure-python fraction is dramatically
+faster this way (measured: threads were 1.7x slower at 10% python glue, 28x
+at 100%).
+
+``run_blockwise(..., multiprocessing=False)`` is unaffected: it calls the
+original function in-process, single-threaded, and is the mode to use for
+pdb, closures over live objects, and in-process assertions in tests.
 
 Transport is an anonymous stdin pipe, deliberately not a temp file: the
 payload never touches the filesystem, so there is nothing another process
@@ -41,10 +57,9 @@ workers do, so local subprocess runs behave like the real deployment.
 The trade: cloudpickle refuses to serialize a few things dill accepts —
 notably ``threading`` synchronization primitives and write-mode file
 handles, including indirectly (a bound method whose ``self`` holds a
-``Lock``). Those objects are meaningless across process boundaries
-anyway, so failing loudly at submit time is the better outcome; the fix
-is to create them inside the block function, or to use thread workers
-(``worker_processes=False``), where a shared lock actually synchronizes.
+``Lock``). Those objects are meaningless across process boundaries anyway,
+so failing loudly at submit time is the better outcome; create them inside
+the function instead.
 """
 
 import os
@@ -63,7 +78,7 @@ EXIT_BLOCK_TIMEOUT = 87
 #     prepended in the child so the function's module references resolve
 #     exactly as they did in the parent. daisy 1.x got this for free by
 #     forking; a spawned child re-imports, so it needs the parent's paths.
-#   frame 2 (cloudpickle or pickle): (process_function, timeout)
+#   frame 2 (cloudpickle or pickle): {"function":, "arity":, "timeout":}
 _LEN = struct.Struct("<Q")
 
 
@@ -77,6 +92,20 @@ def _read_frame(stream) -> bytes:
     return stream.read(n)
 
 
+#: Shared tail for both serialization failure messages: what the caller can
+#: actually do about it. Subprocess workers are the only distributed
+#: execution model, so the escape hatch is serial mode, not another worker
+#: mode.
+_SERIALIZE_REMEDY = (
+    "Fixes, in order of preference: define the function at module level; "
+    "create unpicklable objects (locks, file handles, connections, "
+    "database sessions) inside the function rather than capturing them; "
+    "pass a path and reopen/memmap it in the worker. To run in-process "
+    "instead — single-threaded, no workers, useful for debugging — use "
+    "`run_blockwise(..., multiprocessing=False)`."
+)
+
+
 def _serialize(obj) -> bytes:
     try:
         import cloudpickle
@@ -85,39 +114,33 @@ def _serialize(obj) -> bytes:
             body = pickle.dumps(obj)
         except Exception as e:
             raise RuntimeError(
-                "daisy could not serialize this process_function for "
-                "subprocess workers (the default execution mode): stdlib "
-                "pickle supports module-level functions only. Either install "
-                "cloudpickle for lambda/closure support (`pip install "
-                "cloudpickle`, or `pip install daisy[worker-processes]`), or "
-                "opt into GIL-sharing thread workers with "
-                "`Task(..., worker_processes=False)` (only sensible for "
-                "block functions that release the GIL for essentially their "
-                f"entire runtime). Underlying error: {e!r}"
+                "daisy could not serialize this function for its worker "
+                "subprocess: stdlib pickle supports module-level functions "
+                "only. Install cloudpickle for lambda/closure support "
+                "(`pip install cloudpickle`, or `pip install "
+                f"daisy[worker-processes]`). {_SERIALIZE_REMEDY} "
+                f"Underlying error: {e!r}"
             ) from e
     else:
         try:
             body = cloudpickle.dumps(obj)
         except Exception as e:
             raise RuntimeError(
-                "daisy could not serialize this process_function for "
-                "subprocess workers (the default execution mode). The "
-                "function is shipped together with the objects it captures, "
-                "and something it captures cannot be pickled — commonly a "
-                "threading lock/condition, an open write handle, or a live "
-                "connection, held either directly or by an object the "
-                "function is bound to. Such objects do not carry meaning "
-                "across process boundaries: create them inside the block "
-                "function instead, or use `Task(..., worker_processes=False)` "
-                "to run on threads, where shared locks and handles are "
-                f"real. Underlying error: {e!r}"
+                "daisy could not serialize this function for its worker "
+                "subprocess. Every daisy worker runs in its own process, so "
+                "the function is shipped together with the objects it "
+                "captures, and something it captures cannot be pickled — "
+                "commonly a threading lock/condition, an open write handle, "
+                "or a live connection, held either directly or by an object "
+                f"the function is bound to. {_SERIALIZE_REMEDY} "
+                f"Underlying error: {e!r}"
             ) from e
     header = pickle.dumps({"sys_path": list(sys.path)})
     return _pack_frames(header, body)
 
 
 def read_payload(stream):
-    """Child side: read (meta, body_bytes) from the stdin stream and apply
+    """Child side: read the payload dict from the stdin stream, applying
     the parent's sys.path before the function is deserialized."""
     meta = pickle.loads(_read_frame(stream))
     for p in reversed(meta.get("sys_path", [])):
@@ -131,33 +154,47 @@ def read_payload(stream):
     return _pickle.loads(body)
 
 
-def make_spawn_function(process_function, timeout=None):
-    """Wrap a 1-arg ``process_function`` into a 0-arg spawn function that
-    runs it in a dedicated worker subprocess.
+def make_spawn_function(process_function, arity, timeout=None):
+    """Wrap a user function into a 0-arg spawn function that runs it in a
+    dedicated worker subprocess.
 
-    The function (and the task's ``timeout``) are serialized eagerly, so an
-    unserializable function fails at Task construction — not minutes later
-    on a cluster. The returned spawn function raises on any non-zero child
-    exit: a crashing worker is a *dirty* exit, which the server counts
-    against ``max_worker_restarts`` instead of respawning it forever.
+    `arity` is 1 for a block function (the child drives the
+    `Client.acquire_block()` loop and calls it per block) or 0 for a worker
+    function (the child just calls it).
+
+    The payload is serialized eagerly, so an unserializable function fails
+    at run start — not minutes later on a cluster. The returned spawn
+    function raises on any non-zero child exit: a crashing worker is a
+    *dirty* exit, which the server counts against `max_worker_restarts`
+    instead of respawning it forever.
     """
-    payload = _serialize((process_function, timeout))
+    payload = _serialize(
+        {"function": process_function, "arity": arity, "timeout": timeout}
+    )
 
     def _spawn_worker_process(*, context):
         # The context arrives as an argument (race-free), so the child's
-        # DAISY_CONTEXT can be set deterministically instead of hoping the
-        # process-global env var wasn't overwritten by a concurrent spawn.
+        # DAISY_CONTEXT is set deterministically per process instead of
+        # relying on the parent's process-global env var, which concurrent
+        # spawns overwrite.
         env = dict(os.environ)
         env["DAISY_CONTEXT"] = context.to_env()
-        # Capture the child's stderr (to a spooled file, not a pipe — no
-        # reader-deadlock for chatty workers) so a crashing block function's
-        # actual traceback can ride along in the raised error, where the
-        # server records it as the task's last_worker_error. Everything
-        # captured is re-emitted on our stderr so logs stay complete.
-        with tempfile.SpooledTemporaryFile(max_size=1 << 20) as errbuf:
+        # Capture the child's output (to spooled files, not pipes — no
+        # reader-deadlock for chatty workers) and re-emit it through our own
+        # streams. The parent runs this inside `_WorkerLogContext`, whose
+        # stream proxies are python-level and therefore not inherited by a
+        # spawned child, so re-emitting here is what puts worker output in
+        # the worker's log files. Keeping stderr separate also lets a
+        # crashing function's real traceback ride along in the raised error,
+        # where the server records it as the task's last_worker_error.
+        with (
+            tempfile.SpooledTemporaryFile(max_size=1 << 20) as outbuf,
+            tempfile.SpooledTemporaryFile(max_size=1 << 20) as errbuf,
+        ):
             proc = subprocess.Popen(
                 [sys.executable, "-m", "daisy._subprocess_worker"],
                 stdin=subprocess.PIPE,
+                stdout=outbuf,
                 stderr=errbuf,
                 env=env,
             )
@@ -170,11 +207,14 @@ def make_spawn_function(process_function, timeout=None):
                 # below turns that into a dirty worker exit
                 pass
             returncode = proc.wait()
+            outbuf.seek(0)
+            out_text = outbuf.read().decode(errors="replace")
             errbuf.seek(0)
             err_text = errbuf.read().decode(errors="replace")
-        if err_text:
-            sys.stderr.write(err_text)
-            sys.stderr.flush()
+        for text, stream in ((out_text, sys.stdout), (err_text, sys.stderr)):
+            if text:
+                stream.write(text)
+                stream.flush()
         tail = "\n".join(err_text.strip().splitlines()[-50:])
         if returncode == EXIT_BLOCK_TIMEOUT:
             raise RuntimeError(

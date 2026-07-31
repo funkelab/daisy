@@ -81,6 +81,11 @@ impl CheckBlock for PyCheckBlock {
 
 /// Wraps a Python callable as a `ProcessBlock` implementation.
 /// Acquires the GIL on each call to invoke the Python function.
+///
+/// **Serial mode only.** The distributed runner executes every block in a
+/// worker subprocess, where measurement happens python-side in
+/// `Client.acquire_block`; this callback is what
+/// `run_blockwise(multiprocessing=False)` calls in-process.
 pub struct PyProcessBlock {
     py_fn: Py<PyAny>,
     /// Whether to measure each block. Mirrors the task's
@@ -89,15 +94,7 @@ pub struct PyProcessBlock {
 }
 
 impl PyProcessBlock {
-    pub fn new(py_fn: Py<PyAny>) -> Self {
-        Self {
-            py_fn,
-            resource_tracking: false,
-        }
-    }
-
-    /// Enable per-block measurement for this callback.
-    pub fn with_resource_tracking(py_fn: Py<PyAny>, resource_tracking: bool) -> Self {
+    pub fn new(py_fn: Py<PyAny>, resource_tracking: bool) -> Self {
         Self {
             py_fn,
             resource_tracking,
@@ -113,7 +110,7 @@ impl ProcessBlock for PyProcessBlock {
     fn process(&self, block: &mut Block) -> Result<(), DaisyError> {
         Python::attach(|py| {
             let py_block = PyBlock::from_core(block.clone());
-            // Thread mode measures here rather than through the Python
+            // Serial mode measures here rather than through the Python
             // context manager: same measurement code, no GIL round trip,
             // and it covers the whole call including anything the user
             // does before their own `profile_block` (if they add one).
@@ -228,12 +225,12 @@ impl PySpawnWorker {
 impl SpawnWorker for PySpawnWorker {
     fn spawn(&self, env_context: &str) -> Result<(), DaisyError> {
         Python::attach(|py| {
-            // Still set the env var: 0-arg spawn functions and child
-            // processes that read DAISY_CONTEXT keep working. NOTE this
-            // variable is process-global — with concurrent spawns, a slow
-            // spawn function can observe a later worker's value. Spawn
-            // functions that need a reliable identity must take the
-            // keyword-only `context` argument below.
+            // Set the env var so child processes that read DAISY_CONTEXT
+            // (the canonical cluster-worker pattern) keep working. It is
+            // process-global and therefore racy under concurrent spawns,
+            // which is why daisy's own wrapper takes the keyword-only
+            // `context` argument below and hands each child its own copy
+            // in an explicit environment.
             let os = py.import("os").map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
             let environ = os.getattr("environ").map_err(|e| DaisyError::ProcessFailed(format!("{e}")))?;
             environ
