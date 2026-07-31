@@ -1,4 +1,5 @@
 use bincode::{Decode, Encode};
+use crate::block_profile::BlockStats;
 use crate::roi::Roi;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -27,12 +28,23 @@ impl fmt::Display for BlockId {
 }
 
 /// A block to process, with read and write ROIs and lifecycle status.
+///
+/// `stats` is the optional resource measurement a worker attaches when the
+/// task has `resource_tracking` on: measurement happens inside whoever ran
+/// the block, and the payload rides home on the block itself over the
+/// existing `ReleaseBlock` / `BlockFailed` messages. That is why statistics
+/// need no protocol traffic of their own. It is `None` on the way out to a
+/// worker (costing one byte on the wire) and `Some` on the way back.
+///
+/// Equality and hashing are over `block_id` only, so carrying a payload
+/// cannot affect block identity, dedup, or `processing_blocks` membership.
 #[derive(Clone, Debug, Serialize, Deserialize, Encode, Decode)]
 pub struct Block {
     pub read_roi: Roi,
     pub write_roi: Roi,
     pub block_id: BlockId,
     pub status: BlockStatus,
+    pub stats: Option<BlockStats>,
 }
 
 impl Block {
@@ -48,6 +60,7 @@ impl Block {
                 spatial_id,
             },
             status: BlockStatus::Created,
+            stats: None,
         }
     }
 

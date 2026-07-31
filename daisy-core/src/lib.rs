@@ -1,6 +1,7 @@
 pub mod block;
 pub mod block_bookkeeper;
 pub mod block_profile;
+pub mod block_tracking;
 pub mod client;
 pub mod coordinate;
 pub mod dependency_graph;
