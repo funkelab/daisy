@@ -337,7 +337,9 @@ class Client:
         self.worker_id = int(context["worker_id"])
         self.task_id = context["task_id"]
         try:
-            self._client = _rs.SyncClient(self.host, self.port, self.task_id)
+            self._client = _rs.SyncClient(
+                self.host, self.port, self.task_id, self.worker_id
+            )
         except ConnectionRefusedError:
             self._client = None
             logger.warning(

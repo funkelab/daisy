@@ -2,9 +2,14 @@
 //!
 //! Three layers of measurement:
 //!
-//! - **Per-worker** — wall-clock alive, OS-thread CPU time, blocks
-//!   processed. Reported when the worker thread exits (signals through
-//!   the existing exit channel).
+//! - **Per-worker** — wall-clock alive and OS-thread CPU time are
+//!   reported when the worker thread exits (through the exit channel);
+//!   blocks processed are counted server-side as block returns arrive,
+//!   attributed to workers via the `Register` handshake, and merged in
+//!   `build_run_stats`. Server-side counting is what makes the numbers
+//!   mode-independent: thread workers, subprocess-shim workers, and
+//!   external cluster workers all release blocks over the same TCP
+//!   protocol.
 //! - **Per-task aggregate** — sum across that task's workers, plus a
 //!   linear-regression fit `(release_index, duration_ms)` so the
 //!   "first block ran in 2 ms, last block ran in 12 ms" trend is
@@ -126,10 +131,48 @@ pub struct WorkerStats {
     pub wall_time: Duration,
     /// `None` if the platform doesn't expose per-thread CPU.
     pub cpu_time: Option<Duration>,
+    /// Valid block returns the server observed from this worker. Not
+    /// filled in by the worker thread — counted in `RunTally` as
+    /// releases arrive and merged in `build_run_stats`.
     pub blocks_processed: u64,
     /// Error that terminated this worker, if it exited dirty. Carried
     /// back so the server can attach the cause to the task state.
     pub last_error: Option<String>,
+}
+
+/// Server-side per-run accounting, fed from client messages as the run
+/// progresses and folded into `RunStats` by `build_run_stats`.
+///
+/// Counting block returns at the server (rather than in the worker
+/// thread's own loop) is what keeps `blocks_processed` correct across
+/// every execution mode: in-process threads, subprocess-shim workers,
+/// and external cluster workers all return blocks over the same TCP
+/// protocol. It is also more honest — an attempt the server reclaimed
+/// (timeout, dead client) was never a valid return and is not counted.
+#[derive(Debug, Default)]
+pub struct RunTally {
+    /// task_id -> per-block server-side durations (ms), in the order
+    /// each successful block's `ReleaseBlock` was observed.
+    pub block_durations: HashMap<String, Vec<f64>>,
+    /// task_id -> valid block returns observed (successes and failures).
+    pub task_blocks: HashMap<String, u64>,
+    /// (task_id, worker_id) -> valid block returns from that worker,
+    /// for connections that announced themselves via `Register`.
+    pub worker_blocks: HashMap<(String, u64), u64>,
+}
+
+impl RunTally {
+    /// Record one valid block return. `worker_id` is the returning
+    /// connection's registered identity, when it announced one.
+    pub fn count_return(&mut self, task_id: &str, worker_id: Option<u64>) {
+        *self.task_blocks.entry(task_id.to_string()).or_default() += 1;
+        if let Some(wid) = worker_id {
+            *self
+                .worker_blocks
+                .entry((task_id.to_string(), wid))
+                .or_default() += 1;
+        }
+    }
 }
 
 /// Per-task aggregate stats produced at the end of a run.
@@ -199,17 +242,36 @@ pub fn linear_trend(y: &[f64]) -> (f64, f64) {
 ///
 /// `worker_stats` is the per-worker fold across all retired workers
 /// (including any still-alive workers whose stats were captured at
-/// shutdown).
-///
-/// `task_block_durations[task_id]` is the per-task list of release-side
-/// durations in millisecond, in the order each block's `ReleaseBlock`
-/// was observed by the server.
+/// shutdown). Their `blocks_processed` is filled in here from the
+/// tally's server-side counts; workers the server heard from that have
+/// no thread in this process (external cluster workers) get synthetic
+/// entries carrying just their block counts.
 pub fn build_run_stats(
     started: Instant,
-    worker_stats: Vec<WorkerStats>,
-    task_block_durations: HashMap<String, Vec<f64>>,
+    mut worker_stats: Vec<WorkerStats>,
+    tally: RunTally,
     process: ProcessStats,
 ) -> RunStats {
+    let RunTally {
+        block_durations,
+        task_blocks,
+        mut worker_blocks,
+    } = tally;
+
+    for ws in &mut worker_stats {
+        ws.blocks_processed = worker_blocks
+            .remove(&(ws.task_id.clone(), ws.worker_id))
+            .unwrap_or(0);
+    }
+    for ((task_id, worker_id), blocks) in worker_blocks {
+        worker_stats.push(WorkerStats {
+            task_id,
+            worker_id,
+            blocks_processed: blocks,
+            ..Default::default()
+        });
+    }
+
     let mut per_task: HashMap<String, TaskStats> = HashMap::new();
 
     for ws in &worker_stats {
@@ -219,7 +281,6 @@ pub fn build_run_stats(
                 task_id: ws.task_id.clone(),
                 ..Default::default()
             });
-        entry.blocks_processed += ws.blocks_processed;
         entry.total_wall_time += ws.wall_time;
         match (entry.total_cpu_time, ws.cpu_time) {
             (Some(prev), Some(more)) => entry.total_cpu_time = Some(prev + more),
@@ -232,7 +293,17 @@ pub fn build_run_stats(
         }
     }
 
-    for (task_id, durations) in task_block_durations {
+    for (task_id, blocks) in task_blocks {
+        per_task
+            .entry(task_id.clone())
+            .or_insert_with(|| TaskStats {
+                task_id,
+                ..Default::default()
+            })
+            .blocks_processed = blocks;
+    }
+
+    for (task_id, durations) in block_durations {
         let entry = per_task
             .entry(task_id.clone())
             .or_insert_with(|| TaskStats {
@@ -273,6 +344,87 @@ pub fn build_run_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_tally_counts_per_task_and_per_worker() {
+        let mut tally = RunTally::default();
+        tally.count_return("a", Some(1));
+        tally.count_return("a", Some(1));
+        tally.count_return("a", None); // unregistered client: task-only
+        tally.count_return("b", Some(2));
+        assert_eq!(tally.task_blocks["a"], 3);
+        assert_eq!(tally.task_blocks["b"], 1);
+        assert_eq!(tally.worker_blocks[&("a".to_string(), 1)], 2);
+        assert_eq!(tally.worker_blocks[&("b".to_string(), 2)], 1);
+    }
+
+    #[test]
+    fn build_run_stats_merges_tally_into_worker_stats() {
+        let worker_stats = vec![
+            WorkerStats {
+                task_id: "a".into(),
+                worker_id: 1,
+                wall_time: Duration::from_secs(2),
+                ..Default::default()
+            },
+            WorkerStats {
+                task_id: "a".into(),
+                worker_id: 2,
+                wall_time: Duration::from_secs(1),
+                ..Default::default()
+            },
+        ];
+        let mut tally = RunTally::default();
+        for _ in 0..3 {
+            tally.count_return("a", Some(1));
+        }
+        tally.count_return("a", Some(2));
+        // A worker the server heard from that has no thread in this
+        // process (an external cluster worker).
+        tally.count_return("a", Some(7));
+
+        let stats = build_run_stats(
+            Instant::now(),
+            worker_stats,
+            tally,
+            ProcessStats::default(),
+        );
+
+        assert_eq!(stats.per_task["a"].blocks_processed, 5);
+        let by_id = |wid: u64| {
+            stats
+                .per_worker
+                .iter()
+                .find(|w| w.worker_id == wid)
+                .unwrap()
+        };
+        assert_eq!(by_id(1).blocks_processed, 3);
+        assert_eq!(by_id(2).blocks_processed, 1);
+        // The external worker gets a synthetic entry carrying just its
+        // block count.
+        let external = by_id(7);
+        assert_eq!(external.blocks_processed, 1);
+        assert_eq!(external.wall_time, Duration::ZERO);
+        assert_eq!(stats.per_worker.len(), 3);
+    }
+
+    #[test]
+    fn build_run_stats_task_counts_survive_unregistered_workers() {
+        // Returns observed from clients that never sent Register (an
+        // older daisy): per-task counts stay correct, per-worker
+        // attribution is simply absent.
+        let mut tally = RunTally::default();
+        tally.count_return("a", None);
+        tally.count_return("a", None);
+        let stats = build_run_stats(
+            Instant::now(),
+            vec![],
+            tally,
+            ProcessStats::default(),
+        );
+        assert_eq!(stats.per_task["a"].blocks_processed, 2);
+        assert!(stats.per_worker.is_empty());
+    }
 
     #[test]
     fn linear_trend_constant_signal_has_zero_slope() {

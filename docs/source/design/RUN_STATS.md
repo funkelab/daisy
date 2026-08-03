@@ -22,7 +22,9 @@ pub struct RunStats {
 
 ## How worker stats arrive
 
-Each worker thread holds a RAII `ExitNotifier` that fires on Drop:
+Wall time and CPU time come from the worker thread itself; block counts
+come from the server (next section). Each worker thread holds a RAII
+`ExitNotifier` that fires on Drop:
 
 ```rust
 impl Drop for ExitNotifier {
@@ -44,34 +46,49 @@ The channel send is best-effort (`let _ = ...`) — if the receiver has already 
 - macOS: `thread_info(THREAD_BASIC_INFO)` Mach syscall.
 - Other: returns `None`, CPU time isn't reported.
 
-## Known gap: spawn-mode blocks are invisible to worker stats
+## Block counts: server-side, attributed via `Register`
 
-`WorkerStats.blocks_processed` (and the derived mean-ms / cpu-busy / slope
-figures) is incremented only in the in-process worker thread's block loop.
-In worker-function (spawn) mode the blocks are processed by *external*
-subprocesses the stats layer never observes, so the per-task panel reports
-`blocks 0` — and a per-task "wall" that is the sum of idle worker-thread
-lifetimes — while the execution summary (fed by the scheduler's release
-accounting) is correct.
+`blocks_processed` is counted by the **server**, not by workers. Every
+`Client::connect` — the in-process thread worker, the subprocess shim
+(`daisy._subprocess_worker`), and any external cluster worker using
+`daisy.Client` — sends `Message::Register { task_id, worker_id }` right
+after the TCP connection opens. The bookkeeper records the connection's
+identity, and each *valid* block return (`ReleaseBlock` or
+`BlockFailed`) increments a `RunTally` counter per task and per
+registered worker. `build_run_stats` then merges the per-worker counts
+into the exit-channel `WorkerStats` by `(task_id, worker_id)`;
+registered workers with no thread in the server process (fully external
+workers) get synthetic entries carrying just their block counts.
+
+Consequences of counting at the server:
+
+- The numbers are identical across thread mode, shim mode (the shim
+  child registers with the same worker id as its babysitter thread, so
+  the counts land on that thread's stats entry), and external workers.
+- A reclaimed attempt (block timeout, dead client) never produced a
+  valid return, so it is not counted — the count is "returns the
+  scheduler actually accepted", which is what the rest of the report
+  is based on.
+- Failed-but-returned blocks DO count: the worker spent the time.
+- A client running an older daisy that never registers still yields
+  correct per-*task* counts (keyed by the returned block's task id);
+  only the per-worker attribution is missing for it.
 
 ### Planned enhancement: `daisy.profile_block`
 
-The intended fix is to stop assuming the server has insight into worker
-internals and instead let profiling data travel *with the block*:
+Block *counts* are now mode-independent, but per-block CPU and memory
+still are not — a subprocess worker's CPU shows up in process-wide
+stats, not per-worker. The plan is to let profiling data travel *with
+the block*:
 
-- a `daisy.profile_block(block)` context manager usable in any worker code
-  (including hand-rolled workers on cluster nodes) that records wall time,
-  CPU time, and peak-RSS delta around the wrapped code and attaches the
-  result to the block;
+- a `daisy.profile_block(block)` context manager usable in any worker
+  code (including hand-rolled workers on cluster nodes) that records
+  wall time, CPU time, and peak-RSS delta around the wrapped code and
+  attaches the result to the block;
 - the `ReleaseBlock` / `BlockFailed` messages carry the optional profile
-  payload back to the server, which feeds run stats from it — identical
-  accounting for thread-mode, shim (`worker_processes=True`), and fully
-  external workers;
-- 1-arg process functions get wrapped in `profile_block` automatically, so
-  the default experience needs no user code.
-
-Until then, treat the per-task worker-stats panel as meaningful only for
-block-function (thread) mode.
+  payload back to the server, which feeds run stats from it;
+- 1-arg process functions get wrapped in `profile_block` automatically,
+  so the default experience needs no user code.
 
 ## Per-block durations
 

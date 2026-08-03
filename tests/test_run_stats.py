@@ -24,9 +24,6 @@ def test_stats_dict_has_expected_keys():
         read_write_conflict=False,
         max_workers=2,
         max_retries=0,
-        # thread mode: blocks_processed accounting is only visible for
-        # in-process workers (see RUN_STATS.md gap note)
-        worker_processes=False,
     )
     server.run_blockwise([task])
     s = server.last_run_stats
@@ -101,6 +98,32 @@ def test_slowing_workload_reports_positive_slope():
     )
 
 
+def test_blocks_processed_counted_in_thread_mode():
+    """The other tests in this file run the default subprocess-worker
+    mode; this one pins ``worker_processes=False`` so the in-process
+    thread path keeps coverage. Block counting is server-side (fed by
+    block returns over TCP), so both modes must report identically."""
+    server = _make_server()
+    task = daisy.Task(
+        task_id="threaded",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=2,
+        max_retries=0,
+        worker_processes=False,
+    )
+    server.run_blockwise([task])
+    s = server.last_run_stats
+    assert s["per_task"]["threaded"]["blocks_processed"] == 4
+    per_worker_total = sum(
+        int(w["blocks_processed"]) for w in s["per_worker"]
+    )
+    assert per_worker_total == 4
+
+
 def test_per_worker_stats_present_and_blocks_account():
     server = _make_server()
     task = daisy.Task(
@@ -112,11 +135,6 @@ def test_per_worker_stats_present_and_blocks_account():
         read_write_conflict=False,
         max_workers=4,
         max_retries=0,
-        # thread mode: per-worker block accounting is only visible for
-        # in-process workers (subprocess blocks are the documented run-stats
-        # gap, see docs/source/design/RUN_STATS.md); this test documents the
-        # thread-mode stats machinery.
-        worker_processes=False,
     )
     server.run_blockwise([task])
     s = server.last_run_stats
