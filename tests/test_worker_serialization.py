@@ -8,6 +8,7 @@ would. That split is what keeps an unpicklable object sitting in some
 unrelated corner of your project package from failing the payload.
 """
 
+import io
 import subprocess
 import sys
 import textwrap
@@ -17,7 +18,13 @@ import pytest
 
 cloudpickle = pytest.importorskip("cloudpickle")
 
-from daisy._worker_processes import _serialize, make_spawn_function  # noqa: E402
+from daisy._worker_processes import (  # noqa: E402
+    _serialize,
+    make_spawn_function,
+    read_payload,
+)
+
+import daisy  # noqa: E402
 
 
 def _write_project_package(tmp_path):
@@ -75,6 +82,31 @@ def test_module_is_shipped_by_reference_not_by_value(tmp_path, monkeypatch):
     assert "ModuleNotFoundError" in r.stderr
 
 
+def test_function_referencing_the_daisy_module_serializes():
+    """The reported shape of the bug, and the one most likely to bite: a block
+    function that reaches through the ``daisy`` global.
+
+    daisy installed editable — or from a source tree, as every contributor has
+    it — lives outside ``sys.prefix``. A serializer that ships out-of-prefix
+    modules by value walks daisy's whole namespace and chokes on the first
+    unpicklable member, so the run dies at submit time for a function that
+    only mentioned ``daisy.BlockStatus``. Salvaged from funkelab/daisy#73,
+    where dill hit exactly this.
+    """
+    assert not daisy.__file__.startswith(sys.prefix), (
+        "this test is only meaningful for an editable/source install, which is "
+        "how the repo's own venv is set up"
+    )
+
+    def process(block):
+        block.status = daisy.BlockStatus.SUCCESS
+
+    fn, _ = read_payload(io.BytesIO(_serialize((process, None))))
+    # By reference: the reconstructed function sees the same module object,
+    # not a copy of its namespace.
+    assert fn.__globals__["daisy"] is daisy
+
+
 def test_lambdas_and_closures_are_shipped_by_value():
     scale = 7
     payload = _serialize((lambda block: scale * 2, None))
@@ -105,6 +137,51 @@ def test_main_defined_function_round_trips(tmp_path):
     )
     assert r.returncode == 0, r.stderr
     assert "OK" in r.stdout
+
+
+def test_main_globals_reach_real_workers(tmp_path):
+    """End to end, not just a round trip: a script whose block function reads a
+    ``__main__`` module global, executed by actual subprocess workers.
+
+    ``__main__`` is the one namespace that *must* travel by value — the child's
+    ``__main__`` is the worker shim, so a reference would resolve to the wrong
+    module. The in-process round-trip test above cannot catch a break here,
+    because in that process ``__main__`` is still the script. Salvaged from
+    funkelab/daisy#73.
+    """
+    script = tmp_path / "main_globals.py"
+    script.write_text(
+        textwrap.dedent("""
+        import daisy
+
+        FACTOR = 2  # a __main__ global the worker must see
+
+        def process(block):
+            # Fails the block (and so the run) if the global did not travel.
+            assert FACTOR == 2, f"FACTOR came across as {FACTOR!r}"
+
+        task = daisy.Task(
+            task_id="main-globals",
+            total_roi=daisy.Roi((0,), (20,)),
+            read_roi=daisy.Roi((0,), (10,)),
+            write_roi=daisy.Roi((0,), (10,)),
+            process_function=process,
+            read_write_conflict=False,
+            max_workers=1,
+        )
+        assert daisy.run_blockwise(task, progress=False)
+        print("MAIN-GLOBALS-OK")
+        """)
+    )
+    r = subprocess.run(
+        [sys.executable, str(script)],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        cwd=tmp_path,
+    )
+    assert r.returncode == 0, r.stderr
+    assert "MAIN-GLOBALS-OK" in r.stdout
 
 
 def test_captured_lock_fails_with_actionable_guidance():
