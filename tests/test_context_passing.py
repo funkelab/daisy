@@ -12,13 +12,10 @@ untouched.
 """
 
 import os
-import subprocess
-import sys
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _mk_task(spawn_fn, n_blocks=16, max_workers=8, **kw):

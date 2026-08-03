@@ -22,14 +22,13 @@ All three are process-global; change them before calling
 
 from __future__ import annotations
 
-import typing
 import logging as _py_logging
 import re
 import sys
 import threading
 import traceback as _py_traceback
+import typing
 from pathlib import Path
-
 
 # --- Public knobs ------------------------------------------------------------
 
@@ -283,6 +282,7 @@ _IPYTHON_CELL_RE = re.compile(r'<ipython-input-(\d+)-[a-f0-9]+>')
 # Path of this package, used to strip daisy-internal frames from
 # tracebacks before rendering.
 import os as _os
+
 _DAISY_PKG_DIR = _os.path.abspath(_os.path.dirname(__file__))
 
 
@@ -393,6 +393,7 @@ def format_traceback(exc_type, exc, tb) -> str:
             if _TRACEBACK_STYLE == "rich":
                 try:
                     import io
+
                     from rich.console import Console
                     from rich.traceback import Traceback
                     tb_obj = Traceback.from_exception(

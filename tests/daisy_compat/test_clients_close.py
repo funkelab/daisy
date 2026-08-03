@@ -2,11 +2,9 @@ import logging
 import subprocess
 import sys
 
-import pytest
-from filelock import FileLock
-
 import daisy
 from daisy.logging import set_log_basedir
+from filelock import FileLock
 
 logging.basicConfig(level=logging.DEBUG)
 

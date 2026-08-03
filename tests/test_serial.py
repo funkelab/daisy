@@ -8,9 +8,8 @@ original traceback at the call site instead of three buried retry
 attempts in a post-run summary.
 """
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _task(task_id, process_function):

@@ -56,19 +56,17 @@ print(f"MODE={MODE}  MULTIPROCESSING={MULTIPROCESSING}")
 
 # %%
 import tempfile
-import threading
 import time
 from pathlib import Path
 
+import daisy.logging as gl
+import daisy.v2 as daisy
 import lsd_lite
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 import mwatershed
 import numpy as np
 import zarr
-
-import daisy.v2 as daisy
-import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_mws_"))
 gl.set_log_basedir(_TMP / "logs")

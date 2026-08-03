@@ -14,9 +14,8 @@ task's workers were ever simultaneously alive.
 import threading
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _make_task(task_id, *, max_workers, requires=None, blocks=8, hold_ms=20,

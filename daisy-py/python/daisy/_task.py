@@ -10,11 +10,11 @@ Backwards-compat aliases (e.g. `num_workers=` on Task) live in
 `daisy.v1_compat`, not here.
 """
 
-from contextlib import contextmanager
 import copy
 import inspect
 import logging
 import warnings
+from contextlib import contextmanager
 from pathlib import Path
 
 import daisy._daisy as _rs

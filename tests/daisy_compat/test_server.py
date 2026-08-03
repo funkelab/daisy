@@ -1,8 +1,7 @@
 import logging
 
-import pytest
-
 import daisy
+import pytest
 
 logging.basicConfig(level=logging.DEBUG)
 

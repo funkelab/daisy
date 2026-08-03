@@ -16,7 +16,8 @@ Typical use::
     daisy.run_blockwise([task])
 """
 
-from importlib.metadata import PackageNotFoundError, version as _version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _version
 
 import daisy._daisy as _rs
 from daisy._progress import JsonProgressObserver

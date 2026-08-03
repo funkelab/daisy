@@ -30,7 +30,7 @@ import warnings
 from daisy import v2 as _v2
 from daisy._runner import _run_serial
 from daisy._task import _record_task_upstream
-from daisy.v2 import (  # noqa: F401 — re-exported compat surface
+from daisy.v2 import (
     BlockStatus,
     BlockwiseDependencyGraph,
     Client,
@@ -133,6 +133,7 @@ def _install_compat_block_boundary():
     wire block so daisy's bookkeeping (auto-SUCCESS, failure reporting)
     is unaffected."""
     from contextlib import contextmanager
+
     from daisy._task import Client
 
     _orig_acquire = Client.acquire_block

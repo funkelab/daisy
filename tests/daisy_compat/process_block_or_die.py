@@ -6,10 +6,10 @@ the normal exception handling in daisy's Worker._spawn_wrapper). Subsequent
 workers see the marker and process blocks normally.
 """
 
-import daisy as daisy
-
 import os
 import sys
+
+import daisy as daisy
 
 tmp_path = sys.argv[1]
 marker = os.path.join(tmp_path, "worker_crashed")

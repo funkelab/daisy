@@ -4,8 +4,8 @@ Block IDs and ordering match daisy exactly, using the same funlib-compatible
 generalized Cantor pairing function.
 """
 
-from daisy import Scheduler, Task, Block, BlockStatus, Roi
 import pytest
+from daisy import Block, BlockStatus, Roi, Scheduler, Task
 
 
 def process_block(block):

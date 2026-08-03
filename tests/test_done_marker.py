@@ -10,7 +10,6 @@ And the safety check:
 """
 
 import shutil
-import tempfile
 from pathlib import Path
 
 import daisy

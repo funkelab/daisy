@@ -10,8 +10,6 @@ import os
 import subprocess
 import sys
 
-import pytest
-
 import daisy
 from daisy.logging import set_log_basedir
 

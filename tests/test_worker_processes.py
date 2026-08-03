@@ -9,9 +9,8 @@ payload passed over an anonymous stdin pipe.
 
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _busy(n):
@@ -53,7 +52,7 @@ def test_lambda_gets_real_parallelism():
     iters = _calibrate(0.15)
 
     def timed(workers):
-        fn = lambda block: _busy(iters)  # noqa: E731 — the lambda IS the point
+        fn = lambda block: _busy(iters)
         # best of two: a single sample is noisy when the whole suite's
         # worker churn loads the machine
         walls = []
@@ -165,9 +164,9 @@ def test_subprocess_workers_are_the_default(tmp_path):
     out = str(tmp_path)
 
     def record_pid(block):
+        import os as _os
         import time as _time
         from pathlib import Path
-        import os as _os
 
         Path(out, f"pid-{_os.getpid()}-{block.block_id[1]}").touch()
         _time.sleep(0.05)  # keep blocks around long enough for all workers
@@ -200,8 +199,8 @@ def test_worker_processes_false_runs_in_server_process(tmp_path):
     out = str(tmp_path)
 
     def record_pid(block):
-        from pathlib import Path
         import os as _os
+        from pathlib import Path
 
         Path(out, f"pid-{_os.getpid()}-{block.block_id[1]}").touch()
 

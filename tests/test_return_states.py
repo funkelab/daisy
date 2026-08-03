@@ -1,9 +1,8 @@
 """run_blockwise(return_states=True): TaskState access through the front
 door, without touching the lower-level Server class."""
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _task(task_id, fn, total=40, **kw):

@@ -4,9 +4,8 @@ must never be able to hang a run, or its shutdown, forever."""
 import os
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _task(fn, **kw):

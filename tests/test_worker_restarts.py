@@ -13,9 +13,8 @@ crash a worker thread (raising from the 0-arg callable causes
 
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _always_crashing_worker():
@@ -163,8 +162,9 @@ def _block_holding_worker():
     """0-arg worker that acquires blocks one at a time and crashes
     while holding one. Reproduces the race between the in-flight
     block's release message and the worker-thread exit signal."""
-    import daisy as g
     import time
+
+    import daisy as g
     client = g.Client()
     while True:
         with client.acquire_block() as block:
@@ -363,7 +363,6 @@ def test_abandonment_raises_from_run_blockwise_with_cause():
     message must carry the task id, restart accounting, and the original
     worker error. `Server.run_blockwise` (tested above) stays non-raising
     for introspection."""
-    import pytest
 
     def crash(block):
         raise ValueError("broken import on node xyz")

@@ -2,10 +2,9 @@
 ROIs — v1 parity for code that constructs blocks directly, e.g.
 "process this one ROI without a blockwise job" helpers."""
 
+import daisy
 import funlib.geometry as fg
 import pytest
-
-import daisy
 
 
 def test_block_constructs_from_funlib_rois():

@@ -25,15 +25,14 @@ import threading
 import time
 from pathlib import Path
 
+import daisy.logging as gl
+import daisy.v2 as daisy
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.ndimage import label as scipy_label
 from skimage.data import astronaut
 from skimage.filters import sobel
 from skimage.segmentation import watershed
-
-import daisy.v2 as daisy
-import daisy.logging as gl
 
 _TMP = Path(tempfile.mkdtemp(prefix="daisy_astronaut_pipeline_"))
 gl.set_log_basedir(_TMP / "logs")

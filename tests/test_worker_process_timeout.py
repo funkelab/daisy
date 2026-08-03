@@ -12,9 +12,8 @@ double-apply, no waiting for a sleeper.
 
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 @pytest.mark.timeout(30)

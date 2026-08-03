@@ -4,16 +4,14 @@ Measures time to iterate through all blocks in a dependency graph for a
 volume chunked into ~1M blocks. Compares daisy (Python) vs daisy (Rust).
 """
 
-import time
 import json
+import time
 
 # --- Daisy ---
 from daisy import BlockwiseDependencyGraph as DaisyGraph
 from daisy import Roi as DaisyRoi
 
 # --- Daisy ---
-from daisy import BlockwiseDependencyGraph as DaisyGraph
-from daisy import Roi as DaisyRoi
 
 
 def bench_daisy(total_shape, block_shape, context, read_write_conflict):

@@ -31,8 +31,8 @@ import os
 import pickle
 import struct
 import subprocess
-import tempfile
 import sys
+import tempfile
 
 #: exit code the worker child uses when it self-terminates because a block
 #: exceeded ``Task(timeout=...)`` (see ``_subprocess_worker``).

@@ -11,11 +11,10 @@ Compares three configurations:
                             via `daisy.Client`)
 """
 
-import time
 import json
+import time
 
 # Ensure both packages are importable
-import daisy
 import daisy
 
 

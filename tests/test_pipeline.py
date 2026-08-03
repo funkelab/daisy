@@ -1,9 +1,8 @@
 """Tests for the Rust-backed Pipeline DSL — `+` (sequential) and `|`
 (parallel) composition over `Task` and `Pipeline` instances."""
 
-import pytest
-
 import daisy.v2 as daisy
+import pytest
 from daisy.v2 import Pipeline
 
 

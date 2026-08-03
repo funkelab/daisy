@@ -11,7 +11,6 @@ logging machinery.
 
 import daisy._daisy as _rs
 from daisy import logging as _worker_log
-
 from daisy._progress import _log_resume_summary
 from daisy._task import (
     _to_pipeline,

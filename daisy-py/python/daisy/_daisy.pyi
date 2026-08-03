@@ -6,9 +6,9 @@ pyright) read this `.pyi` instead of trying to introspect the
 compiled `.so`.
 """
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # -- Geometry primitives ------------------------------------------------
 
@@ -49,7 +49,6 @@ class Roi:
     def translate(self, by: Coordinate | Iterable[int]) -> Roi: ...
     def __eq__(self, other: object) -> bool: ...
     def __hash__(self) -> int: ...
-    def __repr__(self) -> str: ...
 
 
 # -- Blocks -------------------------------------------------------------
@@ -149,7 +148,7 @@ class Task:
         fit: str = ...,
         max_workers: int = ...,
         max_retries: int = ...,
-        timeout: float | int | object | None = ...,
+        timeout: float | object | None = ...,
         done_marker_path: str | bool | None = ...,
         requires: dict[str, int] | None = ...,
         max_worker_restarts: int = ...,
@@ -226,7 +225,6 @@ class Pipeline:
     def __or__(self, other: Task | Pipeline) -> Pipeline: ...
     def __radd__(self, other: Task | Pipeline) -> Pipeline: ...
     def __ror__(self, other: Task | Pipeline) -> Pipeline: ...
-    def __repr__(self) -> str: ...
 
 
 # -- Dependency graph ---------------------------------------------------
@@ -290,7 +288,6 @@ class Context:
     def to_env(self) -> str: ...
     @staticmethod
     def from_env() -> Context: ...
-    def __repr__(self) -> str: ...
 
 class SyncClient:
     def __init__(self, host: str, port: int, task_id: str) -> None: ...

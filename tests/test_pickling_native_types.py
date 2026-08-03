@@ -8,9 +8,8 @@ subprocess workers) fails with "Can't pickle <class 'builtins.Roi'>".
 
 import pickle
 
-import pytest
-
 import daisy
+import pytest
 
 
 @pytest.mark.parametrize("cls_name", [

@@ -1,11 +1,7 @@
-from daisy import Scheduler
-from daisy import Task
-from daisy import Block, BlockStatus
-from daisy import Roi
+import logging
 
 import pytest
-
-import logging
+from daisy import Block, BlockStatus, Roi, Scheduler, Task
 
 logger = logging.getLogger(__name__)
 
