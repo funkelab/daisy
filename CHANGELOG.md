@@ -153,6 +153,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The worker context carries the log directory again.** `set_log_basedir(...)`
+  now reaches *every* worker, including ones daisy never launched. Workers
+  daisy starts itself already received the master's logging configuration in
+  their payload, but that is the end of the chain: a worker that re-execs
+  itself — `srun`, `sbatch`, `docker run`, a plain `subprocess.run` inside a
+  spawn function — passes on nothing but the environment. `DAISY_CONTEXT` held
+  five keys and no `logdir`, so `daisy.Client()` in such a process fell back
+  to *its own* default and reported the relative `daisy_logs`: the
+  `client.context["logdir"]` key was present but pointed somewhere the master
+  never chose, and per-worker logs scattered beside whatever cwd the job
+  happened to start in.
+
+  The directory now travels in the context, and **constructing a
+  `daisy.Client()` adopts it** — daisy 1.x semantics (`daisy/client.py`:
+  `set_log_basedir(self.context["logdir"])`), restored. Every worker logs where
+  the driver asked, whatever launched it, so the 1.x idiom
+  `set_log_basedir(client.context["logdir"])` is now redundant rather than
+  merely correct. An empty value carries "file logging is off", so
+  `set_log_basedir(None)` propagates too; a worker that wants its own location
+  sets it after constructing its client.
+
+- **Context values are percent-encoded.** `DAISY_CONTEXT` is
+  `key=value:key=value` with no escape mechanism, so a value containing `:` or
+  `=` silently corrupted the handoff — reachable today with a task id like
+  `stage=1`, and now that paths travel in there, with any log directory
+  containing a colon (every Windows path). `%`, `:` and `=` are escaped as
+  `%25`, `%3A`, `%3D`; everything else, including non-ASCII, is untouched.
+  `Context.to_env()` / `from_env()` handle this transparently, so consumers
+  see clean values. Only code that parses the raw environment variable itself
+  needs to know — and such code was broken for these values anyway.
+
 - `daisy.Block` (compat surface) now accepts `funlib.geometry` ROIs in its
   constructor and presents its ROIs as `funlib.geometry` types — the same
   contract as blocks handed to process functions. v1 code that constructs

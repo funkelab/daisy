@@ -18,6 +18,7 @@ pub mod serial;
 pub mod server;
 pub mod task;
 pub mod task_state;
+pub mod worker_context;
 pub mod worker_pool;
 
 pub use block::{Block, BlockStatus};

@@ -115,6 +115,35 @@ def _capture_parent_config() -> dict:
     }
 
 
+def context_with_logdir(context):
+    """Return `context` with the master's log directory added.
+
+    The payload frame above carries the parent's logging config to workers
+    *daisy* launches, but that is the end of the chain: a worker that re-execs
+    itself — `srun`, `sbatch`, `docker run`, a plain `subprocess.run` in a
+    spawn function — hands its child nothing but the environment. The context
+    is the only channel that survives that hop, so the directory travels in
+    it, and `client.context["logdir"]` (the daisy 1.x idiom, still the
+    documented way for a hand-written cluster worker to place its own logs)
+    resolves to the directory the master actually chose.
+
+    Without this the key is not merely missing: `Client` falls back to the
+    worker's *own* `get_log_basedir()`, so a grandchild reports the relative
+    default `daisy_logs` and scatters logs beside whatever its cwd happens to
+    be. Silent, and per-worker.
+    """
+    from daisy import logging as _worker_log
+
+    basedir = _worker_log.get_log_basedir()
+    with_logdir = context.copy()
+    # An empty value carries "file logging is off" — the master may have
+    # called `set_log_basedir(None)`, and a worker that quietly re-enabled
+    # file logging would be just as wrong as one that logged to the wrong
+    # place. `Client` maps it back to None.
+    with_logdir["logdir"] = "" if basedir is None else str(basedir)
+    return with_logdir
+
+
 def apply_parent_config(meta: dict) -> None:
     """Child side: restore the parent's globals before any user code runs."""
     for p in reversed(meta.get("sys_path", [])):
@@ -215,7 +244,7 @@ def make_spawn_function(process_function, arity, timeout=None):
         # relying on the parent's process-global env var, which concurrent
         # spawns overwrite.
         env = dict(os.environ)
-        env["DAISY_CONTEXT"] = context.to_env()
+        env["DAISY_CONTEXT"] = context_with_logdir(context).to_env()
         # Capture the child's output (to spooled files, not pipes — no
         # reader-deadlock for chatty workers) and re-emit it through our own
         # streams. The parent runs this inside `_WorkerLogContext`, whose

@@ -116,7 +116,7 @@ Because the framing is `[u32 length][bincode]`, a worker in another language nee
 
 1. Length-prefix framing matching the same byte order (big-endian u32).
 2. A bincode codec for the `Message` variants and `Block` struct.
-3. The `DAISY_CONTEXT` env var encoding, to discover host/port/task_id when launched as a 0-arg `spawn_function` worker.
+3. The `DAISY_CONTEXT` env var encoding, to discover host/port/task_id when launched as a 0-arg `spawn_function` worker. It holds `key=value` pairs joined by `:`, with `%`, `:` and `=` percent-encoded inside keys and values (`%25`, `%3A`, `%3D`) since the framing has no other escape. Keys: `hostname`, `port`, `task_id`, `worker_id`, `resource_tracking`, and `logdir` (where the master wants per-worker logs; constructing a `daisy.Client` adopts it, and an empty value means the master disabled file logging). Unknown keys must be ignored: more may be added.
 
 The `Message` and `Block` types in daisy-core are the source of truth. They're plain Rust structs with `#[derive(Serialize, Deserialize)]` so any language with a bincode crate can speak the protocol. Python workers go through `_rs.SyncClient` which is what `daisy.Client()` wraps — but the underlying TCP protocol is just bincode over TCP.
 

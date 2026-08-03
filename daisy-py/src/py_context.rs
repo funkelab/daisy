@@ -2,6 +2,7 @@
 //! task_id, worker_id) to worker processes via the `DAISY_CONTEXT`
 //! environment variable.
 
+use daisy_core::worker_context::{decode_value, encode_value};
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PyTuple};
@@ -121,7 +122,7 @@ impl PyContext {
     fn to_env(&self) -> String {
         self.inner
             .iter()
-            .map(|(k, v)| format!("{k}={v}"))
+            .map(|(k, v)| format!("{}={}", encode_value(k), encode_value(v)))
             .collect::<Vec<_>>()
             .join(":")
     }
@@ -165,7 +166,7 @@ pub(crate) fn parse_env_string(env: &str) -> PyResult<HashMap<String, String>> {
         let (k, v) = token.split_once('=').ok_or_else(|| {
             PyErr::new::<PyValueError, _>(format!("invalid context token: {token}"))
         })?;
-        inner.insert(k.to_string(), v.to_string());
+        inner.insert(decode_value(k), decode_value(v));
     }
     Ok(inner)
 }

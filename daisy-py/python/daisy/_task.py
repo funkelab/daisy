@@ -318,21 +318,27 @@ class Client:
     def __init__(self, context=None):
         if context is None:
             context = Context.from_env()
-        # daisy 1.x callers reach for `client.context["logdir"]` to set up
-        # per-worker logging themselves. v2 owns logging internally and no
-        # longer puts logdir in the worker context, so fall back to the
-        # process-global `get_log_basedir()` when the key is missing. In a
-        # worker subprocess that global is not inherited — nothing is, a
-        # spawned child starts from defaults — so the parent ships its
-        # logging configuration in the worker payload and
-        # `_worker_processes.apply_parent_config` restores it before we get
-        # here (see `_capture_parent_config`).
-        if "logdir" not in context:
-            from daisy.logging import get_log_basedir
+        # Constructing a Client adopts the run's log directory, exactly as
+        # daisy 1.x did (`daisy/client.py`: `set_log_basedir(
+        # self.context["logdir"])`). The server puts the master's directory in
+        # every worker context, so this holds for every worker whatever
+        # launched it — daisy's own subprocess workers, a job at the far end
+        # of an `srun`, a hand-written worker on a cluster node. Without it,
+        # `set_log_basedir(...)` in the driver would configure only the
+        # processes daisy happens to spawn itself, and workers that connect on
+        # their own would scatter logs beside whatever cwd they started in.
+        #
+        # An empty value means the master disabled file logging; an absent key
+        # means the context was built by hand (a test, an older server), in
+        # which case this process's own setting stands and applying it is a
+        # no-op. A worker that wants its own location calls
+        # `set_log_basedir(...)` after constructing its Client, as in 1.x.
+        from daisy.logging import get_log_basedir, set_log_basedir
 
+        if "logdir" not in context:
             basedir = get_log_basedir()
-            if basedir is not None:
-                context["logdir"] = str(basedir)
+            context["logdir"] = "" if basedir is None else str(basedir)
+        set_log_basedir(context["logdir"] or None)
         self.context = context
         self.host = context["hostname"]
         self.port = int(context["port"])

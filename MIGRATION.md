@@ -96,9 +96,12 @@ directly. Use it for `pdb`, for closures over live objects, and in tests that
 need to observe in-process state.
 
 If your 0-arg worker function re-executes something itself (`srun`, `sbatch`,
-a container), daisy does not see that grandchild process and cannot configure
-it. Forward what it needs — `context.to_env()` as `DAISY_CONTEXT`, and your
-own logging setup — the way you already would for a remote worker.
+a container), forward `context.to_env()` as `DAISY_CONTEXT` and the grandchild
+has everything it needs. That includes logging: the context carries the
+master's log directory, and constructing a `daisy.Client()` adopts it, as in
+1.x. The old `set_log_basedir(client.context["logdir"])` line is now
+redundant — harmless, but you can delete it. A worker that wants its logs
+somewhere else calls `set_log_basedir(...)` *after* constructing its client.
 
 ## Removed APIs
 
@@ -115,7 +118,7 @@ v2 introduces format identifiers under the v2 name; existing daisy 1.x stores we
 
 - **Block tracking** is a Zarr v3 *group* per task (children: `done`, `failures`, and the resource arrays when enabled), with a `daisy_task_hash` attribute on the group under the hash prefix `daisy-tracking:v1`. These are v2-only. An earlier v2 build wrote a bare Zarr *array* at this path instead; such a directory is refused with the usual actionable error ("Delete it to start fresh: `rm -rf …`"), so delete stale tracking directories when upgrading — the completed work is re-done once.
 - **The TCP frame carries a protocol version byte**, and `Block` carries an optional stats payload. The payload is positional bincode, which is not self-describing, so a driver and its workers must run the same daisy build. Before the version byte, a mismatch failed deep inside the decoder (`UnexpectedEnd`, or an `Option` tag parsed out of an unrelated string's length) or, in one direction, silently discarded the trailing bytes; now it reports both versions and tells you to rebuild your workers. The realistic way to hit this is external cluster workers loading daisy from a different environment (conda env, module tree) than the driver.
-- **Worker context** reaches workers two ways. The `DAISY_CONTEXT` environment variable is set before each spawn-function call (1.x had no equivalent — workers in 1.x were spawned via `multiprocessing` + `dill`). Because that variable is process-global, a spawn function that blocks before its child captures the environment (an `sbatch`/`bsub` submission, a slow filesystem) can observe a *later* worker's value under concurrent spawns. Spawn functions that need a reliable identity should declare a keyword-only `context` parameter and receive this worker's `daisy.Context` by value:
+- **Worker context** carries `hostname`, `port`, `task_id`, `worker_id`, `resource_tracking` and `logdir` (the master's log directory, so a worker at the far end of an `srun` can place its own logs where the rest of the run's are). Values are percent-encoded — `%`, `:` and `=` become `%25`, `%3A`, `%3D` — because the `key=value:key=value` framing has no escape mechanism and both task ids and paths can contain those characters; `Context.to_env()`/`from_env()` hide this, so only code parsing the raw environment variable itself needs to care. The context reaches workers two ways. The `DAISY_CONTEXT` environment variable is set before each spawn-function call (1.x had no equivalent — workers in 1.x were spawned via `multiprocessing` + `dill`). Because that variable is process-global, a spawn function that blocks before its child captures the environment (an `sbatch`/`bsub` submission, a slow filesystem) can observe a *later* worker's value under concurrent spawns. Spawn functions that need a reliable identity should declare a keyword-only `context` parameter and receive this worker's `daisy.Context` by value:
 
   ```python
   def start_worker(*, context):

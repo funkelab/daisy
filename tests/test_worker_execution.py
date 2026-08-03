@@ -265,6 +265,135 @@ def test_zero_arg_worker_sees_the_parent_log_basedir(tmp_path):
         assert seen_logdir == str(basedir)
 
 
+@pytest.mark.timeout(60)
+def test_re_execed_worker_still_gets_the_log_dir(tmp_path):
+    """A worker that re-execs itself — `srun`, `sbatch`, `docker run`, a bare
+    `subprocess.run` in a spawn function — hands its child nothing but the
+    environment. The log directory therefore travels in the *context*, not
+    only in the payload frame daisy sends to workers it launches itself.
+
+    Regression: the context carried five keys and no logdir, so `Client` in
+    the grandchild fell back to that process's own default and reported the
+    relative `daisy_logs`. Not a missing key — a wrong one, per worker,
+    silently.
+    """
+    out = tmp_path / "seen"
+    out.mkdir()
+    basedir = tmp_path / "master-logs"
+    daisy.logging.set_log_basedir(basedir)
+
+    grandchild = f"""
+import warnings; warnings.simplefilter("ignore")
+import daisy, daisy.logging as gl
+from pathlib import Path
+client = daisy.Client()
+# what the context carried, and what constructing the Client actually did
+# (chr(10), not an escape: this source is nested inside an f-string)
+Path({str(out)!r}, "report").write_text(
+    client.context["logdir"] + chr(10) + str(gl.get_log_basedir())
+)
+while True:
+    with client.acquire_block() as block:
+        if block is None:
+            break
+"""
+
+    def spawn():
+        subprocess.run([sys.executable, "-c", grandchild], check=True)
+
+    assert daisy.run_blockwise(
+        _task("logdir-reexec", spawn, 1, n_blocks=2), progress=False
+    )
+    carried, applied = (out / "report").read_text().splitlines()
+    assert carried == str(basedir)
+    # daisy 1.x semantics: constructing a Client adopts the run's log dir
+    assert applied == str(basedir)
+
+
+@pytest.mark.timeout(60)
+def test_log_dir_containing_a_separator_survives_the_context(tmp_path):
+    """The context is `key=value:key=value` with no escaping, and a path may
+    legally contain `:` (always does on Windows). Values are percent-encoded,
+    so such a directory reaches the worker intact instead of corrupting the
+    handoff.
+
+    Uses a re-execed worker deliberately: one daisy launches itself would get
+    the directory from the payload frame instead, and never exercise the
+    encoding."""
+    basedir = tmp_path / "wei:rd=logs"
+    basedir.mkdir()
+    daisy.logging.set_log_basedir(basedir)
+    out = tmp_path / "seen"
+    out.mkdir()
+
+    grandchild = f"""
+import warnings; warnings.simplefilter("ignore")
+import daisy
+from pathlib import Path
+client = daisy.Client()
+Path({str(out)!r}, "report").write_text(client.context["logdir"])
+while True:
+    with client.acquire_block() as block:
+        if block is None:
+            break
+"""
+
+    def spawn():
+        subprocess.run([sys.executable, "-c", grandchild], check=True)
+
+    assert daisy.run_blockwise(
+        _task("logdir-separator", spawn, 1, n_blocks=2), progress=False
+    )
+    assert (out / "report").read_text() == str(basedir)
+
+
+@pytest.mark.timeout(60)
+def test_disabled_file_logging_propagates_to_workers(tmp_path):
+    """`set_log_basedir(None)` turns file logging off for the run, and a
+    worker that quietly re-enabled it would be as wrong as one logging to the
+    wrong place. Re-execs, so the "off" state has to survive in the context
+    rather than in the payload frame."""
+    out = tmp_path / "seen"
+    out.mkdir()
+    daisy.logging.set_log_basedir(None)
+
+    grandchild = f"""
+import warnings; warnings.simplefilter("ignore")
+import daisy, daisy.logging as gl
+from pathlib import Path
+client = daisy.Client()
+Path({str(out)!r}, "report").write_text(repr(gl.get_log_basedir()))
+while True:
+    with client.acquire_block() as block:
+        if block is None:
+            break
+"""
+
+    def spawn():
+        subprocess.run([sys.executable, "-c", grandchild], check=True)
+
+    assert daisy.run_blockwise(
+        _task("logdir-off", spawn, 1, n_blocks=2), progress=False
+    )
+    assert (out / "report").read_text() == "None"
+
+
+def test_context_round_trips_reserved_characters():
+    """`to_env`/`from_env_string` are inverses even for values holding the
+    framing's own separators."""
+    ctx = daisy.Context(
+        hostname="node07",
+        port=41567,
+        task_id="stage=1:of:3",
+        worker_id=0,
+        logdir="/nrs/lab/my:logs",
+    )
+    back = daisy.Context.from_env_string(ctx.to_env())
+    assert back["task_id"] == "stage=1:of:3"
+    assert back["logdir"] == "/nrs/lab/my:logs"
+    assert back["hostname"] == "node07"
+
+
 # --------------------------------------------------------------------------
 # parallelism — the point of the whole design
 # --------------------------------------------------------------------------

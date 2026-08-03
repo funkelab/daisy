@@ -6,6 +6,7 @@ use crate::block_tracking::TaskSummary;
 use crate::scheduler::Scheduler;
 use crate::task::Task;
 use crate::task_state::{AbandonReason, TaskCounters, TaskState};
+use crate::worker_context::encode_value;
 use crate::worker_pool::WorkerPool;
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
@@ -497,11 +498,13 @@ impl Server {
                 // resource_tracking rides along so the worker can skip
                 // measuring entirely when nobody asked for stats — the
                 // server would only discard them.
+                // Values are percent-encoded: a task id is user-chosen and
+                // may contain the `:` or `=` this framing reserves.
                 let env_ctx = format!(
                     "hostname={}:port={}:task_id={}:worker_id={}:resource_tracking={}",
-                    host,
+                    encode_value(&host),
                     port,
-                    task_id,
+                    encode_value(&task_id),
                     worker_id,
                     if task.resource_tracking { 1 } else { 0 }
                 );
