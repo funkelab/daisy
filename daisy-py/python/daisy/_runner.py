@@ -64,7 +64,7 @@ class Server:
         self.last_task_order = None
 
     def run_blockwise(
-        self, pipeline, resources=None, progress=True, block_tracking=True
+        self, pipeline, resources=None, progress=True, block_tracking=True, host=None
     ):
         pipeline = _prepare(_coerce_pipeline(pipeline))
         order = _rs._topo_order(pipeline)
@@ -75,6 +75,7 @@ class Server:
                 pipeline,
                 resources,
                 observer,
+                host=host,
                 block_tracking=block_tracking,
             )
             self.last_tracking_summary = summary
@@ -122,6 +123,7 @@ def run_blockwise(
     progress=True,
     block_tracking=True,
     return_states=False,
+    host=None,
 ):
     """Run the given pipeline to completion.
 
@@ -142,6 +144,18 @@ def run_blockwise(
     can be inspected programmatically without the lower-level
     ``Server`` class. Abandonment (worker restart cap exhausted)
     raises ``RuntimeError`` either way.
+
+    ``host`` is the address workers are told to connect to. Leave it
+    unset and daisy detects one — this host's resolved name, else the
+    default-route interface, verified before use — and listens on every
+    interface so workers on other machines can reach it. Set it when
+    detection cannot know the answer: a multi-homed node with a specific
+    fabric, a container whose external address differs from anything it
+    can see, or a DNS name only the compute nodes resolve. Passing
+    ``"127.0.0.1"`` keeps the scheduler private to this machine, which
+    also means no remote worker can connect. ``DAISY_HOST`` sets the same
+    value from the environment, for pipeline libraries that don't thread
+    the argument through.
     """
     pipeline = _prepare(_coerce_pipeline(pipeline), distributed=multiprocessing)
     try:
@@ -151,6 +165,7 @@ def run_blockwise(
             resources=resources,
             progress=progress,
             block_tracking=block_tracking,
+            host=host,
         )
     finally:
         _worker_log.close_all_log_files()

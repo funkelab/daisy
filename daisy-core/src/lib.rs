@@ -1,3 +1,4 @@
+pub mod advertise;
 pub mod block;
 pub mod block_bookkeeper;
 pub mod block_profile;

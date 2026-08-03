@@ -123,7 +123,7 @@ async fn test_chained_tasks_distributed() {
     )
     .unwrap();
 
-    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
+    let (server, listener) = Server::bind(Some("127.0.0.1")).await.unwrap();
     let host = server.host().to_string();
     let port = server.port();
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
@@ -186,7 +186,7 @@ async fn test_server_client_no_conflict() {
 
     let pipeline = Pipeline::from_task(task);
 
-    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
+    let (server, listener) = Server::bind(Some("127.0.0.1")).await.unwrap();
     let host = server.host().to_string();
     let port = server.port();
 
@@ -243,7 +243,7 @@ async fn test_server_client_with_conflict() {
 
     let pipeline = Pipeline::from_task(task);
 
-    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
+    let (server, listener) = Server::bind(Some("127.0.0.1")).await.unwrap();
     let host = server.host().to_string();
     let port = server.port();
 
@@ -303,7 +303,7 @@ async fn test_server_block_failure_and_retry() {
 
     let pipeline = Pipeline::from_task(task);
 
-    let (server, listener) = Server::bind("127.0.0.1").await.unwrap();
+    let (server, listener) = Server::bind(Some("127.0.0.1")).await.unwrap();
     let host = server.host().to_string();
     let port = server.port();
 
@@ -355,4 +355,47 @@ async fn test_server_block_failure_and_retry() {
         .await
         .expect("worker did not exit within 2s")
         .unwrap();
+}
+
+/// The scheduler must advertise an address workers can reach, and listen on
+/// it. Regression: `bind` used `local_addr()` for both roles, so it bound
+/// loopback and put `127.0.0.1` in every worker context — fine on one
+/// machine, impossible across nodes, and invisible to every local test.
+#[tokio::test]
+async fn advertises_a_reachable_address_and_listens_on_it() {
+    let detected = daisy_core::advertise::resolve(None);
+    if detected.host == "127.0.0.1" {
+        // Sandboxes and CI containers may genuinely have nothing but
+        // loopback; there is no claim to test there.
+        eprintln!("no non-loopback address on this host; skipping");
+        return;
+    }
+
+    let (server, listener) = Server::bind(None).await.unwrap();
+    assert_ne!(
+        server.host(),
+        "127.0.0.1",
+        "a routable address exists ({}) but workers were told loopback",
+        detected.host
+    );
+
+    let addr = format!("{}:{}", server.host(), server.port());
+    let conn = tokio::net::TcpStream::connect(&addr).await;
+    assert!(
+        conn.is_ok(),
+        "advertised {addr} but the listener does not accept there: {:?}",
+        conn.err()
+    );
+    drop(listener);
+}
+
+/// An explicit loopback request stays on loopback — the scheduler must not
+/// silently open other interfaces for a single-machine run, since the wire
+/// protocol has no authentication.
+#[tokio::test]
+async fn explicit_loopback_is_honoured() {
+    let (server, listener) = Server::bind(Some("127.0.0.1")).await.unwrap();
+    assert_eq!(server.host(), "127.0.0.1");
+    let local = listener.local_addr().unwrap();
+    assert!(local.ip().is_loopback(), "bound {local}, expected loopback only");
 }

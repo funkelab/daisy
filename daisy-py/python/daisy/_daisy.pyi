@@ -341,7 +341,7 @@ def _run_distributed_server(
     input: Pipeline | Task,
     resources: dict[str, int] | None = ...,
     progress_observer: object | None = ...,
-    host: str = ...,
+    host: str | None = ...,
     block_tracking: bool = ...,
 ) -> tuple[dict[str, TaskState], dict[str, Any]]: ...
 def _run_blockwise_orchestrator(
@@ -350,5 +350,6 @@ def _run_blockwise_orchestrator(
     resources: dict[str, int] | None = ...,
     progress: bool | object | None = ...,
     block_tracking: bool = ...,
+    host: str | None = ...,
 ) -> dict[str, TaskState]: ...
 def _topo_order(input: Pipeline | Task) -> list[str]: ...

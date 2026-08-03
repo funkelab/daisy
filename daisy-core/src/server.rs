@@ -86,14 +86,29 @@ enum WorkerThread {
 }
 
 impl Server {
-    pub async fn bind(host: &str) -> std::io::Result<(Self, TcpListener)> {
-        let listener = TcpListener::bind((host, 0u16)).await?;
+    /// Listen for workers, and decide what address to tell them to dial.
+    ///
+    /// `host` is the caller's explicit choice (`run_blockwise(host=...)`);
+    /// `None` means auto-detect. The two addresses are deliberately separate:
+    /// the listener binds every interface so workers on other machines can
+    /// reach it, while `self.host` — what goes into the worker context — must
+    /// be an address those machines can resolve. Using `local_addr()` for
+    /// both, as this once did, advertises `0.0.0.0` (unusable) or pins the
+    /// whole run to loopback (also unusable off-box). See `advertise`.
+    pub async fn bind(host: Option<&str>) -> std::io::Result<(Self, TcpListener)> {
+        let advertise = crate::advertise::resolve(host);
+        let listener = TcpListener::bind((advertise.bind.as_str(), 0u16)).await?;
         let local_addr = listener.local_addr()?;
-        info!(%local_addr, "server listening");
+        let port = local_addr.port();
+        info!(
+            listening_on = %local_addr,
+            advertised_to_workers = %format!("{}:{}", advertise.host, port),
+            "server listening"
+        );
         Ok((
             Self {
-                host: local_addr.ip().to_string(),
-                port: local_addr.port(),
+                host: advertise.host,
+                port,
             },
             listener,
         ))

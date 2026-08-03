@@ -153,6 +153,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The scheduler no longer binds loopback, so remote workers can connect.**
+  `Server::bind` used one value for two different things — the interfaces to
+  listen on and the address to advertise to workers — and both defaulted to
+  `127.0.0.1`, since `_run_distributed_server`'s `host` parameter existed but
+  no caller ever passed it. A worker on another machine dialled its *own*
+  loopback and got nothing, which presents as workers that start and die: the
+  same symptom as a bad environment, so it is easy to misattribute. Single-node
+  runs were unaffected, which is why it survived.
+
+  The two roles are now separate. The listener binds every interface; the
+  advertised address is detected — this host's resolved name, else the
+  default-route interface, each *verified* with a real TCP round trip before
+  use — and falls back to loopback with a warning when nothing is reachable.
+  `run_blockwise(host=...)`, `Server.run_blockwise(host=...)` and the
+  `DAISY_HOST` environment variable override detection for multi-homed nodes,
+  containers, and names only the compute nodes resolve. Asking for loopback
+  explicitly binds loopback alone, so a single-machine run is not silently
+  exposed to the local network — the wire protocol has no authentication.
+
 - **The worker context carries the log directory again.** `set_log_basedir(...)`
   now reaches *every* worker, including ones daisy never launched. Workers
   daisy starts itself already received the master's logging configuration in

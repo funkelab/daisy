@@ -132,6 +132,7 @@ pub fn _topo_order(input: &Bound<'_, PyAny>, py: Python<'_>) -> PyResult<Vec<Str
     resources = None,
     progress = None,
     block_tracking = true,
+    host = None,
 ))]
 pub fn _run_blockwise_orchestrator(
     py: Python<'_>,
@@ -140,6 +141,7 @@ pub fn _run_blockwise_orchestrator(
     resources: Option<Bound<'_, PyDict>>,
     progress: Option<Py<PyAny>>,
     block_tracking: bool,
+    host: Option<&str>,
 ) -> PyResult<Py<PyAny>> {
     let pipeline = coerce_pipeline_or_task(py, input)?;
     let pipeline_any = pipeline.clone_ref(py).into_any();
@@ -185,7 +187,7 @@ pub fn _run_blockwise_orchestrator(
             pipeline.bind(py).as_any(),
             resources,
             progress_obj,
-            "127.0.0.1",
+            host,
             block_tracking,
         )?
         .into_any()
@@ -349,13 +351,13 @@ pub fn _run_serial(
 /// `on_start(states)`, `on_progress(states)`, and `on_finish(states)`
 /// — see `daisy/_compat.py:_TqdmObserver` for a tqdm-backed example.
 #[pyfunction]
-#[pyo3(signature = (input, resources=None, progress_observer=None, host="127.0.0.1", block_tracking=true))]
+#[pyo3(signature = (input, resources=None, progress_observer=None, host=None, block_tracking=true))]
 pub fn _run_distributed_server(
     py: Python<'_>,
     input: &Bound<'_, PyAny>,
     resources: Option<Bound<'_, PyDict>>,
     progress_observer: Option<Py<PyAny>>,
-    host: &str,
+    host: Option<&str>,
     block_tracking: bool,
 ) -> PyResult<Py<pyo3::types::PyTuple>> {
     let pipeline = coerce_pipeline_or_task(py, input)?;
