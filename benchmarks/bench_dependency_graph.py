@@ -1,58 +1,50 @@
-"""Benchmark: dependency graph block iteration speed.
+"""Benchmark: dependency graph construction and full enumeration.
 
-Measures time to iterate through all blocks in a dependency graph for a
-volume chunked into ~1M blocks. Compares daisy (Python) vs daisy (Rust).
+For a volume chunked into 125K-1M blocks, measures how long daisy takes to
+build a `BlockwiseDependencyGraph` and then enumerate every block together
+with its upstream dependencies.
+
+This is a *scaling* benchmark of a single implementation, not a comparison.
+It answers "how does graph cost grow with block count, conflict levels and
+context", which is what decides whether a chunking is viable at all.
+Construction is lazy, so `build_s` is expected to be ~0 and essentially all
+the cost lands in `iter_s`.
+
+Run from the repository root:
+
+    python benchmarks/bench_dependency_graph.py
+
+Writes `benchmarks/dep_graph_results.json` and
+`benchmarks/dep_graph_benchmark.png`.
 """
 
-import time
 import json
+import time
 
-# --- Daisy ---
-from daisy import BlockwiseDependencyGraph as DaisyGraph
-from daisy import Roi as DaisyRoi
+from daisy import BlockwiseDependencyGraph, Roi
 
-# --- Daisy ---
-from daisy import BlockwiseDependencyGraph as DaisyGraph
-from daisy import Roi as DaisyRoi
-
-
-def bench_daisy(total_shape, block_shape, context, read_write_conflict):
-    total_roi = DaisyRoi((0, 0, 0), total_shape)
-    write_roi = DaisyRoi((context, context, context), block_shape)
-    read_shape = tuple(b + 2 * context for b in block_shape)
-    read_roi = DaisyRoi((0, 0, 0), read_shape)
-
-    t0 = time.perf_counter()
-    graph = DaisyGraph(
-        "bench", read_roi, write_roi, read_write_conflict, "valid",
-        total_read_roi=total_roi,
-    )
-    t_build = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    count = 0
-    for block, upstream in graph.enumerate_all_dependencies():
-        count += 1
-    t_iter = time.perf_counter() - t0
-
-    return {
-        "blocks": count,
-        "levels": graph.num_levels,
-        "build_s": t_build,
-        "iter_s": t_iter,
-        "total_s": t_build + t_iter,
-    }
+CONFIGS = [
+    # (total_shape, block_shape, context, read_write_conflict, label)
+    ((1000, 1000, 1000), (10, 10, 10), 0, False, "1M blocks, no conflict"),
+    ((1000, 1000, 1000), (10, 10, 10), 2, True, "1M blocks, with conflict"),
+    ((200, 200, 200), (4, 4, 4), 0, False, "125K blocks, small chunks"),
+    ((500, 500, 500), (5, 5, 5), 1, True, "1M blocks, small context"),
+]
 
 
-def bench_daisy(total_shape, block_shape, context, read_write_conflict):
-    total_roi = DaisyRoi([0, 0, 0], list(total_shape))
-    write_roi = DaisyRoi([context, context, context], list(block_shape))
+def bench_dep_graph(total_shape, block_shape, context, read_write_conflict):
+    total_roi = Roi([0, 0, 0], list(total_shape))
+    write_roi = Roi([context] * len(block_shape), list(block_shape))
     read_shape = [b + 2 * context for b in block_shape]
-    read_roi = DaisyRoi([0, 0, 0], read_shape)
+    read_roi = Roi([0] * len(read_shape), read_shape)
 
     t0 = time.perf_counter()
-    graph = DaisyGraph(
-        "bench", read_roi, write_roi, read_write_conflict, "valid",
+    graph = BlockwiseDependencyGraph(
+        "bench",
+        read_roi,
+        write_roi,
+        read_write_conflict,
+        "valid",
         total_read_roi=total_roi,
     )
     t_build = time.perf_counter() - t0
@@ -62,55 +54,41 @@ def bench_daisy(total_shape, block_shape, context, read_write_conflict):
     count = len(deps)
     t_iter = time.perf_counter() - t0
 
+    total_s = t_build + t_iter
     return {
         "blocks": count,
         "levels": graph.num_levels,
         "build_s": t_build,
         "iter_s": t_iter,
-        "total_s": t_build + t_iter,
+        "total_s": total_s,
+        "blocks_per_s": count / total_s if total_s > 0 else float("inf"),
     }
 
 
 def run_benchmarks():
-    configs = [
-        # (total_shape, block_shape, context, conflict, label)
-        ((1000, 1000, 1000), (10, 10, 10), 0, False, "1M blocks, no conflict"),
-        ((1000, 1000, 1000), (10, 10, 10), 2, True,  "1M blocks, with conflict"),
-        ((200, 200, 200),    (4, 4, 4),     0, False, "125K blocks, small chunks"),
-        ((500, 500, 500),    (5, 5, 5),     1, True,  "1M blocks, small context"),
-    ]
-
     results = []
-    for total_shape, block_shape, context, conflict, label in configs:
-        print(f"\n{'='*60}")
+    for total_shape, block_shape, context, conflict, label in CONFIGS:
+        print(f"\n{'=' * 60}")
         print(f"  {label}")
-        print(f"  total={total_shape} block={block_shape} context={context} conflict={conflict}")
-        print(f"{'='*60}")
+        print(
+            f"  total={total_shape} block={block_shape} "
+            f"context={context} conflict={conflict}"
+        )
+        print(f"{'=' * 60}")
 
-        # Warmup
-        bench_daisy(total_shape, block_shape, context, conflict)
+        # Warmup, so the first configuration does not pay for one-off
+        # allocator growth that the others don't.
+        bench_dep_graph(total_shape, block_shape, context, conflict)
 
-        # Daisy
-        d = bench_daisy(total_shape, block_shape, context, conflict)
-        print(f"  daisy:   {d['blocks']:>8} blocks, {d['levels']:>3} levels, "
-              f"build={d['build_s']:.4f}s  iter={d['iter_s']:.4f}s  total={d['total_s']:.4f}s")
+        r = bench_dep_graph(total_shape, block_shape, context, conflict)
+        print(
+            f"  {r['blocks']:>8} blocks, {r['levels']:>3} levels, "
+            f"build={r['build_s']:.4f}s  iter={r['iter_s']:.4f}s  "
+            f"total={r['total_s']:.4f}s  ({r['blocks_per_s']:,.0f} blocks/s)"
+        )
 
-        # Daisy
-        g = bench_daisy(total_shape, block_shape, context, conflict)
-        print(f"  daisy: {g['blocks']:>8} blocks, {g['levels']:>3} levels, "
-              f"build={g['build_s']:.4f}s  iter={g['iter_s']:.4f}s  total={g['total_s']:.4f}s")
+        results.append({"label": label, **r})
 
-        speedup = d['total_s'] / g['total_s'] if g['total_s'] > 0 else float('inf')
-        print(f"  speedup: {speedup:.1f}x")
-
-        results.append({
-            "label": label,
-            "daisy": d,
-            "daisy": g,
-            "speedup": speedup,
-        })
-
-    # Save for plotting
     with open("benchmarks/dep_graph_results.json", "w") as f:
         json.dump(results, f, indent=2)
 
@@ -118,35 +96,33 @@ def run_benchmarks():
 
 
 def plot_results(results):
+    import matplotlib
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     labels = [r["label"] for r in results]
-    daisy_times = [r["daisy"]["total_s"] for r in results]
-    daisy_times = [r["daisy"]["total_s"] for r in results]
-
+    totals = [r["total_s"] for r in results]
     x = range(len(labels))
-    width = 0.35
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    bars1 = ax.bar([i - width/2 for i in x], daisy_times, width, label="daisy (Python)", color="#4878CF")
-    bars2 = ax.bar([i + width/2 for i in x], daisy_times, width, label="daisy (Rust)", color="#D65F5F")
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(x, totals, 0.6, color="#4878CF", edgecolor="black")
 
-    for bar, t in zip(bars1, daisy_times):
-        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.01,
-                f'{t:.3f}s', ha='center', va='bottom', fontsize=9)
-    for bar, t in zip(bars2, daisy_times):
-        ax.text(bar.get_x() + bar.get_width()/2., bar.get_height() + 0.01,
-                f'{t:.3f}s', ha='center', va='bottom', fontsize=9)
+    for bar, r in zip(bars, results):
+        ax.text(
+            bar.get_x() + bar.get_width() / 2.0,
+            bar.get_height(),
+            f"{r['total_s']:.3f}s\n{r['blocks_per_s'] / 1e6:.2f}M blocks/s",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
 
     ax.set_ylabel("Time (seconds)")
-    ax.set_title("Dependency Graph: Build + Iterate All Blocks")
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, rotation=15, ha='right')
-    ax.legend()
-
-    for i, r in enumerate(results):
-        ax.text(i, max(daisy_times[i], daisy_times[i]) * 1.15,
-                f'{r["speedup"]:.1f}x', ha='center', fontsize=11, fontweight='bold')
+    ax.set_title("Dependency Graph: Build + Enumerate All Dependencies")
+    ax.set_xticks(list(x))
+    ax.set_xticklabels(labels, rotation=15, ha="right")
+    ax.set_ylim(0, max(totals) * 1.25)
 
     plt.tight_layout()
     plt.savefig("benchmarks/dep_graph_benchmark.png", dpi=150)
@@ -154,5 +130,4 @@ def plot_results(results):
 
 
 if __name__ == "__main__":
-    results = run_benchmarks()
-    plot_results(results)
+    plot_results(run_benchmarks())

@@ -1,91 +1,83 @@
 """Benchmark: worker coordination scaling.
 
-Measures total time to distribute and process blocks across varying numbers
-of workers. Workers do trivial work (immediately return) to isolate the
-coordination overhead: server dispatch, TCP round-trips, block lifecycle.
+Measures total wall time to distribute and process blocks across varying
+numbers of workers. The blocks do no work (the callback returns
+immediately), so what is left is coordination overhead: server dispatch, TCP
+round-trips, block lifecycle, and worker process startup.
 
-Compares three configurations:
-    - daisy                (Python server + tornado TCP, block-function mode)
-    - daisy block-fn     (Rust server + tokio TCP, Rust-driven worker loop)
-    - daisy worker-fn    (Rust server + tokio TCP, Python-driven worker loop
-                            via `daisy.Client`)
+Compares the two `process_function` modalities daisy v2 supports. Both run
+in a dedicated worker subprocess (`python -m daisy._subprocess_worker`) --
+that is the only execution model on the distributed path -- and differ only
+in who drives the block loop:
+
+    - block-fn:  `f(block)`, one arg. The subprocess runs daisy's own
+                 `Client.acquire_block()` loop and calls `f` per block.
+    - worker-fn: `f()`, no args. The subprocess just calls `f`, which opens
+                 its own `daisy.Client()` and drives the loop in Python.
+
+Both configurations use the distributed `Server` at every worker count,
+including one, so the curve stays within a single execution model.
+`progress=False` keeps tqdm rendering out of the timed region -- it is not
+coordination overhead. Timings are machine-specific; compare shapes, not
+absolute seconds.
+
+Run from the repository root:
+
+    python benchmarks/bench_worker_scaling.py
+
+Writes `benchmarks/worker_scaling_results.json`,
+`benchmarks/block_scaling_results.json` and
+`benchmarks/worker_scaling_benchmark.png`.
 """
 
-import time
 import json
+import time
 
-# Ensure both packages are importable
 import daisy
-import daisy
 
 
-# --- Daisy benchmark ---
-def bench_daisy(num_blocks, num_workers):
-    def noop(block):
-        pass
-
+def _task(num_blocks, num_workers, process_function):
     total_size = num_blocks * 10
-    task = daisy.Task(
-        "bench",
-        total_roi=daisy.Roi((0,), (total_size,)),
-        read_roi=daisy.Roi((0,), (10,)),
-        write_roi=daisy.Roi((0,), (10,)),
-        process_function=noop,
-        read_write_conflict=False,
-        num_workers=num_workers,
-        max_retries=0,
-    )
-
-    server = daisy.SerialServer() if num_workers <= 1 else daisy.Server()
-
-    t0 = time.perf_counter()
-    states = server.run_blockwise([task])
-    elapsed = time.perf_counter() - t0
-
-    done = states[task.task_id].is_done()
-    completed = states[task.task_id].completed_count
-    return elapsed, done, completed
-
-
-# --- Daisy block-function benchmark ---
-# process_function takes a Block; the Rust worker loop drives acquire/release
-# over TCP and only takes the GIL to invoke this callback.
-def bench_daisy(num_blocks, num_workers):
-    def noop(block):
-        pass
-
-    total_size = num_blocks * 10
-    task = daisy.Task(
+    return daisy.Task(
         "bench",
         total_roi=daisy.Roi([0], [total_size]),
         read_roi=daisy.Roi([0], [10]),
         write_roi=daisy.Roi([0], [10]),
-        process_function=noop,
+        process_function=process_function,
         read_write_conflict=False,
-        num_workers=num_workers,
+        max_workers=num_workers,
         max_retries=0,
     )
 
-    if num_workers <= 1:
-        server = daisy.SerialServer()
-    else:
-        server = daisy.Server()
 
+def _run(task):
+    """Time one distributed run and report whether every block actually
+    succeeded. `TaskState.is_done()` only means the counters balance -- a run
+    in which every block *failed* is also "done" -- so success is checked
+    against `completed_count`, otherwise a broken run reports a fast time."""
     t0 = time.perf_counter()
-    states = server.run_blockwise([task])
+    states = daisy.Server().run_blockwise([task], progress=False)
     elapsed = time.perf_counter() - t0
 
-    done = states[task.task_id].is_done()
-    completed = states[task.task_id].completed_count
-    return elapsed, done, completed
+    state = states[task.task_id]
+    completed, total = state.completed_count, state.total_block_count
+    return elapsed, completed == total, completed
 
 
-# --- Daisy worker-function benchmark ---
-# process_function takes no args; each worker thread spawns a Client and
-# runs the acquire/release loop in Python. SerialServer does not support
-# this modality, so we always use the distributed Server even at
-# num_workers=1.
-def bench_daisy_worker_fn(num_blocks, num_workers):
+# --- block-function modality -------------------------------------------
+# process_function takes a Block; the worker subprocess drives
+# acquire/release over TCP and invokes this callback once per block.
+def bench_block_fn(num_blocks, num_workers):
+    def noop(block):
+        pass
+
+    return _run(_task(num_blocks, num_workers, noop))
+
+
+# --- worker-function modality ------------------------------------------
+# process_function takes no args; the worker subprocess calls it once and it
+# opens a Client and runs the acquire/release loop itself.
+def bench_worker_fn(num_blocks, num_workers):
     def worker():
         client = daisy.Client()
         while True:
@@ -93,25 +85,7 @@ def bench_daisy_worker_fn(num_blocks, num_workers):
                 if block is None:
                     break
 
-    total_size = num_blocks * 10
-    task = daisy.Task(
-        "bench",
-        total_roi=daisy.Roi([0], [total_size]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=worker,
-        read_write_conflict=False,
-        num_workers=num_workers,
-        max_retries=0,
-    )
-
-    t0 = time.perf_counter()
-    states = daisy.Server().run_blockwise([task])
-    elapsed = time.perf_counter() - t0
-
-    done = states[task.task_id].is_done()
-    completed = states[task.task_id].completed_count
-    return elapsed, done, completed
+    return _run(_task(num_blocks, num_workers, worker))
 
 
 def run_scaling():
@@ -120,34 +94,30 @@ def run_scaling():
 
     print(f"Blocks: {num_blocks}")
     print(f"Worker counts: {worker_counts}")
-    header = (f"{'workers':>8} | {'daisy':>10} | {'daisy':>10} | "
-              f"{'daisy-wf':>11} | {'speedup':>8}")
+    header = f"{'workers':>8} | {'block-fn':>10} | {'worker-fn':>11} | {'ratio':>8}"
     print(header)
     print("-" * len(header))
 
     results = []
     for nw in worker_counts:
-        g_time, g_done, g_count = bench_daisy(num_blocks, nw)
-        assert g_done, f"daisy failed: {g_count}/{num_blocks}"
+        b_time, b_ok, b_count = bench_block_fn(num_blocks, nw)
+        assert b_ok, f"block-fn incomplete: {b_count}/{num_blocks}"
 
-        w_time, w_done, w_count = bench_daisy_worker_fn(num_blocks, nw)
-        assert w_done, f"daisy worker-fn failed: {w_count}/{num_blocks}"
+        w_time, w_ok, w_count = bench_worker_fn(num_blocks, nw)
+        assert w_ok, f"worker-fn incomplete: {w_count}/{num_blocks}"
 
-        d_time, d_done, d_count = bench_daisy(num_blocks, nw)
-        assert d_done, f"daisy failed: {d_count}/{num_blocks}"
+        speedup = b_time / w_time if w_time > 0 else float("inf")
+        print(f"{nw:>8} | {b_time:>9.3f}s | {w_time:>10.3f}s | {speedup:>7.2f}x")
 
-        speedup = d_time / g_time if g_time > 0 else float('inf')
-        print(f"{nw:>8} | {d_time:>9.3f}s | {g_time:>9.3f}s | "
-              f"{w_time:>10.3f}s | {speedup:>7.1f}x")
-
-        results.append({
-            "workers": nw,
-            "blocks": num_blocks,
-            "daisy_s": d_time,
-            "daisy_s": g_time,
-            "daisy_worker_s": w_time,
-            "speedup": speedup,
-        })
+        results.append(
+            {
+                "workers": nw,
+                "blocks": num_blocks,
+                "block_fn_s": b_time,
+                "worker_fn_s": w_time,
+                "worker_fn_speedup": speedup,
+            }
+        )
 
     with open("benchmarks/worker_scaling_results.json", "w") as f:
         json.dump(results, f, indent=2)
@@ -161,29 +131,30 @@ def run_block_scaling():
     num_workers = 4
 
     print(f"\nBlock scaling (workers={num_workers})")
-    header = (f"{'blocks':>8} | {'daisy':>10} | {'daisy':>10} | "
-              f"{'daisy-wf':>11} | {'speedup':>8}")
+    header = f"{'blocks':>8} | {'block-fn':>10} | {'worker-fn':>11} | {'ratio':>8}"
     print(header)
     print("-" * len(header))
 
     results = []
     for nb in block_counts:
-        g_time, g_done, _ = bench_daisy(nb, num_workers)
-        w_time, w_done, _ = bench_daisy_worker_fn(nb, num_workers)
-        d_time, d_done, _ = bench_daisy(nb, num_workers)
+        b_time, b_ok, b_count = bench_block_fn(nb, num_workers)
+        assert b_ok, f"block-fn incomplete: {b_count}/{nb}"
 
-        speedup = d_time / g_time if g_time > 0 else float('inf')
-        print(f"{nb:>8} | {d_time:>9.3f}s | {g_time:>9.3f}s | "
-              f"{w_time:>10.3f}s | {speedup:>7.1f}x")
+        w_time, w_ok, w_count = bench_worker_fn(nb, num_workers)
+        assert w_ok, f"worker-fn incomplete: {w_count}/{nb}"
 
-        results.append({
-            "blocks": nb,
-            "workers": num_workers,
-            "daisy_s": d_time,
-            "daisy_s": g_time,
-            "daisy_worker_s": w_time,
-            "speedup": speedup,
-        })
+        speedup = b_time / w_time if w_time > 0 else float("inf")
+        print(f"{nb:>8} | {b_time:>9.3f}s | {w_time:>10.3f}s | {speedup:>7.2f}x")
+
+        results.append(
+            {
+                "blocks": nb,
+                "workers": num_workers,
+                "block_fn_s": b_time,
+                "worker_fn_s": w_time,
+                "worker_fn_speedup": speedup,
+            }
+        )
 
     with open("benchmarks/block_scaling_results.json", "w") as f:
         json.dump(results, f, indent=2)
@@ -193,77 +164,63 @@ def run_block_scaling():
 
 def plot_results(worker_results, block_results):
     import matplotlib
-    matplotlib.use('Agg')
+
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 6))
 
-    DAISY_COLOR = "#4878CF"
-    DAISY_BLOCK_COLOR = "#D65F5F"
-    DAISY_WORKER_COLOR = "#956CB4"
+    BLOCK_FN_COLOR = "#D65F5F"
+    WORKER_FN_COLOR = "#956CB4"
 
     # --- Plot 1: Worker scaling (absolute time) ---
     ax = axes[0]
     workers = [r["workers"] for r in worker_results]
-    d_times = [r["daisy_s"] for r in worker_results]
-    g_times = [r["daisy_s"] for r in worker_results]
-    w_times = [r["daisy_worker_s"] for r in worker_results]
+    b_times = [r["block_fn_s"] for r in worker_results]
+    w_times = [r["worker_fn_s"] for r in worker_results]
 
-    ax.plot(workers, d_times, 'o-', label="daisy", color=DAISY_COLOR, linewidth=2)
-    ax.plot(workers, g_times, 's-', label="daisy block-fn",
-            color=DAISY_BLOCK_COLOR, linewidth=2)
-    ax.plot(workers, w_times, '^-', label="daisy worker-fn",
-            color=DAISY_WORKER_COLOR, linewidth=2)
+    ax.plot(workers, b_times, "s-", label="block-fn", color=BLOCK_FN_COLOR, linewidth=2)
+    ax.plot(
+        workers, w_times, "^-", label="worker-fn", color=WORKER_FN_COLOR, linewidth=2
+    )
     ax.set_xlabel("Number of workers")
     ax.set_ylabel("Time (seconds)")
     ax.set_title(f"Worker Scaling ({worker_results[0]['blocks']} blocks)")
     ax.legend()
-    ax.set_xscale('log', base=2)
+    ax.set_xscale("log", base=2)
     ax.set_xticks(workers)
     ax.set_xticklabels(workers)
 
-    # --- Plot 2: Speedup vs workers (both daisy variants over daisy) ---
+    # --- Plot 2: worker-fn relative to block-fn ---
     ax = axes[1]
-    g_speedups = [r["daisy_s"] / r["daisy_s"] if r["daisy_s"] > 0 else 0
-                  for r in worker_results]
-    w_speedups = [r["daisy_s"] / r["daisy_worker_s"] if r["daisy_worker_s"] > 0 else 0
-                  for r in worker_results]
+    speedups = [r["worker_fn_speedup"] for r in worker_results]
     x = range(len(workers))
-    width = 0.4
-    ax.bar([i - width / 2 for i in x], g_speedups, width,
-           label="daisy block-fn", color=DAISY_BLOCK_COLOR, edgecolor="black")
-    ax.bar([i + width / 2 for i in x], w_speedups, width,
-           label="daisy worker-fn", color=DAISY_WORKER_COLOR, edgecolor="black")
+    ax.bar(x, speedups, 0.5, color=WORKER_FN_COLOR, edgecolor="black")
     ax.set_xlabel("Number of workers")
-    ax.set_ylabel("Speedup over daisy")
-    ax.set_title("Daisy Speedup vs Daisy")
-    ax.set_xticks(x)
+    ax.set_ylabel("block-fn time / worker-fn time")
+    ax.set_title("worker-fn relative to block-fn")
+    ax.set_xticks(list(x))
     ax.set_xticklabels(workers)
-    ax.axhline(y=1, color='gray', linestyle='--', alpha=0.5)
-    ax.legend()
-    for i, s in enumerate(g_speedups):
-        ax.text(i - width / 2, s, f'{s:.1f}x', ha='center', va='bottom', fontsize=9)
-    for i, s in enumerate(w_speedups):
-        ax.text(i + width / 2, s, f'{s:.1f}x', ha='center', va='bottom', fontsize=9)
+    ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5)
+    for i, s in enumerate(speedups):
+        ax.text(i, s, f"{s:.2f}x", ha="center", va="bottom", fontsize=9)
 
     # --- Plot 3: Block scaling ---
     ax = axes[2]
     blocks = [r["blocks"] for r in block_results]
-    d_times = [r["daisy_s"] for r in block_results]
-    g_times = [r["daisy_s"] for r in block_results]
-    w_times = [r["daisy_worker_s"] for r in block_results]
+    b_times = [r["block_fn_s"] for r in block_results]
+    w_times = [r["worker_fn_s"] for r in block_results]
 
-    ax.plot(blocks, d_times, 'o-', label="daisy", color=DAISY_COLOR, linewidth=2)
-    ax.plot(blocks, g_times, 's-', label="daisy block-fn",
-            color=DAISY_BLOCK_COLOR, linewidth=2)
-    ax.plot(blocks, w_times, '^-', label="daisy worker-fn",
-            color=DAISY_WORKER_COLOR, linewidth=2)
+    ax.plot(blocks, b_times, "s-", label="block-fn", color=BLOCK_FN_COLOR, linewidth=2)
+    ax.plot(
+        blocks, w_times, "^-", label="worker-fn", color=WORKER_FN_COLOR, linewidth=2
+    )
     ax.set_xlabel("Number of blocks")
     ax.set_ylabel("Time (seconds)")
     ax.set_title(f"Block Scaling ({block_results[0]['workers']} workers)")
     ax.legend()
-    ax.set_xscale('log')
-    ax.set_yscale('log')
+    ax.set_xscale("log")
+    ax.set_yscale("log")
 
     plt.tight_layout()
     plt.savefig("benchmarks/worker_scaling_benchmark.png", dpi=150)
