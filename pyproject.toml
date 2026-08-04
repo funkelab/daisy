@@ -106,12 +106,6 @@ docs = [
     "linkify-it-py>=2.0",
 ]
 
-[tool.ruff]
-# The upstream bundled benchmarks are self-comparing relics of the source
-# anonymization (duplicate `import daisy` arms, duplicate dict keys) — they
-# need a rewrite, not a lint pass. Everything else is linted.
-extend-exclude = ["benchmarks"]
-
 [tool.ruff.lint]
 # Deliberately pinned rule set (ruff's defaults drift across versions):
 # pyflakes + pycodestyle errors + import sorting — matches the style pass
