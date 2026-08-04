@@ -60,7 +60,7 @@ daisy/
 ├── examples/              Cell-style scripts (# %%) for VS Code interactive mode
 ├── tests/                 pytest-driven integration tests (Python entry → Rust runtime)
 │   └── daisy_compat/      Tests for the v1.x backwards-compat surface
-├── benchmarks/            Throughput comparisons vs daisy 1.x
+├── benchmarks/            Scaling benchmarks (dependency graph, worker coordination)
 └── docs/                  This directory
 ```
 
