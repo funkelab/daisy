@@ -43,7 +43,8 @@ Changelog = "https://github.com/funkelab/daisy/blob/main/CHANGELOG.md"
 
 [build-system]
 requires = ["maturin>=1.5,<2.0"]
-build-backend = "maturin"
+build-backend = "build_wrapper"
+backend-path = ["."]
 
 [tool.maturin]
 manifest-path = "daisy-py/Cargo.toml"
