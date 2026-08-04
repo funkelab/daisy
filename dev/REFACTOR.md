@@ -1,7 +1,5 @@
 # Refactor and feature recommendations
 
-
-
 A review of the daisy codebase as it stands. The library is feature-complete for its core mission (block-wise distributed processing with abandonment, resource budgeting, persistent done markers, and Python compat). This document flags places where the implementation has settled into complexity worth cleaning up, plus features that would slot into the existing architecture for clear user wins.
 
 The recommendations are sized by approximate effort: **S** (one sitting), **M** (a focused PR), **L** (multi-day with design discussion). Effort estimates assume one engineer who already knows the codebase.
@@ -85,7 +83,7 @@ This is the natural extension of having an observer abstraction — the abstract
 
 ### 2.5 Multi-machine workers [L, high value if you need it]
 
-**Problem**: daisy binds to `127.0.0.1` by default. Users running on multi-node SLURM/LSF clusters can't farm out workers across nodes; daisy has launchers for this (`daisy.distributed`).
+**Problem**: daisy v2 binds to `127.0.0.1` by default. Users running on multi-node SLURM/LSF clusters can't farm out workers across nodes; daisy 1.x has launchers for this (`daisy.distributed`).
 
 **Proposal**:
 
@@ -95,7 +93,7 @@ This is the natural extension of having an observer abstraction — the abstract
 
 The protocol already supports remote workers (it's TCP). What's missing is the launcher and the worker entry point. The 0-arg `spawn_function` mode is the precedent — it's how a user could already do this manually with `subprocess.run("ssh node-1 ...")`. Formalizing it would be valuable.
 
-**Next Steps**: This is a high priority. I'm not sure quite how necessary it is at the moment since I haven't started using `daisy` as a replacement for daisy, but this definitely seems like an issue that will have to be resolved before I start using it.
+**Next Steps**: This is a high priority. I'm not sure quite how necessary it is at the moment since I haven't started using daisy v2 as a replacement for daisy 1.x, but this definitely seems like an issue that will have to be resolved before I start using it.
 
 **Decision**: needs a short RFC before coding. Two complications worth resolving up front: (a) the `process_function` and any imports it uses must be installable on every node — that means a packaging/deploy story alongside the launcher; (b) the SIGINT handler we built only catches signals on the coordinator process. If a worker node hangs, killing the coordinator's tab doesn't propagate. Workers need their own watchdog ("coordinator went away → exit"). Park as RFC; don't bundle with anything else.
 
@@ -182,16 +180,16 @@ The dependency graph already knows everything needed. This is purely a print pas
 
 ## Part 3 — Strengths to keep
 
-Things daisy does well that we shouldn't accidentally walk back when refactoring:
+Things daisy v2 does well that we shouldn't accidentally walk back when refactoring:
 
 - **Typestate task lifecycle** (`TaskState` enum + `RunningTask` mutation methods). The compiler enforces that late events on terminal tasks are dropped — no scattered `if state.is_done() { return; }` checks. See `docs/ABANDONMENT.md`.
-- **Resource budget allocator** with `requires`/`resources` — global budget composes with per-task `max_workers`, which daisy doesn't have.
-- **Persistent done markers** in Zarr v3 layout — daisy has `check_function` but not a built-in persistence mechanism, so users had to roll their own.
-- **Worker restart cap** with proper abandonment + transitive downstream orphan propagation. Daisy's restart-cap is "respawn forever, hope it works".
-- **Cross-platform raw SIGINT handler** — Ctrl-C works during `py.detach`d tokio runs without requiring `Python::check_signals` from the main thread (which doesn't fire under tokio's multi-threaded scheduler). Daisy doesn't have to deal with this because it's pure Python.
-- **Run-stats with linear regression slopes** for per-block durations — surfaces "is processing getting slower over time" trends that a simple mean would hide. Not in daisy.
-- **Topological display ordering** for tqdm bars and reports — Kahn's with alphabetical tiebreaker. Daisy's progress display is dict-order.
-- **Bincode + size-validated framing** — kills the pickle code-execution attack surface daisy carries.
+- **Resource budget allocator** with `requires`/`resources` — global budget composes with per-task `max_workers`, which daisy 1.x doesn't have.
+- **Persistent done markers** in Zarr v3 layout — daisy 1.x has `check_function` but not a built-in persistence mechanism, so users had to roll their own.
+- **Worker restart cap** with proper abandonment + transitive downstream orphan propagation. daisy 1.x's restart-cap is "respawn forever, hope it works".
+- **Cross-platform raw SIGINT handler** — Ctrl-C works during `py.detach`d tokio runs without requiring `Python::check_signals` from the main thread (which doesn't fire under tokio's multi-threaded scheduler). daisy 1.x doesn't have to deal with this because it's pure Python.
+- **Run-stats with linear regression slopes** for per-block durations — surfaces "is processing getting slower over time" trends that a simple mean would hide. Not in daisy 1.x.
+- **Topological display ordering** for tqdm bars and reports — Kahn's with alphabetical tiebreaker. daisy 1.x's progress display is dict-order.
+- **Bincode + size-validated framing** — kills the pickle code-execution attack surface daisy 1.x carries.
 
 When considering changes, prefer ones that strengthen these (unify access to them, document them better, add features that compose with them) over ones that add parallel mechanisms.
 
@@ -199,11 +197,21 @@ When considering changes, prefer ones that strengthen these (unify access to the
 
 After the discussion documented above:
 
-**This batch (small, clear wins)**:
+**This batch (small, clear wins)** — all three have landed:
 
-1. **2.8 lazy roots** — fixes the 1M-block startup hang foot-gun
-2. **2.2 per-block timeout** — opt-in, no default, no preemption
-3. **2.4 JSON observer** — standalone, ~50 lines
+1. **2.8 lazy roots** — fixes the 1M-block startup hang foot-gun. **Landed**:
+   `root_iter_owned` + `LazyBlockIter` (daisy-core/src/dependency_graph.rs:468,
+   :705) make `DependencyGraph::roots` (:606) hand out
+   `Box<dyn Iterator<Item = Block> + Send>` with no upfront materialization.
+2. **2.2 per-block timeout** — opt-in, no default, no preemption. **Landed, but
+   not as decided above**: `Task::timeout` reaches the bookkeeper
+   (daisy-core/src/server.rs:951 → block_bookkeeper.rs:116), and every block now
+   has one — it defaults to 600 s and cannot be disabled
+   (daisy-py/src/py_task.rs:104) — and it *does* preempt, because the subprocess
+   worker self-kills at the deadline (daisy-py/python/daisy/_subprocess_worker.py:70).
+3. **2.4 JSON observer** — standalone, ~50 lines. **Landed**:
+   `JsonProgressObserver` (daisy-py/python/daisy/_progress.py:267), exported from
+   `daisy`, covered by tests/test_json_observer.py.
 
 **Soon, before users adopt**:
 
