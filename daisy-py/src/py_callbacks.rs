@@ -222,9 +222,43 @@ impl PySpawnWorker {
     }
 }
 
+/// Return `env_context` with the master's log directory added, unless the
+/// encoded context already carries one.
+///
+/// The core server builds the context, but the log directory is a
+/// *Python*-side setting (`daisy.logging`'s process-global), so the core
+/// cannot know it. This is the last point every spawn channel shares, which
+/// makes it the one place the directory can be injected such that BOTH
+/// consumer-visible channels — the process-global DAISY_CONTEXT env var and
+/// the keyword-only `context` argument — carry it, as every context did in
+/// daisy 1.x. An empty value deliberately encodes "file logging is off"
+/// (the master called `set_log_basedir(None)`); `Client` maps it back.
+fn context_with_logdir(py: Python<'_>, env_context: &str) -> Result<String, DaisyError> {
+    let err = |e: pyo3::PyErr| DaisyError::ProcessFailed(format!("{e}"));
+    let mut ctx = crate::py_context::PyContext::from_encoded(env_context).map_err(err)?;
+    if ctx.contains_key("logdir") {
+        return Ok(env_context.to_string());
+    }
+    let logging = py.import("daisy.logging").map_err(err)?;
+    let basedir = logging.call_method0("get_log_basedir").map_err(err)?;
+    let val: String = if basedir.is_none() {
+        String::new()
+    } else {
+        basedir.str().map_err(err)?.extract().map_err(err)?
+    };
+    ctx.insert_str("logdir", &val);
+    Ok(ctx.encode())
+}
+
 impl SpawnWorker for PySpawnWorker {
     fn spawn(&self, env_context: &str) -> Result<(), DaisyError> {
         Python::attach(|py| {
+            // The master's log directory travels in the context (see
+            // `context_with_logdir` above): complete it BEFORE either
+            // channel below is written, so a consumer of either sees the
+            // same, full context.
+            let env_context = context_with_logdir(py, env_context)?;
+            let env_context = env_context.as_str();
             // Set the env var so child processes that read DAISY_CONTEXT
             // (the canonical cluster-worker pattern) keep working. It is
             // process-global and therefore racy under concurrent spawns,

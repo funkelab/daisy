@@ -13,7 +13,7 @@ Two explicit alternatives:
   explicit about depending on the compat layer.
 """
 
-from daisy.logging import get_worker_log_basename
+from daisy.logging import context_with_logdir, get_worker_log_basename
 from daisy.v1_compat import (
     Block,
     BlockStatus,
@@ -56,6 +56,7 @@ __all__ = [
     "Task",
     "TaskState",
     "__version__",
+    "context_with_logdir",
     "profile_block",
     "get_done_marker_basedir",
     "get_tracking_basedir",

@@ -311,6 +311,69 @@ while True:
 
 
 @pytest.mark.timeout(60)
+def test_the_drivers_env_var_channel_carries_the_log_basedir(tmp_path):
+    """Both spawn channels must carry the full context — including the
+    process-global DAISY_CONTEXT env var, whose own comment promises that
+    "the canonical cluster-worker pattern" keeps working. 1.x code that reads
+    the env var instead of taking the keyword-only `context` gets whatever
+    was written there, so a five-key, logdir-less write silently reverts that
+    whole class of consumer to per-worker default log dirs.
+
+    The write is process-global in the *driver*, so it is still observable
+    after the run: what this asserts is exactly what a concurrently launched
+    1.x-style child would have inherited.
+    """
+    basedir = tmp_path / "driver-logs"
+    daisy.logging.set_log_basedir(basedir)
+
+    def worker():
+        client = daisy.Client()
+        while True:
+            with client.acquire_block() as block:
+                if block is None:
+                    return
+
+    assert daisy.run_blockwise(
+        _task("logdir-envvar", worker, 1, n_blocks=2), progress=False
+    )
+    ctx = daisy.Context.from_env()
+    # index it, don't .get() it — absence must be an error, same as Client's
+    # consumers
+    assert Path(ctx["logdir"]) == basedir
+
+
+def test_context_with_logdir_is_public_and_respects_an_explicit_value(tmp_path):
+    """`context_with_logdir` is the function daisy applies at the spawn
+    boundary, and consumers that relay a context onward (a spawn function
+    wrapping `srun`/`sbatch`, a downstream test pinning this contract) need
+    the same behaviour from a public name — not from `daisy._worker_processes`.
+    """
+    basedir = tmp_path / "master-logs"
+    daisy.logging.set_log_basedir(basedir)
+
+    bare = daisy.Context(hostname="h", port=1, task_id="t", worker_id=0)
+    assert "logdir" not in bare
+
+    completed = daisy.context_with_logdir(bare)
+    assert Path(completed["logdir"]) == basedir
+    # the original is untouched — it returns a copy
+    assert "logdir" not in bare
+
+    # an explicit upstream choice wins over this process's global
+    explicit = daisy.Context(
+        hostname="h", port=1, task_id="t", worker_id=0, logdir="/chosen"
+    )
+    assert daisy.context_with_logdir(explicit)["logdir"] == "/chosen"
+
+    # "file logging off" travels as the empty string, not as a missing key
+    daisy.logging.set_log_basedir(None)
+    try:
+        assert daisy.context_with_logdir(bare)["logdir"] == ""
+    finally:
+        daisy.logging.set_log_basedir(basedir)
+
+
+@pytest.mark.timeout(60)
 def test_log_dir_containing_a_separator_survives_the_context(tmp_path):
     """The context is `key=value:key=value` with no escaping, and a path may
     legally contain `:` (always does on Windows). Values are percent-encoded,

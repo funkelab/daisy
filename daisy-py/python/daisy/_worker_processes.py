@@ -116,32 +116,16 @@ def _capture_parent_config() -> dict:
 
 
 def context_with_logdir(context):
-    """Return `context` with the master's log directory added.
-
-    The payload frame above carries the parent's logging config to workers
-    *daisy* launches, but that is the end of the chain: a worker that re-execs
-    itself — `srun`, `sbatch`, `docker run`, a plain `subprocess.run` in a
-    spawn function — hands its child nothing but the environment. The context
-    is the only channel that survives that hop, so the directory travels in
-    it, and `client.context["logdir"]` (the daisy 1.x idiom, still the
-    documented way for a hand-written cluster worker to place its own logs)
-    resolves to the directory the master actually chose.
-
-    Without this the key is not merely missing: `Client` falls back to the
-    worker's *own* `get_log_basedir()`, so a grandchild reports the relative
-    default `daisy_logs` and scatters logs beside whatever its cwd happens to
-    be. Silent, and per-worker.
+    """Private alias for `daisy.logging.context_with_logdir`, kept so older
+    imports keep resolving. The function moved when it became public: the
+    context is the only channel that survives a worker re-exec (`srun`,
+    `sbatch`, `docker run`, a plain `subprocess.run` in a spawn function),
+    so consumers relaying a context onward need it too — from a public name,
+    not from this module.
     """
-    from daisy import logging as _worker_log
+    from daisy.logging import context_with_logdir as _public
 
-    basedir = _worker_log.get_log_basedir()
-    with_logdir = context.copy()
-    # An empty value carries "file logging is off" — the master may have
-    # called `set_log_basedir(None)`, and a worker that quietly re-enabled
-    # file logging would be just as wrong as one that logged to the wrong
-    # place. `Client` maps it back to None.
-    with_logdir["logdir"] = "" if basedir is None else str(basedir)
-    return with_logdir
+    return _public(context)
 
 
 def apply_parent_config(meta: dict) -> None:
