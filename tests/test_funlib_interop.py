@@ -83,6 +83,66 @@ def test_compat_block_fn_receives_funlib_rois():
     assert seen == {"read_is_funlib": True, "write_is_funlib": True, "eq": True}
 
 
+@pytest.mark.parametrize("style", ["kwargs", "positional"])
+def test_compat_check_fn_receives_funlib_rois_and_skips_done_blocks(tmp_path, style):
+    """v1.x check functions do funlib arithmetic on the block's ROIs — the
+    same idiom as process functions (volara's resume path). They must get
+    the same compat `Block` view: an unwrapped check raises TypeError on
+    the native block, the Rust precheck swallows every exception into
+    "not done", and every done block silently re-runs on resume."""
+    import daisy.v1_compat as compat
+
+    def marker(block):
+        # funlib Coordinate arithmetic on the offset — raises TypeError on
+        # a native block (daisy._daisy.Coordinate has no arithmetic dunders)
+        end = block.write_roi.offset + block.write_roi.shape
+        return tmp_path / ("done_" + "_".join(str(c) for c in end))
+
+    def process(block):
+        marker(block).touch()
+
+    def check(block):
+        return marker(block).exists()
+
+    def make_task():
+        if style == "kwargs":
+            return compat.Task(
+                "compat-check",
+                total_roi=fg.Roi((0,), (40,)),
+                read_roi=fg.Roi((0,), (10,)),
+                write_roi=fg.Roi((0,), (10,)),
+                process_function=process,
+                check_function=check,
+                num_workers=1,
+                tracking_path=False,
+            )
+        # the v1 positional signature: (task_id, total_roi, read_roi,
+        # write_roi, process_function, check_function, ...)
+        return compat.Task(
+            "compat-check",
+            d2.Roi((0,), (40,)),
+            d2.Roi((0,), (10,)),
+            d2.Roi((0,), (10,)),
+            process,
+            check,
+            num_workers=1,
+            tracking_path=False,
+        )
+
+    # run 1: no markers yet — every block processes and writes its marker
+    states = compat.run_blockwise(
+        [make_task()], multiprocessing=False, progress=False, return_states=True
+    )
+    assert states["compat-check"].completed_count == 4
+    assert states["compat-check"].skipped_count == 0
+
+    # run 2 (the resume): the check sees every marker → all blocks skipped
+    states = compat.run_blockwise(
+        [make_task()], multiprocessing=False, progress=False, return_states=True
+    )
+    assert states["compat-check"].skipped_count == 4
+
+
 def test_compat_spawn_fn_not_wrapped():
     """0-arg spawn functions must pass through unwrapped (arity preserved)."""
     from daisy.v1_compat import _wrap_block_fn
