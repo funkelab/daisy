@@ -33,6 +33,7 @@ pub(crate) fn cap_traceback(s: &str) -> String {
 use pyo3::types::PyDict;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use crate::py_block::PyBlock;
 use crate::py_task_state::PyTaskState;
 
@@ -59,11 +60,53 @@ pub fn take_last_process_pyerr() -> Option<PyErr> {
 /// Acquires the GIL on each call to invoke the Python function.
 pub struct PyCheckBlock {
     py_fn: Py<PyAny>,
+    /// One warning per task: a broken check raises the same way for
+    /// every block, and one traceback says everything N copies would.
+    /// (`PyCheckBlock` is constructed once per task in `py_task.rs`.)
+    warned: AtomicBool,
 }
 
 impl PyCheckBlock {
     pub fn new(py_fn: Py<PyAny>) -> Self {
-        Self { py_fn }
+        Self {
+            py_fn,
+            warned: AtomicBool::new(false),
+        }
+    }
+
+    /// Route a `check_function` exception to the `daisy` Python logger.
+    /// The scheduler treats a raising check as "not done", so the block
+    /// (re)runs — safe, but it must not be silent: before this warning, a
+    /// check that raised on every block quietly re-ran entire resumed
+    /// runs. Logging goes through Python's `logging` (the extension has
+    /// no tracing subscriber; logging integration is the Python-side
+    /// carve-out) and is best-effort like `PyProgressObserver`: a busted
+    /// logger must not break the run loop.
+    fn warn_check_failed(&self, py: Python<'_>, block: &Block, e: &PyErr) {
+        if self.warned.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        // include the formatted python traceback (capped), as for block
+        // functions — see PyProcessBlock::process
+        let tb = e
+            .traceback(py)
+            .and_then(|t| t.format().ok())
+            .unwrap_or_default();
+        let msg = format!(
+            "check_function for task {:?} raised; treating block {} as not \
+             done, so it will be (re)processed. Further check failures for \
+             this task will not be logged:\n{}",
+            block.task_id(),
+            block.block_id,
+            cap_traceback(&format!("{tb}{e}")),
+        );
+        (|| -> PyResult<()> {
+            let logging = py.import("logging")?;
+            let logger = logging.call_method1("getLogger", ("daisy",))?;
+            logger.call_method1("warning", (msg,))?;
+            Ok(())
+        })()
+        .ok();
     }
 }
 
@@ -71,10 +114,17 @@ impl CheckBlock for PyCheckBlock {
     fn check(&self, block: &Block) -> bool {
         Python::attach(|py| {
             let py_block = PyBlock::from_core(block.clone());
-            self.py_fn
+            match self
+                .py_fn
                 .call1(py, (py_block,))
                 .and_then(|r: Py<PyAny>| r.extract::<bool>(py))
-                .unwrap_or(false)
+            {
+                Ok(done) => done,
+                Err(e) => {
+                    self.warn_check_failed(py, block, &e);
+                    false
+                }
+            }
         })
     }
 }
