@@ -288,6 +288,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `set_log_basedir(None)` propagates too; a worker that wants its own location
   sets it after constructing its client.
 
+  Completed since: the key is filled at every point a context comes into
+  being, not only on daisy's own worker path — `Context(...)` fills it at
+  construction (1.x parity: `Context.__init__` there started from
+  `dict(logdir=get_log_basedir(), **kwargs)`; an explicit kwarg wins), and the
+  spawn boundary completes the encoded context before *both* consumer-visible
+  channels, the process-global `DAISY_CONTEXT` env var and the keyword-only
+  `context` argument. The wire parsers (`Context.from_env*`) stay faithful to
+  what was actually sent. There is deliberately no public
+  `context_with_logdir` helper: no context daisy emits can lack the key, so a
+  repair function would only enshrine the bug it repaired.
+
 - **Context values are percent-encoded.** `DAISY_CONTEXT` is
   `key=value:key=value` with no escape mechanism, so a value containing `:` or
   `=` silently corrupted the handoff — reachable today with a task id like
