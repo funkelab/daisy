@@ -518,10 +518,15 @@ def test_inline_zero_arg_worker_gets_real_parallelism():
     t_one = timed(1)
     t_four = timed(4)
     speedup = t_one / t_four
-    # Ideal is 4x minus one worker start-up; ~3x measured. Assert well above
-    # 1.0 so GIL-serialized execution (0.6x) fails unambiguously, with slack
-    # for a loaded machine.
-    assert speedup > 1.8, (
+    # Ideal is 4x minus one worker start-up; ~3x measured on an idle machine.
+    # The gate exists to separate real parallelism from the GIL-serialized
+    # regression, which measures ~0.6x — SLOWER than one worker — so the
+    # threshold only needs to sit safely above 1.0. It was 1.8 originally,
+    # and two different shared machines produced ~1.45x false failures under
+    # ambient load (the 4-worker leg pays four interpreter start-ups, which
+    # contend far harder than the compute loop does). 1.25 still fails the
+    # regression by a factor of two while surviving a busy box.
+    assert speedup > 1.25, (
         f"inline 0-arg work did not parallelize: {t_one:.2f}s on 1 worker vs "
         f"{t_four:.2f}s on 4 ({speedup:.2f}x)"
     )
