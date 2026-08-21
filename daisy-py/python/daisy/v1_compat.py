@@ -226,6 +226,15 @@ class Task(_v2.Task):
             kwargs["process_function"] = _wrap_block_fn(kwargs["process_function"])
         elif len(args) >= 5 and args[4] is not None:
             args = (*args[:4], _wrap_block_fn(args[4]), *args[5:])
+        # check_function gets the same compat view: v1.x checks do funlib
+        # arithmetic on the block's ROIs just like process functions, and
+        # the Rust precheck treats any exception as "not done" — so an
+        # unwrapped check raises TypeError on the native block and every
+        # done block silently re-runs on resume.
+        if "check_function" in kwargs:
+            kwargs["check_function"] = _wrap_block_fn(kwargs["check_function"])
+        elif len(args) >= 6 and args[5] is not None:
+            args = (*args[:5], _wrap_block_fn(args[5]), *args[6:])
         if num_workers is not None and max_workers is not None:
             raise TypeError(
                 "pass either max_workers (v2) or num_workers (v1.x), not both"
