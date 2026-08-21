@@ -115,19 +115,6 @@ def _capture_parent_config() -> dict:
     }
 
 
-def context_with_logdir(context):
-    """Private alias for `daisy.logging.context_with_logdir`, kept so older
-    imports keep resolving. The function moved when it became public: the
-    context is the only channel that survives a worker re-exec (`srun`,
-    `sbatch`, `docker run`, a plain `subprocess.run` in a spawn function),
-    so consumers relaying a context onward need it too — from a public name,
-    not from this module.
-    """
-    from daisy.logging import context_with_logdir as _public
-
-    return _public(context)
-
-
 def apply_parent_config(meta: dict) -> None:
     """Child side: restore the parent's globals before any user code runs."""
     for p in reversed(meta.get("sys_path", [])):
@@ -228,7 +215,10 @@ def make_spawn_function(process_function, arity, timeout=None):
         # relying on the parent's process-global env var, which concurrent
         # spawns overwrite.
         env = dict(os.environ)
-        env["DAISY_CONTEXT"] = context_with_logdir(context).to_env()
+        # The context arrives complete: PySpawnWorker::spawn injects the
+        # master's log directory before either spawn channel is written, so
+        # there is nothing to add here — just re-encode it for the child.
+        env["DAISY_CONTEXT"] = context.to_env()
         # Capture the child's output (to spooled files, not pipes — no
         # reader-deadlock for chatty workers) and re-emit it through our own
         # streams. The parent runs this inside `_WorkerLogContext`, whose

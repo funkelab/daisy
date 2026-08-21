@@ -342,35 +342,40 @@ def test_the_drivers_env_var_channel_carries_the_log_basedir(tmp_path):
     assert Path(ctx["logdir"]) == basedir
 
 
-def test_context_with_logdir_is_public_and_respects_an_explicit_value(tmp_path):
-    """`context_with_logdir` is the function daisy applies at the spawn
-    boundary, and consumers that relay a context onward (a spawn function
-    wrapping `srun`/`sbatch`, a downstream test pinning this contract) need
-    the same behaviour from a public name — not from `daisy._worker_processes`.
+def test_hand_built_contexts_carry_the_log_basedir(tmp_path):
+    """A `Context` is born carrying this process's log directory — daisy 1.x
+    parity (`Context.__init__` there started from
+    `dict(logdir=get_log_basedir(), **kwargs)`). With construction and the
+    spawn boundary both filling it, no context daisy emits can lack the key,
+    which is why there is deliberately NO public repair helper: a
+    `daisy.context_with_logdir` would enshrine "contexts are sometimes
+    incomplete" as API.
     """
     basedir = tmp_path / "master-logs"
     daisy.logging.set_log_basedir(basedir)
 
-    bare = daisy.Context(hostname="h", port=1, task_id="t", worker_id=0)
-    assert "logdir" not in bare
+    born = daisy.Context(hostname="h", port=1, task_id="t", worker_id=0)
+    assert Path(born["logdir"]) == basedir
 
-    completed = daisy.context_with_logdir(bare)
-    assert Path(completed["logdir"]) == basedir
-    # the original is untouched — it returns a copy
-    assert "logdir" not in bare
-
-    # an explicit upstream choice wins over this process's global
+    # an explicit choice at construction wins over the process global
     explicit = daisy.Context(
         hostname="h", port=1, task_id="t", worker_id=0, logdir="/chosen"
     )
-    assert daisy.context_with_logdir(explicit)["logdir"] == "/chosen"
+    assert explicit["logdir"] == "/chosen"
 
     # "file logging off" travels as the empty string, not as a missing key
     daisy.logging.set_log_basedir(None)
     try:
-        assert daisy.context_with_logdir(bare)["logdir"] == ""
+        assert daisy.Context(hostname="h")["logdir"] == ""
     finally:
         daisy.logging.set_log_basedir(basedir)
+
+    # wire parsers stay faithful: an old, logdir-less string parses as sent
+    parsed = daisy.Context.from_env_string("hostname=h:port=1:task_id=t:worker_id=0")
+    assert "logdir" not in parsed
+
+    # and the helper is not public API
+    assert not hasattr(daisy, "context_with_logdir")
 
 
 @pytest.mark.timeout(60)

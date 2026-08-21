@@ -73,32 +73,6 @@ def get_log_basedir() -> Path | None:
     return LOG_BASEDIR
 
 
-def context_with_logdir(context):
-    """Return a copy of `context` carrying this process's log directory.
-
-    The scheduler's encoded worker context is built in the Rust core, which
-    does not know this module's process-global settings, so daisy completes
-    the context at the spawn boundary — with this function. It is public so
-    anything that relays a context onward itself — a custom spawn function
-    wrapping `srun`/`sbatch`/`docker run`, or a test pinning the contract —
-    can produce exactly the context a spawned worker receives, without
-    reaching into daisy internals.
-
-    An existing `logdir` value is respected: an explicit choice upstream
-    beats this process's global. An empty value carries "file logging is
-    off" (the master called `set_log_basedir(None)`); `Client` maps it back
-    to `None`. Without the key a worker is worse than unconfigured —
-    `Client` falls back to the worker's *own* `get_log_basedir()`, so a
-    grandchild resolves the relative default `daisy_logs` beside whatever
-    its cwd happens to be. Silent, and per-worker.
-    """
-    with_logdir = context.copy()
-    if "logdir" not in with_logdir:
-        basedir = get_log_basedir()
-        with_logdir["logdir"] = "" if basedir is None else str(basedir)
-    return with_logdir
-
-
 def set_log_mode(mode: str) -> None:
     """Choose where worker `process_function` stdout/stderr goes.
 

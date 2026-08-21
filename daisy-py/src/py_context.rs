@@ -26,7 +26,7 @@ impl PyContext {
 
     #[new]
     #[pyo3(signature = (**kwargs))]
-    fn new(kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
+    fn new(py: Python<'_>, kwargs: Option<&Bound<'_, PyDict>>) -> PyResult<Self> {
         let mut inner = HashMap::new();
         if let Some(d) = kwargs {
             for (k, v) in d.iter() {
@@ -34,6 +34,24 @@ impl PyContext {
                 let val: String = v.str()?.extract()?;
                 inner.insert(key, val);
             }
+        }
+        // A context is born carrying this process's log directory, exactly
+        // as in daisy 1.x (`Context.__init__` there started from
+        // `dict(logdir=get_log_basedir(), **kwargs)`). An explicit kwarg
+        // wins; an empty value encodes "file logging is off". Only real
+        // construction fills — the wire parsers (`from_env*`) report what
+        // was actually sent, and `Client` backfills those for compatibility
+        // with peers that predate the key.
+        if !inner.contains_key("logdir") {
+            let basedir = py
+                .import("daisy.logging")?
+                .call_method0("get_log_basedir")?;
+            let val: String = if basedir.is_none() {
+                String::new()
+            } else {
+                basedir.str()?.extract()?
+            };
+            inner.insert("logdir".to_string(), val);
         }
         Ok(Self { inner })
     }
