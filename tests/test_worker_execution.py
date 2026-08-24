@@ -311,6 +311,74 @@ while True:
 
 
 @pytest.mark.timeout(60)
+def test_the_drivers_env_var_channel_carries_the_log_basedir(tmp_path):
+    """Both spawn channels must carry the full context — including the
+    process-global DAISY_CONTEXT env var, whose own comment promises that
+    "the canonical cluster-worker pattern" keeps working. 1.x code that reads
+    the env var instead of taking the keyword-only `context` gets whatever
+    was written there, so a five-key, logdir-less write silently reverts that
+    whole class of consumer to per-worker default log dirs.
+
+    The write is process-global in the *driver*, so it is still observable
+    after the run: what this asserts is exactly what a concurrently launched
+    1.x-style child would have inherited.
+    """
+    basedir = tmp_path / "driver-logs"
+    daisy.logging.set_log_basedir(basedir)
+
+    def worker():
+        client = daisy.Client()
+        while True:
+            with client.acquire_block() as block:
+                if block is None:
+                    return
+
+    assert daisy.run_blockwise(
+        _task("logdir-envvar", worker, 1, n_blocks=2), progress=False
+    )
+    ctx = daisy.Context.from_env()
+    # index it, don't .get() it — absence must be an error, same as Client's
+    # consumers
+    assert Path(ctx["logdir"]) == basedir
+
+
+def test_hand_built_contexts_carry_the_log_basedir(tmp_path):
+    """A `Context` is born carrying this process's log directory — daisy 1.x
+    parity (`Context.__init__` there started from
+    `dict(logdir=get_log_basedir(), **kwargs)`). With construction and the
+    spawn boundary both filling it, no context daisy emits can lack the key,
+    which is why there is deliberately NO public repair helper: a
+    `daisy.context_with_logdir` would enshrine "contexts are sometimes
+    incomplete" as API.
+    """
+    basedir = tmp_path / "master-logs"
+    daisy.logging.set_log_basedir(basedir)
+
+    born = daisy.Context(hostname="h", port=1, task_id="t", worker_id=0)
+    assert Path(born["logdir"]) == basedir
+
+    # an explicit choice at construction wins over the process global
+    explicit = daisy.Context(
+        hostname="h", port=1, task_id="t", worker_id=0, logdir="/chosen"
+    )
+    assert explicit["logdir"] == "/chosen"
+
+    # "file logging off" travels as the empty string, not as a missing key
+    daisy.logging.set_log_basedir(None)
+    try:
+        assert daisy.Context(hostname="h")["logdir"] == ""
+    finally:
+        daisy.logging.set_log_basedir(basedir)
+
+    # wire parsers stay faithful: an old, logdir-less string parses as sent
+    parsed = daisy.Context.from_env_string("hostname=h:port=1:task_id=t:worker_id=0")
+    assert "logdir" not in parsed
+
+    # and the helper is not public API
+    assert not hasattr(daisy, "context_with_logdir")
+
+
+@pytest.mark.timeout(60)
 def test_log_dir_containing_a_separator_survives_the_context(tmp_path):
     """The context is `key=value:key=value` with no escaping, and a path may
     legally contain `:` (always does on Windows). Values are percent-encoded,
@@ -450,10 +518,15 @@ def test_inline_zero_arg_worker_gets_real_parallelism():
     t_one = timed(1)
     t_four = timed(4)
     speedup = t_one / t_four
-    # Ideal is 4x minus one worker start-up; ~3x measured. Assert well above
-    # 1.0 so GIL-serialized execution (0.6x) fails unambiguously, with slack
-    # for a loaded machine.
-    assert speedup > 1.8, (
+    # Ideal is 4x minus one worker start-up; ~3x measured on an idle machine.
+    # The gate exists to separate real parallelism from the GIL-serialized
+    # regression, which measures ~0.6x — SLOWER than one worker — so the
+    # threshold only needs to sit safely above 1.0. It was 1.8 originally,
+    # and two different shared machines produced ~1.45x false failures under
+    # ambient load (the 4-worker leg pays four interpreter start-ups, which
+    # contend far harder than the compute loop does). 1.25 still fails the
+    # regression by a factor of two while surviving a busy box.
+    assert speedup > 1.25, (
         f"inline 0-arg work did not parallelize: {t_one:.2f}s on 1 worker vs "
         f"{t_four:.2f}s on 4 ({speedup:.2f}x)"
     )

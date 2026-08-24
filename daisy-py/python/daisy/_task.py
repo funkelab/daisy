@@ -328,11 +328,12 @@ class Client:
         # processes daisy happens to spawn itself, and workers that connect on
         # their own would scatter logs beside whatever cwd they started in.
         #
-        # An empty value means the master disabled file logging; an absent key
-        # means the context was built by hand (a test, an older server), in
-        # which case this process's own setting stands and applying it is a
-        # no-op. A worker that wants its own location calls
-        # `set_log_basedir(...)` after constructing its Client, as in 1.x.
+        # An empty value means the master disabled file logging. An absent
+        # key can only come from `from_env` of a wire string older than the
+        # key (hand-built contexts get logdir at construction now); this
+        # process's own setting stands there, and applying it is a no-op. A
+        # worker that wants its own location calls `set_log_basedir(...)`
+        # after constructing its Client, as in 1.x.
         from daisy.logging import get_log_basedir, set_log_basedir
 
         if "logdir" not in context:
