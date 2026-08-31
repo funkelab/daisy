@@ -30,13 +30,23 @@
 //! for `u8`; wider element stores can in principle tear for a concurrent
 //! *reader*, which for diagnostics data is acceptable.
 //!
-//! On open we verify a `daisy_task_hash` entry in the group's `attributes`
-//! matching the task's `(total_roi, read_roi, write_roi, fit)`. A mismatch
-//! means the stored tracking was written for a *different* task layout and
-//! would produce wrong skip decisions; we refuse to load it and return a
-//! `TrackingError::LayoutMismatch` telling the user to delete it. A
+//! On open, a daisy-written store carries a `daisy_task_hash` entry in the
+//! group's `attributes` matching the task's `(total_roi, read_roi, write_roi,
+//! fit)`. A mismatch means the stored tracking was written for a *different*
+//! task layout and would produce wrong skip decisions; we refuse to load it and
+//! return a `TrackingError::LayoutMismatch` telling the user to delete it. A
 //! directory written by an older daisy (a bare zarr *array* rather than a
 //! group) fails the same way, with the same actionable message.
+//!
+//! A store with NO `daisy_task_hash` is treated as *caller-provided*: the
+//! supported way to seed skip state is to build a zarr group with a `done`
+//! array at the task's block-grid shape, mark the blocks to skip as 1, and
+//! point `tracking_path` at it. Such a store is trusted by FORMAT rather than by
+//! hash — the per-array shape/dtype check (`verify_existing_array`) is the
+//! authority and raises `InvalidMetadata` with the expected-vs-stored shape if
+//! the `done` array was built at the wrong grid shape. This is how a mask of
+//! blocks to skip (e.g. blocks far from a predicted surface) is provided
+//! without daisy having to run the task once to create the store first.
 //!
 //! ## This is the only place that counts blocks
 //!
@@ -718,37 +728,67 @@ fn verify_existing_group(
 ) -> Result<(), TrackingError> {
     let metadata: serde_json::Value = read_json(group_json_path)?;
 
+    let node_type = metadata.get("node_type").and_then(|v| v.as_str());
     let stored_hash = metadata
         .get("attributes")
         .and_then(|a| a.get("daisy_task_hash"))
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
-    let stored_hash = stored_hash.ok_or_else(|| TrackingError::LayoutMismatch {
-        path: root.to_path_buf(),
-        stored_hash: "<missing zarr.json/attributes.daisy_task_hash>".to_string(),
-        expected_hash: expected_hash.to_string(),
-    })?;
-    if stored_hash != expected_hash {
-        return Err(TrackingError::LayoutMismatch {
-            path: root.to_path_buf(),
-            stored_hash,
-            expected_hash: expected_hash.to_string(),
-        });
-    }
 
-    // The hash matched, so this directory belongs to this task layout. If
-    // it isn't a group, it was written by a daisy old enough to predate
-    // the group layout (or has been tampered with) — report it as stale
-    // tracking with the same delete-and-rerun remedy.
-    let node_type = metadata.get("node_type").and_then(|v| v.as_str());
-    if node_type != Some("group") {
-        return Err(TrackingError::LayoutMismatch {
-            path: root.to_path_buf(),
-            stored_hash: format!("<zarr node_type = {node_type:?}, expected \"group\">"),
-            expected_hash: expected_hash.to_string(),
-        });
+    match stored_hash {
+        // CALLER-PROVIDED tracking store: a group with no `daisy_task_hash`.
+        // This is the supported way to seed skip state without daisy having
+        // written the store first — build a zarr group with a `done` array at
+        // the task's block-grid shape, mark the blocks to skip as 1, and point
+        // `tracking_path` at it. We do NOT trust a hash here (there is none);
+        // the store is validated by FORMAT instead: the per-array shape/dtype
+        // check in `open_or_create` (`verify_existing_array`) is the authority
+        // and raises `InvalidMetadata` with the expected-vs-stored shape if the
+        // caller built the `done` array at the wrong grid shape. All we enforce
+        // at the group level is that it really is a zarr group.
+        None => {
+            if node_type != Some("group") {
+                return Err(TrackingError::InvalidMetadata {
+                    path: root.to_path_buf(),
+                    reason: format!(
+                        "tracking path {} exists but is not a zarr group \
+                         (node_type = {node_type:?}). A caller-provided tracking \
+                         store must be a zarr v3 group containing a `done` array \
+                         of the task's block-grid shape; either build it that way \
+                         or delete the path so daisy can create it.",
+                        root.display()
+                    ),
+                });
+            }
+            Ok(())
+        }
+        // Daisy-written store: enforce the layout hash so a rerun whose task
+        // layout changed (a different (total_roi, read_roi, write_roi, fit))
+        // does not silently reuse skip decisions from the old layout.
+        Some(stored_hash) => {
+            if stored_hash != expected_hash {
+                return Err(TrackingError::LayoutMismatch {
+                    path: root.to_path_buf(),
+                    stored_hash,
+                    expected_hash: expected_hash.to_string(),
+                });
+            }
+            // The hash matched, so this directory belongs to this task layout.
+            // If it isn't a group, it was written by a daisy old enough to
+            // predate the group layout (or has been tampered with) — report it
+            // as stale tracking with the same delete-and-rerun remedy.
+            if node_type != Some("group") {
+                return Err(TrackingError::LayoutMismatch {
+                    path: root.to_path_buf(),
+                    stored_hash: format!(
+                        "<zarr node_type = {node_type:?}, expected \"group\">"
+                    ),
+                    expected_hash: expected_hash.to_string(),
+                });
+            }
+            Ok(())
+        }
     }
-    Ok(())
 }
 
 /// Cross-check a child array's shape and dtype. The hash lives on the
@@ -873,6 +913,53 @@ mod tests {
         ));
         // The message must stay actionable — python tests assert on it.
         assert!(format!("{err}").contains("rm -rf"), "message: {err}");
+    }
+
+    #[test]
+    fn caller_provided_store_without_hash_is_accepted_and_validated_by_shape() {
+        let dir = tempdir();
+        let total = make_roi(&[0, 0], &[400, 400]);
+        let block_shape = make_roi(&[0, 0], &[100, 100]);
+
+        // Build a normal store and pre-mark one block, then strip the daisy
+        // hash so the store looks caller-provided (as if a mask was written by
+        // hand / by volara and handed in via tracking_path).
+        {
+            let mut m = open(&dir, &total, &block_shape, false);
+            let b = block_at(&total, &[100, 200], &[100, 100]); // grid (1, 2)
+            m.mark_success(&b);
+        }
+        let group_json = dir.join("zarr.json");
+        let mut meta: serde_json::Value = read_json(&group_json).unwrap();
+        meta["attributes"] = json!({});
+        write_json(&group_json, &meta).unwrap();
+
+        // Reopen at the SAME layout: accepted by format (no hash), and the
+        // pre-marked skip state is honored.
+        let m = open(&dir, &total, &block_shape, false);
+        let b = block_at(&total, &[100, 200], &[100, 100]);
+        assert!(m.is_done(&b), "caller-provided done state must be honored");
+        assert_eq!(m.count_done(), 1);
+        drop(m);
+
+        // Reopen the SAME hash-less store with a DIFFERENT block shape: format
+        // validation is now the authority and must reject the shape mismatch
+        // with a useful InvalidMetadata error (NOT a hash LayoutMismatch).
+        let other = make_roi(&[0, 0], &[50, 50]);
+        let err = match TaskTracking::open_or_create(
+            &dir, &total, &other, &other, &Fit::Valid, false,
+        ) {
+            Ok(_) => panic!("wrong-shape caller-provided store must be rejected"),
+            Err(e) => e,
+        };
+        assert!(
+            matches!(err, TrackingError::InvalidMetadata { .. }),
+            "expected InvalidMetadata for a shape mismatch, got: {err}"
+        );
+        assert!(
+            format!("{err}").contains("shape inconsistent"),
+            "message must name the shape mismatch: {err}"
+        );
     }
 
     #[test]
