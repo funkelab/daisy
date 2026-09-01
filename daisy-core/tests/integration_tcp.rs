@@ -29,6 +29,7 @@ async fn test_framing_roundtrip() {
     let msgs = vec![
         Message::AcquireBlock {
             task_id: "test".into(),
+            worker_id: Some(3),
         },
         Message::RequestShutdown,
         Message::Disconnect,
@@ -38,8 +39,18 @@ async fn test_framing_roundtrip() {
         write_message(&mut writer, msg).await.unwrap();
         let echoed = read_message(&mut reader).await.unwrap().unwrap();
         match (&msg, &echoed) {
-            (Message::AcquireBlock { task_id: a }, Message::AcquireBlock { task_id: b }) => {
+            (
+                Message::AcquireBlock {
+                    task_id: a,
+                    worker_id: wa,
+                },
+                Message::AcquireBlock {
+                    task_id: b,
+                    worker_id: wb,
+                },
+            ) => {
                 assert_eq!(a, b);
+                assert_eq!(wa, wb);
             }
             (Message::RequestShutdown, Message::RequestShutdown) => {}
             (Message::Disconnect, Message::Disconnect) => {}
@@ -159,7 +170,7 @@ async fn test_chained_tasks_distributed() {
 
 
 async fn run_worker(host: String, port: u16, task_id: String) {
-    let mut client = Client::connect(&host, port, &task_id).await.unwrap();
+    let mut client = Client::connect(&host, port, &task_id, None).await.unwrap();
     loop {
         match client.acquire_block().await {
             Ok(Some(mut block)) => {
@@ -310,7 +321,7 @@ async fn test_server_block_failure_and_retry() {
     let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
 
     let w = tokio::spawn(async move {
-        let mut client = Client::connect(&host, port, "retry_test").await.unwrap();
+        let mut client = Client::connect(&host, port, "retry_test", None).await.unwrap();
         loop {
             match client.acquire_block().await {
                 Ok(Some(mut block)) => {
@@ -355,6 +366,102 @@ async fn test_server_block_failure_and_retry() {
         .await
         .expect("worker did not exit within 2s")
         .unwrap();
+}
+
+/// Regression test for the idle-fleet tail problem: a worker that asks for
+/// a block when every remaining block is IN FLIGHT (none ready, none
+/// pending) must be told to shut down immediately — not parked until the
+/// whole task completes. Before the fix, the tail of any large run pinned
+/// every idle worker while the last slow blocks finished.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_idle_worker_released_while_blocks_in_flight() {
+    let task = Arc::new(
+        Task::builder("tail")
+            .total_roi(Roi::from_slices(&[0], &[20]))
+            .read_roi(Roi::from_slices(&[0], &[10]))
+            .write_roi(Roi::from_slices(&[0], &[10]))
+            .read_write_conflict(false)
+            .max_workers(0)
+            .build(),
+    );
+    let pipeline = Pipeline::from_task(task);
+
+    let (server, listener) = Server::bind(Some("127.0.0.1")).await.unwrap();
+    let host = server.host().to_string();
+    let port = server.port();
+    let mut worker_pools: HashMap<String, WorkerPool> = HashMap::new();
+
+    // Signalled once the idle worker has been released; tells the slow
+    // worker it can finally finish its block.
+    let (finish_slow_tx, finish_slow_rx) = tokio::sync::oneshot::channel::<()>();
+    // Signalled when the idle worker receives shutdown (acquire → None).
+    let (idle_released_tx, idle_released_rx) = tokio::sync::oneshot::channel::<()>();
+
+    // Slow worker: takes the first block and holds it in flight.
+    let h = host.clone();
+    let w_slow = tokio::spawn(async move {
+        let mut client = Client::connect(&h, port, "tail", None).await.unwrap();
+        let mut block = client
+            .acquire_block()
+            .await
+            .unwrap()
+            .expect("slow worker should get a block");
+        finish_slow_rx.await.unwrap();
+        block.status = BlockStatus::Success;
+        client.release_block(block).await.unwrap();
+        while let Ok(Some(mut b)) = client.acquire_block().await {
+            b.status = BlockStatus::Success;
+            client.release_block(b).await.unwrap();
+        }
+        let _ = client.disconnect().await;
+    });
+
+    // Fast worker: starts after the slow one holds its block, drains the
+    // remaining ready block, then must promptly be handed None even
+    // though the slow block is still processing.
+    let h = host.clone();
+    let w_fast = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        let mut client = Client::connect(&h, port, "tail", None).await.unwrap();
+        while let Some(mut block) = client.acquire_block().await.unwrap() {
+            block.status = BlockStatus::Success;
+            client.release_block(block).await.unwrap();
+        }
+        let _ = idle_released_tx.send(());
+        let _ = client.disconnect().await;
+    });
+
+    let orchestrate = async move {
+        tokio::time::timeout(std::time::Duration::from_secs(4), idle_released_rx)
+            .await
+            .expect(
+                "idle worker was not released while the last block was in \
+                 flight — tail-teardown regression",
+            )
+            .unwrap();
+        let _ = finish_slow_tx.send(());
+    };
+
+    let run = server.run_blockwise(
+        listener,
+        &pipeline,
+        &mut worker_pools,
+        ResourceBudget::empty(),
+        None,
+        None,
+        true,
+    );
+    let ((), run_result) = tokio::join!(orchestrate, async {
+        tokio::time::timeout(std::time::Duration::from_secs(10), run)
+            .await
+            .expect("server timed out")
+            .unwrap()
+    });
+    let (states, _) = run_result;
+
+    assert_eq!(states["tail"].completed_count, 2);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_slow).await;
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(2), w_fast).await;
 }
 
 /// The scheduler must advertise an address workers can reach, and listen on

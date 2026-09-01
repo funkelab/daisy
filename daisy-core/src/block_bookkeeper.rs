@@ -13,6 +13,11 @@ struct BlockLog {
     /// dispatched. `None` means no timeout — the block can sit in
     /// processing indefinitely as long as the client stays connected.
     timeout: Option<Duration>,
+    /// Server-assigned id of the worker holding the block, from the
+    /// worker's `AcquireBlock`. Lets a timeout reclaim retire the exact
+    /// worker slot whose occupant is stuck. `None` for clients outside
+    /// daisy's worker management.
+    worker_id: Option<u64>,
 }
 
 pub struct BlockBookkeeper {
@@ -37,6 +42,7 @@ impl BlockBookkeeper {
         block: Block,
         client_addr: SocketAddr,
         timeout: Option<Duration>,
+        worker_id: Option<u64>,
     ) {
         debug!(block_id = %block.block_id, %client_addr, "block sent to client");
         self.sent_blocks.insert(
@@ -46,6 +52,7 @@ impl BlockBookkeeper {
                 client_addr,
                 time_sent: Instant::now(),
                 timeout,
+                worker_id,
             },
         );
     }
@@ -96,8 +103,10 @@ impl BlockBookkeeper {
     /// retry / orphan path.
     /// Each returned entry carries `timed_out: true` when the loss was a
     /// deadline reclaim (as opposed to a client disconnect), so the
-    /// runner can account timeout reclaims separately.
-    pub fn get_lost_blocks(&mut self) -> Vec<(Block, bool)> {
+    /// runner can account timeout reclaims separately, and the holder's
+    /// worker id (when known) so a deadline reclaim can retire the stuck
+    /// worker's slot.
+    pub fn get_lost_blocks(&mut self) -> Vec<(Block, bool, Option<u64>)> {
         let now = Instant::now();
         let mut lost_ids = Vec::new();
 
@@ -130,7 +139,7 @@ impl BlockBookkeeper {
         let mut lost_blocks = Vec::new();
         for (id, timed_out) in lost_ids {
             if let Some(log) = self.sent_blocks.remove(&id) {
-                lost_blocks.push((log.block, timed_out));
+                lost_blocks.push((log.block, timed_out, log.worker_id));
             }
         }
         lost_blocks

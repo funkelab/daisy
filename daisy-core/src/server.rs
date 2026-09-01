@@ -85,6 +85,33 @@ enum WorkerThread {
     Finished,
 }
 
+/// One spawned worker: its spec, its thread, and whether its allocator
+/// slot has already been given back.
+struct WorkerEntry {
+    spec: WorkerSpec,
+    thread: WorkerThread,
+    /// Set when a timeout reclaim retires this worker's slot while the
+    /// thread is still running (the worker is stuck holding a block and
+    /// can no longer be counted alive). The eventual thread exit must
+    /// not release the slot a second time.
+    slot_retired: bool,
+}
+
+/// What the server knows about worker lifecycles beyond the thread
+/// handles: which server-assigned worker ids ever spoke to us over TCP,
+/// and which spawn threads have exited. Comparing the two catches
+/// fire-and-forget spawn functions — a 0-arg spawn function must block
+/// for its worker's lifetime (e.g. `sbatch --wait`, `srun`), because
+/// every liveness decision (rebalancing, the start budget, abandonment)
+/// reads "worker alive" as "the spawn call hasn't returned".
+#[derive(Default)]
+struct WorkerRegistry {
+    /// Worker ids that have sent at least one `AcquireBlock`.
+    connected: std::collections::HashSet<u64>,
+    /// Worker ids whose spawn thread has been reaped.
+    exited: std::collections::HashSet<u64>,
+}
+
 impl Server {
     /// Listen for workers, and decide what address to tell them to dial.
     ///
@@ -220,7 +247,8 @@ impl Server {
                 e.to_string(),
             ));
         }
-        let mut workers: Vec<(WorkerSpec, WorkerThread)> = Vec::new();
+        let mut workers: Vec<WorkerEntry> = Vec::new();
+        let mut registry = WorkerRegistry::default();
         let mut next_worker_id: u64 = 0;
         // Channel each worker thread signals on just before it exits, so
         // the main loop can rebalance immediately rather than waiting for
@@ -270,7 +298,7 @@ impl Server {
                         Message::ReleaseBlock { .. } | Message::BlockFailed { .. }
                     );
                     let updated = self.handle_message(
-                        cm, &mut scheduler, &mut bookkeeper,
+                        cm, &mut scheduler, &mut bookkeeper, &mut registry,
                         &mut pending, worker_pools,
                     )?;
                     // Rebalance only when this release has actually
@@ -324,7 +352,9 @@ impl Server {
                             }
                         }
                     }
-                    Self::check_thread_health(&mut workers, &mut scheduler, &mut allocator);
+                    Self::check_thread_health(
+                        &mut workers, &mut scheduler, &mut allocator, &mut registry,
+                    );
                     Self::rebalance_workers(
                         &self.host,
                         self.port,
@@ -340,7 +370,7 @@ impl Server {
 
                 _ = health_interval.tick() => {
                     let lost = bookkeeper.get_lost_blocks();
-                    for (mut block, timed_out) in lost {
+                    for (mut block, timed_out, holder) in lost {
                         warn!(block_id = %block.block_id, timed_out, "block lost");
                         if timed_out {
                             if let Some(state) =
@@ -349,6 +379,22 @@ impl Server {
                                 if let Some(rt) = state.as_running_mut() {
                                     rt.note_timeout_reclaim();
                                 }
+                            }
+                            // The holder blew the deadline: stop counting
+                            // it alive so the rebalance below can spawn a
+                            // replacement for the retried block instead of
+                            // seeing a full roster of workers, one of
+                            // which will never acquire again. The worker
+                            // itself normally dies moments later (its own
+                            // watchdog runs the same deadline), which
+                            // makes its spawn call return; retiring here
+                            // just means scheduling doesn't wait on that
+                            // teardown to travel back through e.g. a
+                            // remote job system.
+                            if let Some(wid) = holder {
+                                Self::retire_worker_slot(
+                                    &mut workers, &mut allocator, wid,
+                                );
                             }
                         }
                         block.status = BlockStatus::Failed;
@@ -368,7 +414,9 @@ impl Server {
                     // but the periodic tick is the safety net for any
                     // worker that died without sending a notification
                     // (e.g. a panic that didn't unwind through `Drop`).
-                    Self::check_thread_health(&mut workers, &mut scheduler, &mut allocator);
+                    Self::check_thread_health(
+                        &mut workers, &mut scheduler, &mut allocator, &mut registry,
+                    );
                     Self::rebalance_workers(
                         &self.host,
                         self.port,
@@ -385,7 +433,7 @@ impl Server {
 
                     if !pending.is_empty() {
                         self.retry_pending(
-                            &mut scheduler, &mut bookkeeper,
+                            &mut scheduler, &mut bookkeeper, &mut registry,
                             &mut pending, worker_pools,
                             )?;
                     }
@@ -430,8 +478,10 @@ impl Server {
         }
 
         // Wait for worker threads to exit (they'll see TCP close / RequestShutdown).
-        for (_, wt) in &mut workers {
-            if let WorkerThread::Running(handle) = std::mem::replace(wt, WorkerThread::Finished) {
+        for entry in &mut workers {
+            if let WorkerThread::Running(handle) =
+                std::mem::replace(&mut entry.thread, WorkerThread::Finished)
+            {
                 let _ = handle.join();
             }
         }
@@ -561,16 +611,19 @@ impl Server {
     /// `rebalance_workers` decides whether the task still needs (and
     /// is allowed) more workers.
     fn check_thread_health(
-        workers: &mut Vec<(WorkerSpec, WorkerThread)>,
+        workers: &mut Vec<WorkerEntry>,
         scheduler: &mut Scheduler,
         allocator: &mut ResourceAllocator,
+        registry: &mut WorkerRegistry,
     ) {
-        for (spec, wt) in workers.iter_mut() {
-            if let &mut WorkerThread::Running(ref handle) = wt {
+        for entry in workers.iter_mut() {
+            let spec = &entry.spec;
+            if let WorkerThread::Running(ref handle) = entry.thread {
                 if handle.is_finished() {
                     if let WorkerThread::Running(handle) =
-                        std::mem::replace(wt, WorkerThread::Finished)
+                        std::mem::replace(&mut entry.thread, WorkerThread::Finished)
                     {
+                        registry.exited.insert(spec.worker_id);
                         match handle.join() {
                             Ok(true) => {
                                 debug!(
@@ -578,6 +631,36 @@ impl Server {
                                     task_id = %spec.task_id,
                                     "worker exited cleanly",
                                 );
+                                // A clean spawn-function return whose worker
+                                // never once talked to us, while the task
+                                // still has work, is the fire-and-forget
+                                // signature (e.g. `sbatch` without `--wait`):
+                                // the spawn call must block for the worker's
+                                // lifetime, or every liveness decision here
+                                // is reading tea leaves. The hard error fires
+                                // if that worker connects later; this warning
+                                // is the early signal (and the only one, if
+                                // the worker never comes up at all).
+                                let task_running = scheduler
+                                    .task_states
+                                    .get(&spec.task_id)
+                                    .is_some_and(|s| s.is_running());
+                                if task_running
+                                    && !registry.connected.contains(&spec.worker_id)
+                                {
+                                    warn!(
+                                        worker_id = spec.worker_id,
+                                        task_id = %spec.task_id,
+                                        "spawn function returned without its worker ever \
+                                         connecting, while the task still has work. 0-arg \
+                                         spawn functions must block for the worker's \
+                                         lifetime (e.g. `sbatch --wait`, `srun`) — a \
+                                         fire-and-forget submit makes daisy respawn \
+                                         workers it believes dead, burning the worker \
+                                         start budget, and can abandon the task while \
+                                         real workers still run",
+                                    );
+                                }
                             }
                             Ok(false) | Err(_) => {
                                 warn!(
@@ -594,14 +677,51 @@ impl Server {
                                 }
                             }
                         }
-                        allocator.release(&spec.task);
+                        if !entry.slot_retired {
+                            allocator.release(&spec.task);
+                        }
                     }
                 }
             }
         }
         // Drop the now-Finished entries so the workers vec doesn't grow
         // unboundedly across long runs.
-        workers.retain(|(_, wt)| matches!(wt, WorkerThread::Running(_)));
+        workers.retain(|entry| matches!(entry.thread, WorkerThread::Running(_)));
+    }
+
+    /// Stop counting a still-running worker as alive: give its allocator
+    /// slot back so rebalancing can spawn a replacement. Used when a
+    /// block times out — its holder is stuck, and may be somewhere the
+    /// server cannot kill (the far end of an `sbatch`), so scheduling
+    /// must not wait for its spawn call to return. Idempotent per
+    /// worker; the eventual thread exit skips the second release via
+    /// `slot_retired`. If the worker turns out to be merely slow and
+    /// comes back, its stale block return is already rejected by the
+    /// bookkeeper and it simply rejoins the pool (briefly over-counting
+    /// alive by one, which self-corrects at the next clean exit).
+    fn retire_worker_slot(
+        workers: &mut [WorkerEntry],
+        allocator: &mut ResourceAllocator,
+        worker_id: u64,
+    ) {
+        for entry in workers.iter_mut() {
+            if entry.spec.worker_id != worker_id {
+                continue;
+            }
+            if entry.slot_retired || !matches!(entry.thread, WorkerThread::Running(_)) {
+                return;
+            }
+            warn!(
+                worker_id,
+                task_id = %entry.spec.task_id,
+                "retiring worker slot: its block exceeded the task timeout; \
+                 the worker may still be running but is no longer counted \
+                 alive",
+            );
+            allocator.release(&entry.spec.task);
+            entry.slot_retired = true;
+            return;
+        }
     }
 
     /// For any task that has exhausted its restart budget AND has no
@@ -723,7 +843,7 @@ impl Server {
         tasks: &[Arc<Task>],
         scheduler: &mut Scheduler,
         allocator: &mut ResourceAllocator,
-        workers: &mut Vec<(WorkerSpec, WorkerThread)>,
+        workers: &mut Vec<WorkerEntry>,
         next_id: &mut u64,
         exit_tx: &mpsc::UnboundedSender<WorkerExit>,
     ) {
@@ -807,7 +927,11 @@ impl Server {
                     port,
                 };
                 let handle = Self::spawn_worker(&spec, exit_tx.clone());
-                workers.push((spec, WorkerThread::Running(handle)));
+                workers.push(WorkerEntry {
+                    spec,
+                    thread: WorkerThread::Running(handle),
+                    slot_retired: false,
+                });
                 *next_id += 1;
                 if let Some(state) = scheduler.task_states.get_mut(&task.task_id) {
                     if let Some(rt) = state.as_running_mut() {
@@ -829,6 +953,7 @@ impl Server {
         &self,
         scheduler: &mut Scheduler,
         bookkeeper: &mut BlockBookkeeper,
+        registry: &mut WorkerRegistry,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
     ) -> std::io::Result<()> {
@@ -836,7 +961,7 @@ impl Server {
         for _ in 0..count {
             if let Some(cm) = pending.pop_front() {
                 let _ = self.handle_message(
-                    cm, scheduler, bookkeeper, pending, worker_pools,
+                    cm, scheduler, bookkeeper, registry, pending, worker_pools,
                 )?;
             }
         }
@@ -854,13 +979,14 @@ impl Server {
         cm: ClientMessage,
         scheduler: &mut Scheduler,
         bookkeeper: &mut BlockBookkeeper,
+        registry: &mut WorkerRegistry,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
     ) -> std::io::Result<Vec<String>> {
         let mut updated: Vec<String> = Vec::new();
         match cm.message {
             Message::AcquireBlock { .. } => {
-                self.handle_acquire(cm, scheduler, bookkeeper, pending, worker_pools)?;
+                self.handle_acquire(cm, scheduler, bookkeeper, registry, pending, worker_pools)?;
             }
             Message::ReleaseBlock { block } => {
                 if bookkeeper.is_valid_return(&block, cm.addr) {
@@ -888,7 +1014,7 @@ impl Server {
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
-                            scheduler, bookkeeper, pending, worker_pools,
+                            scheduler, bookkeeper, registry, pending, worker_pools,
                                 )?;
                     }
                 } else {
@@ -912,7 +1038,7 @@ impl Server {
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
-                            scheduler, bookkeeper, pending, worker_pools,
+                            scheduler, bookkeeper, registry, pending, worker_pools,
                                 )?;
                     }
                 }
@@ -933,13 +1059,43 @@ impl Server {
         cm: ClientMessage,
         scheduler: &mut Scheduler,
         bookkeeper: &mut BlockBookkeeper,
+        registry: &mut WorkerRegistry,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
     ) -> std::io::Result<()> {
-        let task_id = match &cm.message {
-            Message::AcquireBlock { task_id } => task_id.clone(),
+        let (task_id, worker_id) = match &cm.message {
+            Message::AcquireBlock { task_id, worker_id } => (task_id.clone(), *worker_id),
             _ => unreachable!(),
         };
+
+        if let Some(wid) = worker_id {
+            // First contact from a worker whose spawn thread has already
+            // been reaped is definitive proof of a fire-and-forget spawn
+            // function: the worker outlived the spawn call. Every
+            // liveness decision (rebalancing, the start budget,
+            // abandonment) reads "worker alive" as "the spawn call
+            // hasn't returned", so such a run is unsalvageable — fail it
+            // loudly rather than respawn workers we believe dead.
+            // (A worker that connected *before* its thread exited is the
+            // normal shutdown ordering and is left alone; that also
+            // keeps a queued message from a just-finished worker from
+            // tripping this.)
+            if registry.exited.contains(&wid) && !registry.connected.contains(&wid) {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!(
+                        "worker {wid} for task {task_id:?} connected after its \
+                         spawn function had already returned. 0-arg spawn \
+                         functions must block until their worker exits \
+                         (e.g. `sbatch --wait`, `srun`, `subprocess.run`): \
+                         daisy tracks worker liveness by the spawn call, so \
+                         a fire-and-forget submit makes daisy respawn workers \
+                         it believes dead and breaks the run's accounting."
+                    ),
+                ));
+            }
+            registry.connected.insert(wid);
+        }
 
         match scheduler.acquire_block(&task_id) {
             Some(block) => {
@@ -948,15 +1104,27 @@ impl Server {
                     .task_map
                     .get(&task_id)
                     .and_then(|t| t.timeout);
-                bookkeeper.notify_block_sent(block.clone(), cm.addr, timeout);
-                let _ = cm.reply_tx.try_send(Message::SendBlock { block });
+                bookkeeper.notify_block_sent(block.clone(), cm.addr, timeout, worker_id);
+                let _ = cm.reply_tx.try_send(Message::SendBlock {
+                    block,
+                    timeout_secs: timeout.map(|d| d.as_secs_f64()),
+                });
             }
             None => {
+                // No ready block. Release the worker unless blocks are
+                // still *pending* (dependency-gated: upstream tasks or
+                // intra-task read/write conflicts) — those become ready
+                // later and this worker is their taker, so it parks.
+                // In-flight blocks deliberately do NOT hold workers: once
+                // pending hits 0, the only work that can ever reappear is
+                // a retry of an in-flight block, and the rebalance loop
+                // spawns a fresh worker for that (the failing worker's
+                // own next acquire usually beats it there). Holding the
+                // fleet instead meant the last slow blocks of a large run
+                // pinned every idle worker until full completion.
                 let counters = scheduler.task_states[&task_id].counters();
                 let terminal = !scheduler.task_states[&task_id].is_running();
-                if terminal
-                    || (counters.pending_count() <= 0 && counters.processing_count <= 0)
-                {
+                if terminal || counters.pending_count() <= 0 {
                     debug!(task_id = %task_id, "no more blocks");
                     let _ = cm.reply_tx.try_send(Message::RequestShutdown);
                     self.recruit_workers(scheduler, worker_pools)?;

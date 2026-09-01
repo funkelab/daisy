@@ -15,26 +15,24 @@ according to its arity:
   process (``srun``, ``sbatch``, a container). Called with ``context=`` when
   it declares that keyword-only parameter.
 
-Timeout preemption (arity 1): when the task has ``timeout=T``, a watchdog
-timer is armed around every block. If the block is still running after
-``T`` seconds the process prints one line to stderr and hard-exits with
-``EXIT_BLOCK_TIMEOUT`` — killing stuck python or C code for real. The
-parent spawn function maps that exit code to a dirty worker exit, and the
-server's block bookkeeper — whose reclaim timer runs the same duration from
-the same acquire — retries the block elsewhere; the two race within
-milliseconds of each other, so a reclaimed block is never still executing
-somewhere. An arity-0 worker owns its own process and must enforce its own
-per-block deadline if it wants one; the server still reclaims and retries
-the block either way.
+Timeout preemption: when the task has ``timeout=T``, ``daisy.Client``
+arms a watchdog around every acquired block. If the block is still
+unreleased after ``T`` seconds the process prints one line to stderr and
+hard-exits with ``EXIT_BLOCK_TIMEOUT`` — killing stuck python or C code
+for real. The parent spawn function maps that exit code to a dirty worker
+exit, and the server's block bookkeeper — whose reclaim timer runs the
+same duration from the same acquire — retries the block elsewhere; the
+two race within milliseconds of each other, so a reclaimed block is never
+still executing somewhere. Because the watchdog lives in the Client, an
+arity-0 worker's own ``daisy.Client()`` loop is covered exactly the same
+way — no per-loop deadline code needed.
 """
 
 import inspect
-import os
 import sys
-import threading
 
 
-def _run_block_loop(process_function, timeout):
+def _run_block_loop(process_function):
     from daisy._task import Client
 
     # A server that is already gone (end-of-run straggler race) leaves the
@@ -53,28 +51,7 @@ def _run_block_loop(process_function, timeout):
         with client.acquire_block() as block:
             if block is None:
                 return
-            watchdog = None
-            if timeout is not None:
-                from daisy._worker_processes import EXIT_BLOCK_TIMEOUT
-
-                def _preempt(block_id=block.block_id):
-                    print(
-                        f"daisy worker {client.worker_id}: block "
-                        f"{block_id} still running after "
-                        f"timeout={timeout}s; killing worker process",
-                        file=sys.stderr,
-                        flush=True,
-                    )
-                    os._exit(EXIT_BLOCK_TIMEOUT)
-
-                watchdog = threading.Timer(timeout, _preempt)
-                watchdog.daemon = True
-                watchdog.start()
-            try:
-                process_function(block)
-            finally:
-                if watchdog is not None:
-                    watchdog.cancel()
+            process_function(block)
 
 
 def _run_worker_function(worker_function):
@@ -104,7 +81,9 @@ def _run():
     if payload["arity"] == 0:
         _run_worker_function(function)
     else:
-        _run_block_loop(function, payload["timeout"])
+        # The block timeout is not read from the payload: the server
+        # sends it with every block, and daisy.Client arms the watchdog.
+        _run_block_loop(function)
 
 
 if __name__ == "__main__":

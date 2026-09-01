@@ -8,11 +8,26 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 /// Messages exchanged between server and workers over TCP.
 #[derive(Clone, Debug, Serialize, Deserialize, Encode, Decode)]
 pub enum Message {
-    /// Worker requests a block to process.
-    AcquireBlock { task_id: String },
+    /// Worker requests a block to process. `worker_id` is the id the
+    /// server assigned when it ran the worker's spawn function (carried
+    /// to the worker in its `DAISY_CONTEXT`); it lets the server tie the
+    /// TCP peer back to the spawn call it is blocking on — to retire the
+    /// worker's slot when a block times out, and to detect spawn
+    /// functions that returned before their worker's lifetime ended.
+    /// `None` for clients outside daisy's worker management.
+    AcquireBlock {
+        task_id: String,
+        worker_id: Option<u64>,
+    },
 
-    /// Server sends a block to a worker.
-    SendBlock { block: Block },
+    /// Server sends a block to a worker. `timeout_secs` is the task's
+    /// per-block deadline: the client arms a watchdog that kills the
+    /// worker process if the block is still running after this long,
+    /// mirroring the reclaim timer the server starts at send time.
+    SendBlock {
+        block: Block,
+        timeout_secs: Option<f64>,
+    },
 
     /// Worker returns a processed block.
     ReleaseBlock { block: Block },
@@ -41,7 +56,13 @@ const BINCODE_CONFIG: bincode::config::Configuration = bincode::config::standard
 /// from a different environment than the driver.
 ///
 /// Bump this whenever the encoding of any `Message` variant changes.
-pub const PROTOCOL_VERSION: u8 = 1;
+///
+/// Version history:
+/// - 1: initial v2 protocol.
+/// - 2: `AcquireBlock` carries `worker_id`, `SendBlock` carries
+///   `timeout_secs` (client-side watchdog + server-side worker
+///   retirement on timeout).
+pub const PROTOCOL_VERSION: u8 = 2;
 
 /// Write a length-prefixed, bincode-encoded message to a TCP stream.
 pub async fn write_message(writer: &mut OwnedWriteHalf, msg: &Message) -> io::Result<()> {

@@ -69,9 +69,10 @@ import subprocess
 import sys
 import tempfile
 
-#: exit code the worker child uses when it self-terminates because a block
-#: exceeded ``Task(timeout=...)`` (see ``_subprocess_worker``).
-EXIT_BLOCK_TIMEOUT = 87
+#: exit code a worker process uses when its block watchdog kills it because
+#: a block exceeded ``Task(timeout=...)``. The watchdog (and this value)
+#: live in the Rust client — every ``daisy.Client`` loop is covered.
+from daisy._daisy import EXIT_BLOCK_TIMEOUT as EXIT_BLOCK_TIMEOUT  # noqa: E402
 
 # payload wire format: two length-prefixed frames.
 #   frame 1 (stdlib pickle): the parent's process-global configuration that
@@ -81,6 +82,9 @@ EXIT_BLOCK_TIMEOUT = 87
 #     of this for free by forking; a spawned child starts from defaults, so
 #     anything process-global has to be carried explicitly.
 #   frame 2 (cloudpickle or pickle): {"function":, "arity":, "timeout":}
+#     ("timeout" is informational — the block watchdog is armed by
+#     daisy.Client from the per-block value the server sends; the parent
+#     keeps it only for the EXIT_BLOCK_TIMEOUT error message.)
 _LEN = struct.Struct("<Q")
 
 

@@ -117,7 +117,14 @@ def test_context_argument_and_env_var_agree(tmp_path):
 
 def test_block_function_workers_get_distinct_identities(tmp_path):
     """Workers running a 1-arg block function get a deterministic
-    DAISY_CONTEXT built for their process alone."""
+    DAISY_CONTEXT built for their process alone: worker ids and process
+    ids map one-to-one. (The raced process-global DAISY_CONTEXT this
+    guards against gave several processes the same worker_id.)
+
+    Deliberately NOT asserted: that all 8 workers process a block. A
+    worker that connects after the ready blocks drain is released
+    immediately (tail teardown), so participation depends on machine
+    load."""
     outdir = str(tmp_path / "ids")
     Path(outdir).mkdir()
 
@@ -127,12 +134,21 @@ def test_block_function_workers_get_distinct_identities(tmp_path):
 
         ctx = daisy.Context.from_env()
         open(os.path.join(outdir, f"w-{ctx['worker_id']}_p{_os.getpid()}"), "w").close()
-        _time.sleep(0.05)  # hold the block so all workers participate
+        _time.sleep(0.1)  # hold the block so other workers participate
 
     task = _mk_task(record_identity, n_blocks=32, max_workers=8, task_id="shim_ctx")
     assert daisy.run_blockwise([task], progress=False)
-    worker_ids = {f.name.split("_")[0] for f in Path(outdir).iterdir()}
-    assert len(worker_ids) == 8, sorted(worker_ids)
+    wid_to_pids: dict[str, set[str]] = {}
+    pid_to_wids: dict[str, set[str]] = {}
+    for f in Path(outdir).iterdir():
+        wid, pid = f.name.split("_")
+        wid_to_pids.setdefault(wid, set()).add(pid)
+        pid_to_wids.setdefault(pid, set()).add(wid)
+    assert all(len(pids) == 1 for pids in wid_to_pids.values()), wid_to_pids
+    assert all(len(wids) == 1 for wids in pid_to_wids.values()), pid_to_wids
+    # The blocks are held long enough that a lone worker can't drain the
+    # task before at least one sibling joins.
+    assert len(wid_to_pids) >= 2, sorted(wid_to_pids)
 
 
 def test_context_round_trip():

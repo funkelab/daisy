@@ -30,10 +30,17 @@ fn connect_err(e: std::io::Error) -> PyErr {
 #[pymethods]
 impl PySyncClient {
     #[new]
-    fn new(py: Python<'_>, host: &str, port: u16, task_id: &str) -> PyResult<Self> {
+    #[pyo3(signature = (host, port, task_id, worker_id=None))]
+    fn new(
+        py: Python<'_>,
+        host: &str,
+        port: u16,
+        task_id: &str,
+        worker_id: Option<u64>,
+    ) -> PyResult<Self> {
         let rt = tokio::runtime::Runtime::new().map_err(io_err)?;
         let client = py
-            .detach(|| rt.block_on(Client::connect(host, port, task_id)))
+            .detach(|| rt.block_on(Client::connect(host, port, task_id, worker_id)))
             .map_err(connect_err)?;
         Ok(Self {
             rt,

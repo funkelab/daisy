@@ -44,6 +44,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Idle workers are released during the tail of a task.** A worker whose
+  `acquire_block()` finds every remaining block either finished or in
+  flight (none ready, none pending) is now told to shut down immediately,
+  instead of parking server-side until the whole task completes.
+  Previously the last few slow blocks of a large run pinned the entire
+  worker fleet — e.g. 138 idle cluster jobs held alive while 2 blocks
+  finished. Workers still park while blocks are *pending* (waiting on
+  upstream tasks or read/write conflicts), so tasks whose ready count
+  temporarily dips keep their workers. If an in-flight block later fails
+  or times out, its retry is picked up by the failing worker's own next
+  acquire or by a freshly spawned replacement (counted against the normal
+  start budget).
+
+- **Block timeout preemption moved into the client, covering every worker
+  loop.** The server sends the task's `timeout` along with each block, and
+  `daisy.Client` arms a watchdog that kills the worker process if the
+  block is still unreleased after that long. Previously only the built-in
+  1-arg subprocess shim had this watchdog; a hand-written 0-arg worker
+  loop that wedged inside a block stayed alive forever, holding its slot.
+  Now any loop built on `daisy.Client` — the shim, custom cluster
+  workers — self-preempts identically (exit code `EXIT_BLOCK_TIMEOUT`,
+  re-exported as `daisy._daisy.EXIT_BLOCK_TIMEOUT`). The wire protocol
+  version is now 2: `AcquireBlock` carries the worker's server-assigned
+  id and `SendBlock` carries the timeout; mixed-version driver/worker
+  deployments fail with the existing version-mismatch error.
+
+- **A block timeout retires the stuck worker's slot.** When the server
+  reclaims a timed-out block, the worker holding it (identified by the
+  worker id now sent with every acquire) stops counting as alive, so the
+  rebalance loop can spawn a replacement for the retried block right away
+  instead of waiting for the stuck worker's spawn call to unwind through
+  e.g. a remote job system. The eventual thread exit does not double-free
+  the slot.
+
+- **Fire-and-forget spawn functions are now detected.** A 0-arg spawn
+  function must block for its worker's lifetime (`sbatch --wait`, `srun`,
+  `subprocess.run`) — daisy reads worker liveness from the spawn call. A
+  worker that first connects *after* its spawn call returned now fails
+  the run with a hard error naming the fix; a spawn call that returns
+  cleanly without its worker ever connecting (while the task still has
+  work) logs a loud warning, since it silently burns the worker start
+  budget and can falsely abandon the task.
+
 - Per-block measurement is now strictly opt-in end to end. The worker
   context carries the task's `resource_tracking` flag, so a worker skips
   the profiler entirely when stats were not requested — previously every

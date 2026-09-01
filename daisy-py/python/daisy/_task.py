@@ -301,6 +301,14 @@ class Client:
     context manager that handles status bookkeeping and routes
     failure tracebacks into the per-worker log.
 
+    Every acquired block is watched automatically: when the task has a
+    block timeout (`Task(timeout=...)`, default 600s), a watchdog kills
+    this worker process if the block is still unreleased after that
+    long — true preemption, even for code stuck inside C. This covers
+    every loop built on this Client, including hand-written cluster
+    workers; the server reclaims and retries the block on the same
+    deadline.
+
     A server that is already gone at construction time (connection
     refused) is treated as "the run has ended": construction does NOT
     raise — a WARNING is logged, `connected` is False, and
@@ -355,7 +363,17 @@ class Client:
             "True",
         )
         try:
-            self._client = _rs.SyncClient(self.host, self.port, self.task_id)
+            # The worker_id rides along so the server can tie this TCP
+            # peer back to the spawn call it is blocking on (worker-slot
+            # retirement on block timeout, fire-and-forget spawn
+            # detection). Hand-built contexts with ids outside the
+            # server-assigned range are simply never matched.
+            self._client = _rs.SyncClient(
+                self.host,
+                self.port,
+                self.task_id,
+                self.worker_id if self.worker_id >= 0 else None,
+            )
         except ConnectionRefusedError:
             self._client = None
             logger.warning(
