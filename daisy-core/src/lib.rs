@@ -7,6 +7,7 @@ pub mod client;
 pub mod coordinate;
 pub mod dependency_graph;
 pub mod error;
+pub mod keepalive;
 pub mod pipeline;
 pub mod processing_queue;
 pub mod protocol;

@@ -190,6 +190,14 @@ impl Server {
                         debug!(%addr, "new client connection");
                         // Disable Nagle so per-block replies aren't delayed.
                         let _ = stream.set_nodelay(true);
+                        // Keepalive: if a worker's *node* vanishes mid-block
+                        // (no RST ever comes), the reader below gets an error
+                        // within minutes instead of never — the disconnect
+                        // path then reclaims the worker's block without
+                        // waiting for the block timeout.
+                        if let Err(e) = crate::keepalive::apply(&stream) {
+                            warn!(%addr, error = %e, "could not enable TCP keepalive on client connection");
+                        }
                         let (mut reader, writer) = stream.into_split();
                         let (reply_tx, mut reply_rx) = mpsc::channel::<Message>(32);
 

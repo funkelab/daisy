@@ -309,6 +309,13 @@ class Client:
     workers; the server reclaims and retries the block on the same
     deadline.
 
+    The connection also runs TCP keepalive, so a worker waiting in
+    `acquire_block()` notices a server whose *host* has vanished (cloud
+    scale-down — no RST will ever arrive) as a connection error within
+    a few minutes, instead of blocking forever on a half-open socket.
+    Together with the block watchdog, this bounds an orphaned worker's
+    lifetime at roughly the block timeout plus keepalive detection.
+
     A server that is already gone at construction time (connection
     refused) is treated as "the run has ended": construction does NOT
     raise — a WARNING is logged, `connected` is False, and

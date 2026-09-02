@@ -55,6 +55,17 @@ impl Client {
         // Disable Nagle: per-block acquire/release are tiny request/response
         // messages; Nagle + delayed-ACK adds ~40ms stalls each way.
         stream.set_nodelay(true)?;
+        // Keepalive: a worker blocked in acquire_block must learn that the
+        // server's *host* vanished (cloud scale-down), which no RST will
+        // ever announce. Degrade with a warning rather than refuse to run —
+        // a worker without keepalive is the old behaviour, not a hazard.
+        if let Err(e) = crate::keepalive::apply(&stream) {
+            tracing::warn!(
+                error = %e,
+                "could not enable TCP keepalive; a vanished server host \
+                 will not be detected while this worker waits for a block"
+            );
+        }
         let (reader, writer) = stream.into_split();
         Ok(Self {
             reader,

@@ -44,6 +44,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Server↔worker connections run TCP keepalive, so a vanished peer is
+  detected in minutes instead of never.** Both ends of a run legitimately
+  block in long reads (a parked worker in `acquire_block`, the server on
+  each worker's socket), and a peer whose *host* disappears — cloud
+  scale-down deprovisioning the driver's node, a cluster reclaiming a
+  worker's node — sends no FIN or RST, leaving the read waiting forever.
+  Previously a worker that reached the socket after the driver's host was
+  gone hung indefinitely (observed: workers outliving a dead driver by
+  12+ hours on `MaxTime=UNLIMITED` partitions until manually `scancel`ed).
+  Keepalive (idle 60s, probe every 15s, 4 probes; Windows uses its fixed
+  10) surfaces the death as a connection error in ~2 minutes without
+  putting any ceiling on legitimate waits. Symmetrically, the server now
+  notices a vanished worker node within minutes and reclaims its block
+  through the existing disconnect path instead of waiting for the block
+  timeout. Combined with the per-block watchdog, an orphaned worker's
+  lifetime is now bounded by ≈ `Task(timeout)` + keepalive detection.
+
 - **Idle workers are released during the tail of a task.** A worker whose
   `acquire_block()` finds every remaining block either finished or in
   flight (none ready, none pending) is now told to shut down immediately,
