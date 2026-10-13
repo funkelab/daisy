@@ -170,6 +170,9 @@ impl Server {
         abort_check: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
         block_tracking: bool,
     ) -> std::io::Result<(HashMap<String, TaskCounters>, HashMap<String, TaskSummary>)> {
+        if let Err(e) = crate::scheduler::validate_pipeline(pipeline) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
+        }
         let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
             if let Err(e) = scheduler.init_tracking() {

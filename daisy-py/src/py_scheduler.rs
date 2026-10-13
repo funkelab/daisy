@@ -33,6 +33,9 @@ impl PyScheduler {
             )));
         };
         let core_pipeline = pipeline.borrow(py).to_core(py)?;
+        daisy_core::scheduler::validate_pipeline(&core_pipeline).map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyValueError, _>(e.to_string())
+        })?;
         let scheduler = Scheduler::new(&core_pipeline, true);
         Ok(Self { inner: scheduler })
     }
