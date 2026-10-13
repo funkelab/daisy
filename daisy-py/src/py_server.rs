@@ -197,22 +197,9 @@ pub fn _run_blockwise_orchestrator(
     let tup = result.bind(py);
     let states_obj: Py<PyAny> = tup.get_item(0)?.into_pyobject(py)?.into_any().unbind();
     let run_stats_obj: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
-
-    // Call back into Python for the formatted post-run report.
-    // Printing lives in Python because the per-worker stdout proxy is
-    // Python-implemented and the formatting is share-printed cleanly.
-    let progress_mod = py.import("daisy._progress")?;
-    progress_mod.call_method1(
-        "_print_execution_summary",
-        (&states_obj, &order_py),
-    )?;
-    // Resume visibility: INFO log per task that skipped blocks via
-    // done markers (python logging — user-configurable, never forced).
-    progress_mod.call_method1("_log_resume_summary", (&states_obj,))?;
-    progress_mod.call_method1(
-        "_print_resource_utilization",
-        (&run_stats_obj, &order_py),
-    )?;
+    // The post-run report is printed by `daisy._progress.execution_summary`,
+    // the context manager every Python entry point wraps its run in; it
+    // prints on normal exit and on the exceptions below that carry states.
 
     // Abandoned tasks fail loudly: silently returning False loses the
     // reason a run produced no output (the classic v1 failure mode was
@@ -288,12 +275,20 @@ pub fn _run_blockwise_orchestrator(
              use run_blockwise(..., return_states=True) to inspect task states on non-abandonment failures, or Server().run_blockwise(...) to never raise."
                 .to_string(),
         );
-        return Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
+        let err = PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(
             abandoned_msgs.join("\n"),
-        ));
+        );
+        // Attach the states so the summary (with the orphaned counts) is
+        // still printed before the error surfaces.
+        let val = err.value(py);
+        val.setattr("daisy_states", &states_obj)?;
+        val.setattr("daisy_run_stats", &run_stats_obj)?;
+        val.setattr("daisy_task_order", &order_py)?;
+        return Err(err);
     }
 
-    Ok(states_obj)
+    let out = pyo3::types::PyTuple::new(py, &[states_obj.bind(py).clone(), run_stats_obj.bind(py).clone()])?;
+    Ok(out.into_any().unbind())
 }
 
 fn rt_err(e: impl std::fmt::Display) -> PyErr {
@@ -422,9 +417,26 @@ pub fn _run_distributed_server(
     let (states, summaries) = match result {
         Ok(v) => v,
         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
-            return Err(PyErr::new::<pyo3::exceptions::PyKeyboardInterrupt, _>(
+            let err = PyErr::new::<pyo3::exceptions::PyKeyboardInterrupt, _>(
                 "run aborted by SIGINT",
-            ));
+            );
+            // Attach the partial counters so `execution_summary()` can print
+            // what finished before the interrupt.
+            if let Some(ab) = e
+                .get_ref()
+                .and_then(|inner| inner.downcast_ref::<daisy_core::server::AbortedRun>())
+            {
+                let states_py: HashMap<String, PyTaskState> = ab
+                    .states
+                    .iter()
+                    .map(|(k, v)| (k.clone(), PyTaskState { inner: v.clone() }))
+                    .collect();
+                let stats_py = tracking_summary_to_py(py, &ab.summaries)?;
+                let val = err.value(py);
+                val.setattr("daisy_states", states_py.into_pyobject(py)?)?;
+                val.setattr("daisy_run_stats", stats_py)?;
+            }
+            return Err(err);
         }
         Err(e) => return Err(rt_err(e)),
     };
