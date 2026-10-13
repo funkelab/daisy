@@ -209,6 +209,11 @@ def test_resource_tracking_without_a_directory_is_a_config_error(tmp_path):
         done_marker_path=False,
         resource_tracking=True,
     )
+    # with a log basedir set, measurements fall back to a run-scoped store
+    # under it; only with no basedir at all is there nowhere to write
+    import daisy.logging as dl
+
+    dl.set_log_basedir(None)
     with pytest.raises(RuntimeError, match="resource_tracking"):
         daisy.Server().run_blockwise([task], progress=False)
 
