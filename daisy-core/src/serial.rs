@@ -131,7 +131,34 @@ impl SerialRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::block::Block;
     use crate::roi::Roi;
+
+    /// Block function that does nothing: serial mode needs one, a task
+    /// without a block function is refused.
+    struct Noop;
+
+    impl crate::task::ProcessBlock for Noop {
+        fn process(&self, _block: &mut Block) -> Result<(), DaisyError> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn test_serial_refuses_task_without_block_function() {
+        let task = Arc::new(
+            Task::builder("test")
+                .total_roi(Roi::from_slices(&[0], &[40]))
+                .read_roi(Roi::from_slices(&[0], &[10]))
+                .write_roi(Roi::from_slices(&[0], &[10]))
+                .read_write_conflict(false)
+                .build(),
+        );
+        let pipeline = crate::pipeline::Pipeline::from_task(task);
+        let err = SerialRunner::run(&pipeline, true).unwrap_err();
+        assert!(matches!(err, DaisyError::InvalidConfig(_)), "{err:?}");
+    }
+
     #[test]
     fn test_serial_no_conflict() {
         let task = Arc::new(
@@ -140,6 +167,7 @@ mod tests {
                 .read_roi(Roi::from_slices(&[0], &[10]))
                 .write_roi(Roi::from_slices(&[0], &[10]))
                 .read_write_conflict(false)
+                .process_function(Noop)
                 .build(),
         );
 
