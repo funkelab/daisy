@@ -28,6 +28,18 @@ use py_task_state::PyTaskState;
 
 #[pymodule]
 fn _daisy(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // The Rust core reports lost blocks, retired worker slots, fire-and-forget
+    // spawns and abandonment through `tracing`. Without a subscriber those
+    // events go nowhere, so install a minimal one that writes WARN and above
+    // to stderr (the same visibility 1.x had through Python's last-resort
+    // logging handler). `try_init` is a no-op if the host already installed
+    // a global subscriber.
+    let _ = tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .with_max_level(tracing::Level::WARN)
+        .with_target(false)
+        .without_time()
+        .try_init();
     m.add("DEFAULT_BLOCK_TIMEOUT_SECS", crate::py_task::DEFAULT_BLOCK_TIMEOUT_SECS)?;
     m.add("EXIT_BLOCK_TIMEOUT", daisy_core::client::EXIT_BLOCK_TIMEOUT)?;
     m.add_class::<PyCoordinate>()?;

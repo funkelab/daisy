@@ -97,8 +97,16 @@ impl SerialRunner {
                     }
                 }
             } else {
-                // No process function — assume success (for testing).
-                block.status = BlockStatus::Success;
+                // A task without a block function (a 0-argument worker
+                // function, or no function at all) cannot run here: serial
+                // mode has no server for a worker loop to connect to. Marking
+                // blocks done without running anything would report success
+                // for work that never happened.
+                return Err(DaisyError::InvalidConfig(format!(
+                    "task {task_id:?} has no 1-argument process_function; serial mode \
+                     (multiprocessing=False) runs block functions in-process and \
+                     cannot run a worker function that expects to connect to a server"
+                )));
             }
 
             scheduler.release_block(block);

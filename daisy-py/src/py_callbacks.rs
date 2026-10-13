@@ -117,7 +117,9 @@ impl CheckBlock for PyCheckBlock {
             match self
                 .py_fn
                 .call1(py, (py_block,))
-                .and_then(|r: Py<PyAny>| r.extract::<bool>(py))
+                // Python truthiness, as 1.x did (`if check_function(block)`):
+                // ints, numpy bools and other truthy objects all count.
+                .and_then(|r: Py<PyAny>| r.bind(py).is_truthy())
             {
                 Ok(done) => done,
                 Err(e) => {

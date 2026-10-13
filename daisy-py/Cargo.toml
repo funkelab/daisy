@@ -20,3 +20,5 @@ pyo3 = { version = "0.28", features = ["extension-module"] }
 tokio = { version = "1", features = ["full"] }
 libc = "0.2"
 petgraph = "0.6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }

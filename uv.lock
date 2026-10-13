@@ -379,12 +379,9 @@ name = "daisy"
 version = "2.0.0"
 source = { editable = "." }
 dependencies = [
-    { name = "tqdm" },
-]
-
-[package.optional-dependencies]
-worker-processes = [
     { name = "cloudpickle" },
+    { name = "funlib-geometry" },
+    { name = "tqdm" },
 ]
 
 [package.dev-dependencies]
@@ -431,7 +428,8 @@ lint = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cloudpickle", marker = "extra == 'worker-processes'" },
+    { name = "cloudpickle", specifier = ">=3" },
+    { name = "funlib-geometry", specifier = ">=0.2" },
     { name = "tqdm", specifier = ">=4.65" },
 ]
 provides-extras = ["worker-processes"]

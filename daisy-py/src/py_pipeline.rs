@@ -241,11 +241,13 @@ impl PyPipeline {
         slf: PyRef<'_, Self>,
         py: Python<'_>,
         kwargs: Option<&Bound<'_, PyDict>>,
-    ) -> PyResult<bool> {
+    ) -> PyResult<Py<PyAny>> {
         let runner = py.import("daisy._runner")?;
         let self_obj: Py<PyAny> = slf.into_pyobject(py)?.into_any().unbind();
+        // Hand back whatever `daisy.run_blockwise` returns: a bool, or the
+        // states dict when `return_states=True` is forwarded.
         let result = runner.call_method("run_blockwise", (self_obj,), kwargs)?;
-        result.extract()
+        Ok(result.unbind())
     }
 
     #[getter]

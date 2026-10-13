@@ -164,7 +164,7 @@ impl PyTask {
         check_function: Option<Py<PyAny>>,
         read_write_conflict: bool,
         fit: String,
-        max_workers: usize,
+        max_workers: i64,
         max_retries: u32,
         timeout: Option<&Bound<'_, PyAny>>,
         done_marker_path: Option<&Bound<'_, PyAny>>,
@@ -172,6 +172,15 @@ impl PyTask {
         requires: Option<Bound<'_, PyDict>>,
         max_worker_restarts: u32,
     ) -> PyResult<Self> {
+        // A task with no workers can never make progress: the server would
+        // wait forever for a block that nobody will ever acquire (#81).
+        if max_workers < 1 {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "max_workers must be at least 1 (got {max_workers}); a task with \
+                 no workers would wait forever"
+            )));
+        }
+        let max_workers = max_workers as usize;
         let done_marker_path = parse_done_marker_spec(done_marker_path)?;
         // Every block ALWAYS has a timeout (default 10 minutes): a wedged
         // block function must never be able to hang a run — or its

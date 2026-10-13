@@ -26,14 +26,16 @@ classifiers = [
 ]
 dependencies = [
     "tqdm>=4.65",
+    # worker payloads (every distributed worker runs in a subprocess; the
+    # v1-compat block wrapper is itself a closure, so this is not optional)
+    "cloudpickle>=3",
+    # the v1-compat `Block` hands funlib ROIs to process/check functions
+    "funlib.geometry>=0.2",
 ]
 
 [project.optional-dependencies]
-# full function support (lambdas, closures) for the worker processes
-# every distributed worker runs in; without it, module-level functions only
-worker-processes = [
-    "cloudpickle",
-]
+# kept as an empty alias for one release; cloudpickle is now a hard dependency
+worker-processes = []
 
 [project.urls]
 Homepage = "https://github.com/funkelab/daisy"
