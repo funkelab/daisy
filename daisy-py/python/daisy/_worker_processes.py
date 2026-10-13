@@ -195,6 +195,18 @@ def read_payload(stream):
     return _pickle.loads(body)
 
 
+def _feed_and_wait(proc, payload):
+    assert proc.stdin is not None  # stdin=PIPE
+    try:
+        proc.stdin.write(payload)
+        proc.stdin.close()
+    except BrokenPipeError:
+        # child died before reading the payload; the exit-code check
+        # turns that into a dirty worker exit
+        pass
+    return proc.wait()
+
+
 def make_spawn_function(process_function, arity, timeout=None):
     """Wrap a user function into a 0-arg spawn function that runs it in a
     dedicated worker subprocess.
@@ -231,47 +243,76 @@ def make_spawn_function(process_function, arity, timeout=None):
         # the worker's log files. Keeping stderr separate also lets a
         # crashing function's real traceback ride along in the raised error,
         # where the server records it as the task's last_worker_error.
-        with (
-            tempfile.SpooledTemporaryFile(max_size=1 << 20) as outbuf,
-            tempfile.SpooledTemporaryFile(max_size=1 << 20) as errbuf,
-        ):
+        from daisy import logging as _log
+
+        slot_files = _log.current_slot_files() if _log.get_log_mode() == "file" else None
+        if slot_files is not None:
+            # File logging: hand the worker's log files straight to the
+            # child so its output is on disk as it is written (tail -f
+            # works mid-run). The files are opened in append mode, so the
+            # child's writes interleave safely with the parent's.
+            out_f, err_f = slot_files
+            out_f.flush()
+            err_f.flush()
+            err_start = err_f.tell()
             proc = subprocess.Popen(
                 [sys.executable, "-m", "daisy._subprocess_worker"],
                 stdin=subprocess.PIPE,
-                stdout=outbuf,
-                stderr=errbuf,
+                stdout=out_f,
+                stderr=err_f,
                 env=env,
             )
-            assert proc.stdin is not None  # stdin=PIPE above
+            returncode = _feed_and_wait(proc, payload)
             try:
-                proc.stdin.write(payload)
-                proc.stdin.close()
-            except BrokenPipeError:
-                # child died before reading the payload; the exit-code check
-                # below turns that into a dirty worker exit
-                pass
-            returncode = proc.wait()
-            outbuf.seek(0)
-            out_text = outbuf.read().decode(errors="replace")
-            errbuf.seek(0)
-            err_text = errbuf.read().decode(errors="replace")
-        for text, stream in ((out_text, sys.stdout), (err_text, sys.stderr)):
-            if text:
-                stream.write(text)
-                stream.flush()
+                with open(err_f.name, "rb") as fh:
+                    fh.seek(err_start)
+                    err_text = fh.read().decode(errors="replace")
+            except OSError:
+                err_text = ""
+        else:
+            # Console mode (or no slot): capture to spooled files, not pipes
+            # (no reader-deadlock for chatty workers), and re-emit through
+            # the parent's streams once the child exits.
+            with (
+                tempfile.SpooledTemporaryFile(max_size=1 << 20) as outbuf,
+                tempfile.SpooledTemporaryFile(max_size=1 << 20) as errbuf,
+            ):
+                proc = subprocess.Popen(
+                    [sys.executable, "-m", "daisy._subprocess_worker"],
+                    stdin=subprocess.PIPE,
+                    stdout=outbuf,
+                    stderr=errbuf,
+                    env=env,
+                )
+                returncode = _feed_and_wait(proc, payload)
+                outbuf.seek(0)
+                out_text = outbuf.read().decode(errors="replace")
+                errbuf.seek(0)
+                err_text = errbuf.read().decode(errors="replace")
+            for text, stream in ((out_text, sys.stdout), (err_text, sys.stderr)):
+                if text:
+                    stream.write(text)
+                    stream.flush()
         tail = "\n".join(err_text.strip().splitlines()[-50:])
         if returncode == EXIT_BLOCK_TIMEOUT:
-            raise RuntimeError(
+            short = (
                 f"daisy worker subprocess killed after a block exceeded "
                 f"timeout={timeout}s (true preemption; the server retries "
                 "the block under max_retries)"
-                + (f"\nworker stderr tail:\n{tail}" if tail else "")
             )
-        if returncode != 0:
-            raise RuntimeError(
-                f"daisy worker subprocess exited with code {returncode}"
-                + (f"\nworker stderr tail:\n{tail}" if tail else "")
-            )
+        elif returncode != 0:
+            short = f"daisy worker subprocess exited with code {returncode}"
+        else:
+            short = None
+        if short is not None:
+            # The full message (with the child's stderr tail) becomes the
+            # task's last_worker_error; the parent's own logging uses the
+            # short form, because the tail is already in the worker's .err
+            # file and repeating it there wrote every traceback three times.
+            exc = RuntimeError(short + (f"\nworker stderr tail:\n{tail}" if tail else ""))
+            exc.daisy_worker_exit = True
+            exc.daisy_short_message = short
+            raise exc
 
     _spawn_worker_process.__name__ = "spawn_" + getattr(
         process_function, "__name__", "process_function"

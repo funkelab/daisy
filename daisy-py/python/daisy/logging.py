@@ -232,12 +232,49 @@ def _assign_slot(task_id: str) -> int | None:
             else (base / f"worker_{slot}")
         )
         basename.parent.mkdir(parents=True, exist_ok=True)
-        # Truncate (mode "w") so each `run_blockwise` invocation gets a
-        # clean log instead of stacking old runs on top of new ones.
-        out_f = open(basename.with_suffix(".out"), "w", buffering=1)
-        err_f = open(basename.with_suffix(".err"), "w", buffering=1)
+        # Append (mode "a"): a later run_blockwise call in the same process
+        # reuses slot numbers, and truncating here silently destroyed the
+        # previous run's logs. A separator line marks where each run starts;
+        # `clear_logs()` is the explicit way to start from empty files.
+        out_f = open(basename.with_suffix(".out"), "a", buffering=1)
+        err_f = open(basename.with_suffix(".err"), "a", buffering=1)
+        for f in (out_f, err_f):
+            if f.tell() > 0:
+                f.write(_run_separator())
         _slot_files[(task_id, slot)] = (out_f, err_f)
         return slot
+
+
+def _run_separator() -> str:
+    import datetime
+
+    stamp = datetime.datetime.now().isoformat(timespec="seconds")
+    return f"=== daisy run {stamp} pid {_os.getpid()} ===\n"
+
+
+def current_slot_files():
+    """The `(out, err)` file objects of the worker slot bound to the
+    current thread, or None when file logging is off or no slot is
+    bound. Spawn functions hand these to the worker subprocess so its
+    output lands in the log files as it is written."""
+    key = getattr(_active, "key", None)
+    if key is None:
+        return None
+    return _slot_files.get(key)
+
+
+def clear_logs(task_id=None):
+    """Delete the worker log files under the log basedir: those of one
+    task, or every task when `task_id` is None. Call it at pipeline start
+    to begin from empty files; otherwise logs accumulate across runs."""
+    import shutil
+
+    base = get_log_basedir()
+    if base is None:
+        return None
+    target = base / task_id if task_id else base
+    shutil.rmtree(target, ignore_errors=True)
+    return target
 
 
 class _WorkerLogContext:

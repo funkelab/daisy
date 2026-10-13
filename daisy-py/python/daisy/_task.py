@@ -505,15 +505,19 @@ def _wrap_for_worker_logging(task):
                     _worker_log.logger.warning(
                         "worker function %s failed: %s",
                         task_id,
-                        e,
+                        getattr(e, "daisy_short_message", e),
                     )
-                    _worker_log.emit_failure(
-                        _worker_log.format_traceback(
-                            type(e),
-                            e,
-                            e.__traceback__,
+                    # A worker subprocess that exited dirty already wrote
+                    # its own traceback to the log file; re-emitting the
+                    # shim's RuntimeError here would duplicate it.
+                    if not getattr(e, "daisy_worker_exit", False):
+                        _worker_log.emit_failure(
+                            _worker_log.format_traceback(
+                                type(e),
+                                e,
+                                e.__traceback__,
+                            )
                         )
-                    )
                     raise
     else:
 
