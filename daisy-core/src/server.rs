@@ -70,6 +70,28 @@ pub struct Server {
     port: u16,
 }
 
+/// Payload of the `Interrupted` error `run_blockwise` returns when the run
+/// was aborted (SIGINT): the task counters and tracking summaries at the
+/// moment of shutdown, so a partial summary can still be printed.
+pub struct AbortedRun {
+    pub states: HashMap<String, TaskCounters>,
+    pub summaries: HashMap<String, TaskSummary>,
+}
+
+impl std::fmt::Debug for AbortedRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "AbortedRun({} tasks)", self.states.len())
+    }
+}
+
+impl std::fmt::Display for AbortedRun {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "run aborted by abort_check callback")
+    }
+}
+
+impl std::error::Error for AbortedRun {}
+
 /// Info needed to spawn/respawn a worker thread.
 struct WorkerSpec {
     task_id: String,
@@ -512,9 +534,14 @@ impl Server {
             obs.on_finish(&snapshot_counters(&scheduler.task_states));
         }
         if aborted {
+            // Carry the counters as they stood at shutdown so the caller can
+            // still report what finished before the interrupt.
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
-                "run aborted by abort_check callback",
+                AbortedRun {
+                    states: snapshot_counters(&scheduler.task_states),
+                    summaries,
+                },
             ));
         }
         Ok((snapshot_counters(&scheduler.task_states), summaries))

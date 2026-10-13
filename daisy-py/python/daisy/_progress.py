@@ -50,7 +50,10 @@ def _print_execution_summary(states, task_order=None):
     per-worker log proxy is currently installed."""
     import sys
 
-    out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
+    # While the per-worker proxies are installed, write to the real stdout
+    # they wrap; once they are uninstalled (the summary now prints after
+    # the run's cleanup) plain sys.stdout is the right target.
+    out = _worker_log._saved_stdout or sys.stdout or sys.__stdout__
     # the saved handle can be a test harness's (or host app's) capture
     # object that has since been closed — never let the summary crash a run
     if getattr(out, "closed", False):
@@ -156,6 +159,74 @@ def _print_execution_summary(states, task_order=None):
             p(f"    See worker logs for failed tasks under {log_basedir}/")
             for tid in failed_tasks:
                 p(f"      {log_basedir / tid}/")
+
+
+class _SummaryRecorder:
+    """What `execution_summary` prints on exit: the final states, the
+    display order and the tracking summaries, set by the entry point once
+    the run has returned."""
+
+    def __init__(self):
+        self.states = None
+        self.order = None
+        self.stats = None
+
+    def set(self, states, stats=None, order=None):
+        self.states = states
+        if stats is not None:
+            self.stats = stats
+        if order is not None:
+            self.order = order
+
+
+class execution_summary:
+    """Context manager that prints the post-run report exactly once, for
+    every entry point (`run_blockwise`, `Server.run_blockwise`,
+    `Pipeline.run_blockwise`, serial mode).
+
+    How the block ends decides what is printed:
+
+    * normal exit: the summary for the states the entry point recorded;
+    * an exception daisy raised after the run with partial states attached
+      (`KeyboardInterrupt` on SIGINT, the abandonment `RuntimeError`): the
+      summary of what finished, then the exception propagates;
+    * any other exception (a configuration error before the run started, a
+      hard server error, a bug): nothing, so the traceback is not buried
+      under a table of partial or absent counts.
+
+    `enabled=False` silences it everywhere.
+    """
+
+    def __init__(self, enabled=True):
+        self.enabled = enabled
+        self.rec = _SummaryRecorder()
+
+    def __enter__(self):
+        return self.rec
+
+    def __exit__(self, exc_type, exc, tb):
+        if not self.enabled:
+            return False
+        states, order, stats = self.rec.states, self.rec.order, self.rec.stats
+        if exc is not None:
+            states = getattr(exc, "daisy_states", None)
+            order = getattr(exc, "daisy_task_order", None) or order
+            stats = getattr(exc, "daisy_run_stats", None)
+            if states is None:
+                return False
+            if isinstance(exc, KeyboardInterrupt):
+                out = _worker_log._saved_stdout or sys.stdout or sys.__stdout__
+                try:
+                    out.write("\nRun interrupted; counts at shutdown:\n")
+                    out.flush()
+                except Exception:
+                    pass
+        if states is None:
+            return False
+        _print_execution_summary(states, order)
+        _log_resume_summary(states)
+        _print_resource_utilization(stats, order)
+        return False
 
 
 class _TqdmObserver:
@@ -386,7 +457,10 @@ def _print_resource_utilization(stats, task_order=None):
     if not measured:
         return
 
-    out = _worker_log._saved_stdout or sys.__stdout__ or sys.stdout
+    # While the per-worker proxies are installed, write to the real stdout
+    # they wrap; once they are uninstalled (the summary now prints after
+    # the run's cleanup) plain sys.stdout is the right target.
+    out = _worker_log._saved_stdout or sys.stdout or sys.__stdout__
     # the saved handle can be a test harness's (or host app's) capture
     # object that has since been closed — never let the summary crash a run
     if getattr(out, "closed", False):

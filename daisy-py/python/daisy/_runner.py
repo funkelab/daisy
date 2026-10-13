@@ -11,7 +11,7 @@ logging machinery.
 
 import daisy._daisy as _rs
 from daisy import logging as _worker_log
-from daisy._progress import _log_resume_summary
+from daisy._progress import execution_summary
 from daisy._task import (
     _to_pipeline,
     _wrap_for_subprocess_workers,
@@ -64,37 +64,52 @@ class Server:
         self.last_task_order = None
 
     def run_blockwise(
-        self, pipeline, resources=None, progress=True, block_tracking=True, host=None
+        self,
+        pipeline,
+        resources=None,
+        progress=True,
+        block_tracking=True,
+        host=None,
+        summary=True,
     ):
+        """Run and return the `task_id -> TaskState` dict. Never raises for
+        abandoned tasks (inspect the states instead). The execution summary
+        is printed on return and on KeyboardInterrupt; `summary=False`
+        silences it."""
         pipeline = _prepare(_coerce_pipeline(pipeline))
         order = _rs._topo_order(pipeline)
         self.last_task_order = order
         observer = _resolve_observer(progress, order)
-        try:
-            states, summary = _rs._run_distributed_server(
-                pipeline,
-                resources,
-                observer,
-                host=host,
-                block_tracking=block_tracking,
-            )
-            self.last_tracking_summary = summary
-            _log_resume_summary(states)
-            return states
-        finally:
-            _worker_log.close_all_log_files()
+        with execution_summary(summary) as rec:
+            rec.order = order
+            try:
+                states, stats = _rs._run_distributed_server(
+                    pipeline,
+                    resources,
+                    observer,
+                    host=host,
+                    block_tracking=block_tracking,
+                )
+            finally:
+                _worker_log.close_all_log_files()
+            self.last_tracking_summary = stats
+            rec.set(states, stats)
+        return states
 
 
-def _run_serial(pipeline, block_tracking=True):
+def _run_serial(pipeline, block_tracking=True, summary=True):
     """Single-threaded execution path (no TCP, no workers). Runs the
     original process functions in-process — no subprocess wrapping."""
     pipeline = _prepare(_coerce_pipeline(pipeline), distributed=False)
-    try:
-        states, _summary = _rs._run_serial(pipeline, block_tracking=block_tracking)
-        _log_resume_summary(states)
-        return states
-    finally:
-        _worker_log.close_all_log_files()
+    order = _rs._topo_order(pipeline)
+    with execution_summary(summary) as rec:
+        rec.order = order
+        try:
+            states, stats = _rs._run_serial(pipeline, block_tracking=block_tracking)
+        finally:
+            _worker_log.close_all_log_files()
+        rec.set(states, stats)
+    return states
 
 
 def _resolve_observer(progress, task_order):
@@ -124,6 +139,7 @@ def run_blockwise(
     block_tracking=True,
     return_states=False,
     host=None,
+    summary=True,
 ):
     """Run the given pipeline to completion.
 
@@ -145,6 +161,9 @@ def run_blockwise(
     ``Server`` class. Abandonment (worker restart cap exhausted)
     raises ``RuntimeError`` either way.
 
+    ``summary=False`` silences the execution summary that is otherwise
+    printed on return, on KeyboardInterrupt and on abandonment.
+
     ``host`` is the address workers are told to connect to. Leave it
     unset and daisy detects one — this host's resolved name, else the
     default-route interface, verified before use — and listens on every
@@ -158,17 +177,21 @@ def run_blockwise(
     the argument through.
     """
     pipeline = _prepare(_coerce_pipeline(pipeline), distributed=multiprocessing)
-    try:
-        states = _rs._run_blockwise_orchestrator(
-            pipeline,
-            multiprocessing=multiprocessing,
-            resources=resources,
-            progress=progress,
-            block_tracking=block_tracking,
-            host=host,
-        )
-    finally:
-        _worker_log.close_all_log_files()
+    order = _rs._topo_order(pipeline)
+    with execution_summary(summary) as rec:
+        rec.order = order
+        try:
+            states, stats = _rs._run_blockwise_orchestrator(
+                pipeline,
+                multiprocessing=multiprocessing,
+                resources=resources,
+                progress=progress,
+                block_tracking=block_tracking,
+                host=host,
+            )
+        finally:
+            _worker_log.close_all_log_files()
+        rec.set(states, stats)
     if return_states:
         return states
     return _all_succeeded(states)
