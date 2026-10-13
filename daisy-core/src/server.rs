@@ -289,6 +289,18 @@ impl Server {
 
         let mut all_done = false;
         let mut aborted = false;
+        // A hard error from the message handler (fire-and-forget spawn
+        // detected, a block returned without the stats its task requires)
+        // used to leave this loop through `?`, skipping the shutdown below
+        // and dropping the runtime with live worker subprocesses. It is now
+        // stored, the loop exits, shutdown runs, and the error is returned.
+        let mut hard_error: Option<std::io::Error> = None;
+        // Progress observers are fed from the 500 ms health tick instead of
+        // every state-changing message: a Python observer takes the GIL on
+        // each call, which at tens of thousands of releases per second was
+        // the scheduler thread's bottleneck. Skipped blocks (resolved inside
+        // acquire, never a ReleaseBlock message) now count too.
+        let mut progress_dirty = false;
         let mut health_interval = tokio::time::interval(std::time::Duration::from_millis(500));
         let mut done_check_interval = tokio::time::interval(std::time::Duration::from_secs(1));
         // Poll the abort callback at 100ms — fast enough that ctrl-C
@@ -301,14 +313,19 @@ impl Server {
         while !all_done && !aborted {
             tokio::select! {
                 Some(cm) = msg_rx.recv() => {
-                    let was_state_change = matches!(
-                        cm.message,
-                        Message::ReleaseBlock { .. } | Message::BlockFailed { .. }
-                    );
-                    let updated = self.handle_message(
+                    let updated = match self.handle_message(
                         cm, &mut scheduler, &mut bookkeeper, &mut registry,
                         &mut pending, worker_pools,
-                    )?;
+                    ) {
+                        Ok(updated) => updated,
+                        Err(e) => {
+                            error!(error = %e, "hard error in the server loop; shutting down");
+                            hard_error = Some(e);
+                            aborted = true;
+                            break;
+                        }
+                    };
+                    progress_dirty = true;
                     // Rebalance only when this release has actually
                     // unlocked a previously-blocked task — i.e. some
                     // task in the changed-states map has ready work
@@ -333,16 +350,6 @@ impl Server {
                             &mut next_worker_id,
                             &worker_exit_tx,
                         );
-                    }
-                    // Fire the progress observer on every state-mutating
-                    // message — `updated` only carries tasks with newly
-                    // ready blocks, but per-task counters change on
-                    // every release. The observer is responsible for
-                    // throttling its display work.
-                    if was_state_change {
-                        if let Some(ref obs) = progress {
-                            obs.on_progress(&snapshot_counters(&scheduler.task_states));
-                        }
                     }
                 }
 
@@ -377,6 +384,12 @@ impl Server {
                 }
 
                 _ = health_interval.tick() => {
+                    if progress_dirty {
+                        progress_dirty = false;
+                        if let Some(ref obs) = progress {
+                            obs.on_progress(&snapshot_counters(&scheduler.task_states));
+                        }
+                    }
                     let lost = bookkeeper.get_lost_blocks();
                     for (mut block, timed_out, holder) in lost {
                         warn!(block_id = %block.block_id, timed_out, "block lost");
@@ -509,7 +522,13 @@ impl Server {
         // actually wrote — no separate accumulator to disagree with it.
         let summaries = scheduler.tracking_summaries();
         if let Some(ref obs) = progress {
+            if progress_dirty {
+                obs.on_progress(&snapshot_counters(&scheduler.task_states));
+            }
             obs.on_finish(&snapshot_counters(&scheduler.task_states));
+        }
+        if let Some(e) = hard_error {
+            return Err(e);
         }
         if aborted {
             return Err(std::io::Error::new(
