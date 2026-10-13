@@ -318,6 +318,12 @@ class _TqdmObserver:
         # Promote the trailing emoji to reflect final outcome and close.
         for task_id, state in self._ordered_items(states):
             bar = self._bar(task_id, int(state.total_block_count))
+            # Bring the bar to the final count: blocks skipped on resume
+            # never pass through on_progress, so an all-skipped run used
+            # to end at 0 %.
+            done = int(state.completed_count)
+            if done > bar.n:
+                bar.update(done - bar.n)
             failed = int(state.failed_count)
             orphaned = int(state.orphaned_count)
             if failed > 0:
