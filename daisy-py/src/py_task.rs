@@ -42,6 +42,37 @@ impl DoneMarkerSpec {
     }
 }
 
+/// `<log basedir>/<task_id>/tracking-<timestamp>` for a task that asked for
+/// resource tracking without naming a store; `None` (and the scheduler's
+/// configuration error) when file logging is off as well.
+fn resource_tracking_fallback(py: Python<'_>, task_id: &str) -> PyResult<Option<String>> {
+    let logging = py.import("daisy.logging")?;
+    let base = logging.call_method0("get_log_basedir")?;
+    if base.is_none() {
+        return Ok(None);
+    }
+    let base: String = base.str()?.extract()?;
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let path = PathBuf::from(base)
+        .join(task_id)
+        .join(format!("tracking-{stamp}-{}", std::process::id()));
+    let path_str = path.to_string_lossy().into_owned();
+    let warnings = py.import("warnings")?;
+    warnings.call_method1(
+        "warn",
+        (format!(
+            "task {task_id:?}: resource_tracking=True without a tracking path; \
+             measurements go to {path_str} (run-scoped, never resumed from). \
+             Pass Task(tracking_path=...) or call daisy.set_tracking_basedir(...) \
+             to keep a resumable store."
+        ),),
+    )?;
+    Ok(Some(path_str))
+}
+
 /// Module-level done-marker basedir. `set_done_marker_basedir(path)`
 /// sets it; `get_done_marker_basedir()` reads it. Tasks with
 /// `done_marker_path=None` (Auto) resolve through this.
@@ -373,6 +404,49 @@ impl PyTask {
         Ok(Some(p))
     }
 
+    /// Blocks recorded as failed and not done in this task's tracking
+    /// store: every block with a failure count above zero whose done flag
+    /// is still unset. Empty when no store is configured or none exists.
+    fn failed_blocks(&self, py: Python<'_>) -> PyResult<Vec<crate::py_block::PyBlock>> {
+        let Some(p) = self.done_marker_path.resolve(py, &self.task_id) else {
+            return Ok(Vec::new());
+        };
+        let path = Path::new(&p);
+        if !path.join("zarr.json").exists() {
+            return Ok(Vec::new());
+        }
+        let task = Task::builder(&self.task_id)
+            .total_roi(self.total_roi.inner.clone())
+            .read_roi(self.read_roi.inner.clone())
+            .write_roi(self.write_roi.inner.clone())
+            .read_write_conflict(self.read_write_conflict)
+            .fit(Fit::from_str(&self.fit))
+            .build();
+        let tracking = TaskTracking::open_or_create(
+            path,
+            &task.total_roi,
+            &task.read_roi,
+            &task.write_roi,
+            &task.fit,
+            false,
+        )
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "cannot open block tracking at {p}: {e}"
+            ))
+        })?;
+        let graph = daisy_core::dependency_graph::BlockwiseDependencyGraph::from_task(&task);
+        let mut out = Vec::new();
+        for level in 0..graph.num_levels() {
+            for block in graph.level_blocks(level) {
+                if tracking.failure_count(&block) > 0 && !tracking.is_done(&block) {
+                    out.push(crate::py_block::PyBlock::from_core(block));
+                }
+            }
+        }
+        Ok(out)
+    }
+
     /// Property: return the user-facing 3-state value (None / False /
     /// str), matching what was passed at construction.
     #[getter(done_marker_path)]
@@ -436,8 +510,20 @@ impl PyTask {
             .max_workers(borrow.max_workers)
             .max_retries(borrow.max_retries);
 
-        if let Some(path) = borrow.done_marker_path.resolve(py, &borrow.task_id) {
-            builder = builder.tracking_path(&path);
+        match borrow.done_marker_path.resolve(py, &borrow.task_id) {
+            Some(path) => builder = builder.tracking_path(&path),
+            None if borrow.resource_tracking => {
+                // resource_tracking=True asks for per-block measurements,
+                // which need a store. Without an explicit tracking path
+                // (or basedir) fall back to a run-scoped directory under
+                // the log basedir: measurements are kept, but a later run
+                // never resumes from it, so the stale-skip hazard that
+                // removed the old always-on fallback cannot recur.
+                if let Some(path) = resource_tracking_fallback(py, &borrow.task_id)? {
+                    builder = builder.tracking_path(&path);
+                }
+            }
+            None => {}
         }
         builder = builder.resource_tracking(borrow.resource_tracking);
         if !borrow.requires.is_empty() {
