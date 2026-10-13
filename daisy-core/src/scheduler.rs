@@ -33,6 +33,52 @@ pub struct Scheduler {
     task_tracking: HashMap<String, TaskTracking>,
 }
 
+/// Reject pipelines that can never finish: a downstream block whose read
+/// ROI does not touch its upstream task's total write region has no
+/// upstream block to wait on. Such a block is never made ready,
+/// `pending_count` never reaches zero, and both runners wait forever.
+///
+/// The check is per axis on the outermost downstream blocks: the first
+/// block's read ROI starts at `total_roi.begin`, and the last block's read
+/// ROI starts no earlier than `total_roi.end - read_shape - (write_shape - 1)`
+/// (any `fit`). A pipeline is refused only when one of those certainly
+/// cannot overlap the upstream write region, so a downstream task that
+/// merely reads context beyond its upstream (the usual overlapping case)
+/// is still accepted.
+pub fn validate_pipeline(pipeline: &crate::pipeline::Pipeline) -> Result<(), DaisyError> {
+    let by_id: HashMap<&str, &Arc<Task>> =
+        pipeline.tasks.iter().map(|t| (t.task_id.as_str(), t)).collect();
+    for (up_id, down_id) in pipeline.edges() {
+        let (Some(up), Some(down)) = (by_id.get(up_id), by_id.get(down_id)) else {
+            continue;
+        };
+        let u = &up.total_write_roi;
+        let t = &down.total_roi;
+        if u.dims() != t.dims() {
+            continue;
+        }
+        let r = down.read_roi.shape();
+        let w = down.write_roi.shape();
+        let u_end = u.end();
+        let t_end = t.end();
+        for d in 0..t.dims() {
+            let first_read_end = t.begin()[d] + r[d];
+            let last_read_begin_min = t_end[d] - r[d] - (w[d] - 1).max(0);
+            if first_read_end <= u.begin()[d] || last_read_begin_min >= u_end[d] {
+                return Err(DaisyError::InvalidConfig(format!(
+                    "task {down_id:?} has blocks (total_roi {}) that read nothing their \
+                     upstream task {up_id:?} writes (total write roi {}) along axis {d}; \
+                     those blocks would never become ready and the run would wait forever. \
+                     Shrink the downstream total_roi to the upstream write region, or grow \
+                     the upstream total_roi.",
+                    t, u
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 impl Scheduler {
     pub fn new(pipeline: &crate::pipeline::Pipeline, count_all_orphans: bool) -> Self {
         let dependency_graph = Arc::new(DependencyGraph::from_pipeline(pipeline));

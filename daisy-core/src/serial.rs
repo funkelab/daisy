@@ -26,6 +26,7 @@ impl SerialRunner {
         pipeline: &crate::pipeline::Pipeline,
         block_tracking: bool,
     ) -> Result<(HashMap<String, TaskCounters>, HashMap<String, TaskSummary>), DaisyError> {
+        crate::scheduler::validate_pipeline(pipeline)?;
         let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
             scheduler.init_tracking()?;
