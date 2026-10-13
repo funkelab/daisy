@@ -83,6 +83,9 @@ def test_keyboard_interrupt_prints_partial_summary(capsys):
 
 
 def test_config_error_prints_no_summary(capsys):
+    import daisy.logging as dl
+
+    dl.set_log_basedir(None)  # no fallback location for the store either
     task = _task(resource_tracking=True)  # no tracking path anywhere
     with pytest.raises(RuntimeError, match="resource_tracking"):
         daisy.run_blockwise([task], progress=False)
