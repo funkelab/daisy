@@ -67,10 +67,10 @@ Execution Summary
 
     First failure in task 't':
       block processing failed: Traceback (most recent call last):
-        File "/home/will/Agents/Dev/daisy-eval/.envs/v2fix/lib/python3.12/site-packages/daisy/_task.py", line 502, in wrapped
+        File ".../site-packages/daisy/_task.py", line 502, in wrapped
           return orig(context=context)
                  ^^^^^^^^^^^^^^^^^^^^^
-        File "/home/will/Agents/Dev/daisy-eval/.envs/v2fix/lib/python3.12/site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process
+        File ".../site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process
           raise exc
       RuntimeError: daisy worker subprocess killed after a block exceeded timeout=600.0s (true preemption; the server retries the block under max_retries)
       worker stderr tail:
@@ -88,7 +88,7 @@ stderr: 22 lines, 22 other lines. Last lines:
 
 ```text
            ^^^^^^^^^^^^^^^^^^^^^
-  File "/home/will/Agents/Dev/daisy-eval/.envs/v2fix/lib/python3.12/site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process
+  File ".../site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process
     raise exc
 RuntimeError: daisy worker subprocess killed after a block exceeded timeout=600.0s (true preemption; the server retries the block under max_retries)
 worker stderr tail:
