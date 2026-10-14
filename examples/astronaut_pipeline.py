@@ -104,8 +104,8 @@ def step_edges(block):
     _record("edges", "enter")
     try:
         time.sleep(0.002)  # simulate a more expensive operation
-        off = block.write_roi.offset.to_list()
-        shape = block.write_roi.shape.to_list()
+        off = list(block.write_roi.offset)
+        shape = list(block.write_roi.shape)
         r0, c0 = off[0], off[1]
         rs, cs = shape[0], shape[1]
 
@@ -134,8 +134,8 @@ def step_segment(block):
     _record("segment", "enter")
     try:
         time.sleep(0.0025)  # simulate the expensive "GPU" step
-        off = block.write_roi.offset.to_list()
-        shape = block.write_roi.shape.to_list()
+        off = list(block.write_roi.offset)
+        shape = list(block.write_roi.shape)
         r0, c0 = off[0], off[1]
         rs, cs = shape[0], shape[1]
 
@@ -164,8 +164,8 @@ def step_recolor(block):
     _record("recolor", "enter")
     try:
         time.sleep(0.004)
-        off = block.write_roi.offset.to_list()
-        shape = block.write_roi.shape.to_list()
+        off = list(block.write_roi.offset)
+        shape = list(block.write_roi.shape)
         r0, c0 = off[0], off[1]
         rs, cs = shape[0], shape[1]
 

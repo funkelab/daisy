@@ -176,13 +176,13 @@ fig.tight_layout()
 
 # %%
 def _tile_idx(block):
-    off = block.write_roi.offset.to_list()
+    off = list(block.write_roi.offset)
     return (off[0] // BLOCK, off[1] // BLOCK)
 
 
 def process_block(block):
-    off = block.write_roi.offset.to_list()
-    shape = block.write_roi.shape.to_list()
+    off = list(block.write_roi.offset)
+    shape = list(block.write_roi.shape)
     r0, c0 = off[0], off[1]
     rs, cs = shape[0], shape[1]
     tile = AFFINITIES[:, r0 : r0 + rs, c0 : c0 + cs].astype(np.float64)
