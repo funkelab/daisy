@@ -6,6 +6,7 @@ daisy v2 is a Rust rewrite. The Python surface is mostly compatible with daisy 1
 
 - **Existing 1.x code should keep working.** `pip install -U daisy` upgrades you to v2 and the top-level `import daisy` namespace is the **v1.x backwards-compatibility surface** (`daisy.v1_compat`). Code that uses `Task(num_workers=…)`, `daisy.SerialServer`, etc. continues to run; you'll just see `DeprecationWarning`s pointing at the v2 names.
 - **For new code, prefer the v2 interface.** Use `import daisy.v2 as daisy` to get the cleaner v2 API with no compat aliases (and no deprecation warnings).
+- **It is a lot faster.** 20 to 300 times the block throughput of 1.x at every worker count, a scheduler that drains 100,000 blocks in a tenth of a second, and resumes that read one byte per block. See [Speed](#speed).
 - **Some 1.x APIs are gone.** Array I/O (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`) is no longer re-exported. See [Removed APIs](#removed-apis) below. `funlib.geometry` ROIs and Coordinates keep working everywhere.
 
 ## Importing the v2 interface
@@ -110,8 +111,8 @@ that runs unchanged with daisy 1.x or 2.0 installed and prints what it
 measured, next to daisy's own report. Each experiment directory also has a
 README with the captured output on both lines, so you can read the result
 without running it. A [representative 3-D task in every worker mode](experiments/representative/README.md)
-shows the normal case first; the speed plots are in
-[`experiments/speed/`](experiments/speed/README.md).
+shows the normal case first; the speed plots are in the [Speed](#speed)
+section below and in [`experiments/speed/`](experiments/speed/README.md).
 
 ### Same behaviour on both lines
 
@@ -168,6 +169,68 @@ exceptions inside the block function, for data with many bad blocks.
 | `set_log_basedir(None)` seen by an external worker | `logdir=None`, the string; a worker that redirects its output writes to `./None/<task>/worker_<n>.out` | `logdir=`, empty; `Client()` maps it back to `None` and nothing is written | [log_basedir_none](experiments/different_by_design/log_basedir_none/README.md) |
 | Progress output when stderr is a file | two refreshes per block | a handful of refreshes per second | [progress_output_volume](experiments/different_by_design/progress_output_volume/README.md) |
 | Resuming 20,000 done blocks | one `check_function` call per block on the scheduling thread | the same, or one byte per block with the built-in tracking store | [resume_check_function_vs_tracking](experiments/different_by_design/resume_check_function_vs_tracking/README.md) |
+
+## Speed
+
+Three measurements from [`experiments/speed/`](experiments/speed/README.md),
+each from a script that runs on either line. The figures are from daisy
+1.2.3 and 2.0.0 on one 96-core machine; the scripts, the raw CSV rows and
+the plotting script are next to the README there.
+
+### Block throughput by worker mode and worker count
+
+10,000 no-op blocks, 1-D, no conflicts. 1.x is bounded at about 23 blocks
+per second per worker: a 43 ms round trip per block, because its tornado
+sockets leave Nagle on and run into the 40 ms delayed-ACK timer. 2.0 sets
+`TCP_NODELAY` and is bounded by its scheduler thread instead, so it peaks
+around 16 workers for a run this short. The three worker modes cost the
+same on each line; the mode only changes who starts the worker process.
+
+![Block throughput by mode and worker count](experiments/speed/throughput.png)
+
+| Mode | Workers | 1.x blocks/s | 2.0 blocks/s | Ratio |
+| --- | --- | --- | --- | --- |
+| A, block function | 1 | 24 | 6,368 | 265 |
+| A | 16 | 377 | 42,714 | 113 |
+| A | 64 | 1,169 | 24,529 | 21 |
+| B, worker function | 16 | 377 | 45,539 | 121 |
+| C, external worker | 16 | 375 | 35,407 | 94 |
+
+The full table with 1, 4, 16 and 64 workers in every mode is in the
+[speed README](experiments/speed/README.md#throughput-by-worker-mode-and-worker-count).
+
+### Scheduler cost without workers
+
+One thread acquiring and releasing every block straight from the
+`Scheduler`: no TCP, no processes, no `check_function`. This is the
+ceiling either line could reach with infinitely fast workers. With
+read/write conflicts the 1.x scheduler rebuilds every neighbouring block
+object on each release, which is why its 3-D grids stay slow however
+many workers you add.
+
+![Scheduler drain rate](experiments/speed/scheduler.png)
+
+| Grid | 1.x blocks/s | 2.0 blocks/s |
+| --- | --- | --- |
+| 1-D, 100,000 blocks, no conflicts | 24,626 | 847,342 |
+| 3-D, 8,000 blocks with context (conflicts) | 747 | 64,673 |
+
+### Resuming a finished run
+
+20,000 blocks already done. With a `check_function` both lines call it
+once per block on the scheduling thread before any worker gets work; the
+built-in tracking store on 2.0 reads one byte per block instead and needs
+no `check_function`. The gap grows with slower checks and larger block
+counts: at 100,000 blocks the evaluation measured 4.7 s for 1.x marker
+files, 1.0 s for 2.0 marker files and 0.3 s for the store.
+
+![Resume cost](experiments/speed/resume.png)
+
+| Strategy | Line | Resume, 20,000 blocks |
+| --- | --- | --- |
+| `check_function` that stats a marker file per block | 1.x | 1.05 s |
+| same | 2.0 | 0.23 s |
+| built-in tracking store, `Task(tracking_path=...)` | 2.0 | 0.15 s |
 
 ## Removed APIs
 
