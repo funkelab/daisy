@@ -67,7 +67,7 @@ Execution Summary
 
     First failure in task 't':
       block processing failed: Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 502, in wrapped
+        File ".../site-packages/daisy/_task.py", line 607, in wrapped
           return orig(context=context)
                  ^^^^^^^^^^^^^^^^^^^^^
         File ".../site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process
