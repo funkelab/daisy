@@ -1,0 +1,80 @@
+# Speed: 1.x versus 2.0
+
+Three measurements, each from a script in this directory that runs on
+either line. Numbers below are from daisy 1.2.3 (master) and daisy 2.0.0
+on one 96-core machine; the CSV files next to the scripts hold the raw
+rows and `plots.py` draws the figures from them.
+
+```
+python experiments/speed/throughput_by_mode.py --csv throughput.csv   # run once per interpreter
+python experiments/speed/scheduler_drain.py >> scheduler.csv          # run once per interpreter
+python experiments/different_by_design/resume_check_function_vs_tracking/run.py   # the resume numbers
+python experiments/speed/plots.py
+```
+
+## Throughput by worker mode and worker count
+
+10,000 no-op blocks (1-D, no conflicts). 2.0 is 23 to 190 times faster
+at every worker count and in every mode. 1.x is bounded at about 23
+blocks per second per worker, a 43 ms round trip per block that scales
+linearly with workers (its tornado sockets leave Nagle on and run into
+the 40 ms delayed-ACK timer); 2.0 sets `TCP_NODELAY` and is bounded by
+its scheduler thread instead, peaking at 16 workers for a run this short.
+
+![throughput](throughput.png)
+
+| Mode | Workers | 1.x blocks/s | 2.0 blocks/s | Ratio |
+| --- | --- | --- | --- | --- |
+| A block function | 1 | 24 | 6,368 | 265 |
+| A | 4 | 95 | 20,349 | 214 |
+| A | 16 | 377 | 42,714 | 113 |
+| A | 64 | 1,169 | 24,529 | 21 |
+| B worker function | 1 | 23 | 7,201 | 313 |
+| B | 4 | 94 | 26,310 | 280 |
+| B | 16 | 377 | 45,539 | 121 |
+| B | 64 | 1,177 | 26,500 | 23 |
+| C external worker | 1 | 23 | 8,125 | 353 |
+| C | 4 | 93 | 22,292 | 240 |
+| C | 16 | 375 | 35,407 | 94 |
+| C | 64 | 1,228 | 21,915 | 18 |
+
+The three modes cost the same on each line: the mode only changes who
+starts the worker process, not how blocks are handed out.
+
+## Scheduler cost without workers
+
+One thread acquiring and releasing every block from the `Scheduler`
+object: no TCP, no processes, no `check_function`. This is the ceiling
+either line could reach with infinitely fast workers. With read/write
+conflicts the 1.x scheduler rebuilds every neighbouring block object on
+each release, which is why its 3-D conflict grids are slow even with many
+workers.
+
+![scheduler](scheduler.png)
+
+| Grid | 1.x blocks/s | 2.0 blocks/s |
+| --- | --- | --- |
+| 1-D, 100,000 blocks, no conflicts | 24,626 | 847,342 |
+| 3-D, 8,000 blocks with context (conflicts) | 747 | 64,673 |
+
+## Resume cost: check_function versus the built-in tracking store
+
+20,000 blocks already done. With a `check_function` both lines call it
+once per block on the scheduling thread before any worker gets work;
+the built-in store on 2.0 reads one byte per block instead and needs no
+`check_function`. Runtime is dominated by the per-block cost of the check
+(a `stat` here), so the gap grows with slower checks and larger block
+counts: in the evaluation's 100,000-block run the figures were 4.7 s for
+1.x marker files, 1.0 s for 2.0 marker files and 0.3 s for the store.
+
+![resume](resume.png)
+
+| Strategy | Line | Resume, 20,000 blocks |
+| --- | --- | --- |
+| `check_function` that stats a marker file per block | 1.x | 1.05 s |
+| same | 2.0 | 0.23 s |
+| built-in tracking store (`Task(tracking_path=...)`) | 2.0 | 0.15 s |
+
+The store also records per-block failure counts and, with
+`resource_tracking=True`, per-block wall, CPU and memory figures at about
+10 µs per block.

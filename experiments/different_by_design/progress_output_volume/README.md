@@ -19,7 +19,7 @@ landed in the file.
 
 ## Output on daisy 1.x (1.2.3)
 
-Status: exit 0, 213.3 s.
+Status: exit 0, 212.9 s.
 
 ```text
 =========================================
@@ -40,8 +40,8 @@ Execution Summary
 
     all blocks processed successfully
 
-RETURNED True  (213.1 s)
-stderr captured: 4,743,563 bytes, 0 carriage returns, 0 newlines
+RETURNED True  (212.8 s)
+stderr captured: 4,748,479 bytes, 41,792 carriage returns, 1 newlines
 ```
 
 stderr: 0 lines.
@@ -65,7 +65,7 @@ Execution Summary
     t ✔       20000       20000        0       0         0
 
 RETURNED True  (0.9 s)
-stderr captured: 539 bytes, 0 carriage returns, 0 newlines
+stderr captured: 539 bytes, 5 carriage returns, 1 newlines
 ```
 
 stderr: 0 lines.
