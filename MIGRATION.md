@@ -7,7 +7,7 @@ daisy v2 is a Rust rewrite. The Python surface is mostly compatible with daisy 1
 - **Existing 1.x code should keep working.** `pip install -U daisy` upgrades you to v2 and the top-level `import daisy` namespace is the **v1.x backwards-compatibility surface** (`daisy.v1_compat`). Code that uses `Task(num_workers=…)`, `daisy.SerialServer`, etc. continues to run; you'll just see `DeprecationWarning`s pointing at the v2 names.
 - **For new code, prefer the v2 interface.** Use `import daisy.v2 as daisy` to get the cleaner v2 API with no compat aliases (and no deprecation warnings).
 - **It is a lot faster.** 17 to 330 times the block throughput of 1.x at every worker count, a scheduler that drains 100,000 blocks in a sixth of a second, and resumes that read one byte per block. See [Speed](#speed).
-- **Some 1.x APIs are gone.** Array I/O (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`) is no longer re-exported. See [Removed APIs](#removed-apis) below. `funlib.geometry` ROIs and Coordinates keep working everywhere.
+- **Some 1.x APIs are gone.** Array I/O (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`) is no longer re-exported. See [Removed APIs](#removed-apis) below.
 
 ## Importing the v2 interface
 
@@ -31,7 +31,6 @@ If you're starting a fresh project, **use `import daisy.v2 as daisy`**. If you'r
 | `daisy.SerialServer().run_blockwise(t)`  | `daisy.run_blockwise(t, multiprocessing=False)`               |
 | `daisy.Server().run_blockwise(t)`        | unchanged (or `daisy.run_blockwise(t)`)                       |
 | `daisy.run_blockwise(t)` returning bool  | unchanged signature; bool semantics tightened (see below)     |
-| `from funlib.geometry import Roi, Coord` | unchanged; `daisy.Roi` / `daisy.Coordinate` are still funlib's classes |
 | `daisy.persistence`, `Array`, etc.       | gone — use `funlib.persistence` directly                      |
 
 ### `run_blockwise` return value
