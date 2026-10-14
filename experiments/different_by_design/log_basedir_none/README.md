@@ -22,7 +22,7 @@ writes the worker's output to ./None/<task>/worker_<n>.out instead of the
 terminal the user asked for. 2.0 ships an empty value, Client() maps it
 back to None, and the helper returns None, so nothing is written.
 
-## Output on daisy 1.x (1.2.2)
+## Output on daisy 1.x (1.2.3)
 
 Status: exit 0, 0.5 s.
 
@@ -30,7 +30,7 @@ Status: exit 0, 0.5 s.
 =====================
 set_log_basedir(None)
 =====================
-daisy 1.2.2 (1.x), python 3.12.0
+daisy 1.2.3 (1.x), python 3.12.0
 
 
 Execution Summary
@@ -47,7 +47,7 @@ Execution Summary
 
 RETURNED True  (0.4 s)
 EVIDENCE blocks attempted 4/4, succeeded 4/4, total attempts 4
-DAISY_CONTEXT seen by the worker: logdir=None:hostname=10.11.12.171:port=44531:task_id=t:worker_id=0
+DAISY_CONTEXT seen by the worker: logdir=None:hostname=10.11.12.171:port=43793:task_id=t:worker_id=0
 get_log_basedir() inside the worker: PosixPath('None')
 directory named 'None' created in the cwd: None/t/worker_0.err, None/t/worker_0.out
   (worker output that should have gone to the terminal:)
@@ -83,7 +83,7 @@ Execution Summary
 
 RETURNED True  (0.1 s)
 EVIDENCE blocks attempted 4/4, succeeded 4/4, total attempts 4
-DAISY_CONTEXT seen by the worker: logdir=:task_id=t:resource_tracking=0:worker_id=0:hostname=10.11.12.171:port=40529
+DAISY_CONTEXT seen by the worker: resource_tracking=0:worker_id=0:logdir=:port=36359:hostname=10.11.12.171:task_id=t
 get_log_basedir() inside the worker: None
 directory named 'None' created in the cwd: no
 ```

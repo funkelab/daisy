@@ -2,13 +2,73 @@ use daisy_core::{coordinate::Coordinate, roi::Roi};
 use pyo3::prelude::*;
 use pyo3::IntoPyObjectExt;
 
+fn type_name_of(obj: &Bound<'_, PyAny>) -> String {
+    obj.get_type()
+        .fully_qualified_name()
+        .map(|n| n.to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string())
+}
+
 /// Coordinate-like values of a foreign object: a native PyCoordinate, or
 /// any sequence of ints (funlib.geometry.Coordinate is a tuple subclass).
 fn coord_values(obj: &Bound<'_, PyAny>) -> Option<Vec<i64>> {
-    if let Ok(c) = obj.extract::<PyCoordinate>() {
-        return Some(c.inner.as_slice().to_vec());
+    obj.extract::<PyCoordinate>()
+        .ok()
+        .map(|c| c.inner.as_slice().to_vec())
+}
+
+/// Every native entry point that takes a Coordinate accepts the native
+/// type or any sequence of ints — a tuple, a list, a
+/// `funlib.geometry.Coordinate`. Strings are not sequences of ints.
+impl<'a, 'py> FromPyObject<'a, 'py> for PyCoordinate {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(c) = obj.downcast::<PyCoordinate>() {
+            return Ok(c.get().clone());
+        }
+        match obj.extract::<Vec<i64>>() {
+            Ok(values) => Ok(PyCoordinate {
+                inner: Coordinate::new(values),
+            }),
+            Err(_) => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                "expected a Coordinate or a sequence of ints, got {}",
+                type_name_of(&obj)
+            ))),
+        }
     }
-    obj.extract::<Vec<i64>>().ok()
+}
+
+/// Every native entry point that takes a Roi accepts the native type or
+/// anything exposing `offset` (or `begin`) and `shape` as int sequences —
+/// in particular a `funlib.geometry.Roi`, so 1.x code keeps passing funlib
+/// ROIs to `Task`, `Block`, `BlockwiseDependencyGraph`, `intersect`, ...
+/// unchanged. The result of a native method is still a native Roi.
+impl<'a, 'py> FromPyObject<'a, 'py> for PyRoi {
+    type Error = PyErr;
+
+    fn extract(obj: pyo3::Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(r) = obj.downcast::<PyRoi>() {
+            return Ok(r.get().clone());
+        }
+        let offset = obj
+            .getattr("offset")
+            .or_else(|_| obj.getattr("begin"))
+            .ok()
+            .as_ref()
+            .and_then(coord_values);
+        let shape = obj.getattr("shape").ok().as_ref().and_then(coord_values);
+        match (offset, shape) {
+            (Some(offset), Some(shape)) => Ok(PyRoi {
+                inner: Roi::new(Coordinate::new(offset), Coordinate::new(shape)),
+            }),
+            _ => Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                "expected a Roi (daisy.Roi, funlib.geometry.Roi, or any object \
+                 with integer `offset` and `shape`), got {}",
+                type_name_of(&obj)
+            ))),
+        }
+    }
 }
 
 fn hash_inner<T: std::hash::Hash>(value: &T) -> u64 {
@@ -18,26 +78,7 @@ fn hash_inner<T: std::hash::Hash>(value: &T) -> u64 {
     h.finish()
 }
 
-/// Extract a native Roi for a method argument, with an error message that
-/// names the offending type instead of pyo3's default
-/// "'Roi' object is not an instance of 'Roi'" (which is what you get when
-/// a funlib.geometry.Roi is passed where a native Roi is required).
-fn expect_native_roi(obj: &Bound<'_, PyAny>) -> PyResult<Roi> {
-    if let Ok(r) = obj.extract::<PyRoi>() {
-        return Ok(r.inner);
-    }
-    let tname = obj
-        .get_type()
-        .fully_qualified_name()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|_| "<unknown>".to_string());
-    Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
-        "expected a daisy (native) Roi, got {tname}; convert with \
-         daisy.Roi(tuple(other.offset), tuple(other.shape))"
-    )))
-}
-
-#[pyclass(name = "Coordinate", frozen, from_py_object, module = "daisy._daisy")]
+#[pyclass(name = "Coordinate", frozen, skip_from_py_object, module = "daisy._daisy")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyCoordinate {
     pub inner: Coordinate,
@@ -98,7 +139,7 @@ impl PyCoordinate {
     }
 }
 
-#[pyclass(name = "Roi", frozen, from_py_object, module = "daisy._daisy")]
+#[pyclass(name = "Roi", frozen, skip_from_py_object, module = "daisy._daisy")]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct PyRoi {
     pub inner: Roi,
@@ -155,11 +196,10 @@ impl PyRoi {
         }
     }
 
-    fn intersect(&self, other: &Bound<'_, PyAny>) -> PyResult<PyRoi> {
-        let other = expect_native_roi(other)?;
-        Ok(PyRoi {
-            inner: self.inner.intersect(&other),
-        })
+    fn intersect(&self, other: PyRoi) -> PyRoi {
+        PyRoi {
+            inner: self.inner.intersect(&other.inner),
+        }
     }
 
     fn contains(&self, other: &Bound<'_, PyAny>) -> PyResult<bool> {
@@ -168,9 +208,10 @@ impl PyRoi {
         } else if let Ok(coord) = other.extract::<PyCoordinate>() {
             Ok(self.inner.contains_point(&coord.inner))
         } else {
-            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
-                "expected Roi or Coordinate",
-            ))
+            Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(format!(
+                "expected a Roi or a Coordinate, got {}",
+                type_name_of(other)
+            )))
         }
     }
 

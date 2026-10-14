@@ -22,7 +22,7 @@ connects, because the launchers all "exited" at once).
 
 ## Output on daisy 1.x (1.2.3)
 
-Status: killed after 45 s (hang), 45.0 s.
+Status: killed after 45 s (hang), 45.1 s.
 
 ```text
 ======================================================
@@ -44,13 +44,13 @@ fire-and-forget launcher, worker exits after one block
 daisy 2.0.0 (2.0), python 3.12.0
 
 
-RAISED RuntimeError: worker 0 for task "t" connected after its spawn function had already returned. 0-arg spawn functions must block until their worker exits (e.g. `sbatch --wait`,   (0.2 s)
+RAISED RuntimeError: worker 1 for task "t" connected after its spawn function had already returned. 0-arg spawn functions must block until their worker exits (e.g. `sbatch --wait`,   (0.2 s)
 EVIDENCE blocks attempted 0/20, succeeded 0/20, total attempts 0
 ```
 
 stderr: 5 lines, 3 progress-bar refreshes, 2 other lines. Last lines:
 
 ```text
- WARN spawn function returned without its worker ever connecting, while the task still has work. 0-arg spawn functions must block for the worker's lifetime (e.g. `sbatch --wait`, `srun`) — a fire-and-forget submit makes daisy respawn workers it believes dead, burning the worker start budget, and can abandon the task while real workers still run worker_id=1 task_id=t
-ERROR hard error in the server loop; shutting down error=worker 0 for task "t" connected after its spawn function had already returned. 0-arg spawn functions must block until their worker exits (e.g. `sbatch --wait`, `srun`, `subprocess.run`): daisy tracks worker liveness by the spawn call, so a fire-and-forget submit makes daisy respawn workers it believes dead and breaks the run's accounting.
+ WARN spawn function returned without its worker ever connecting, while the task still has work. 0-arg spawn functions must block for the worker's lifetime (e.g. `sbatch --wait`, `srun`) — a fire-and-forget submit makes daisy respawn workers it believes dead, burning the worker start budget, and can abandon the task while real workers still run worker_id=0 task_id=t
+ERROR hard error in the server loop; shutting down error=worker 1 for task "t" connected after its spawn function had already returned. 0-arg spawn functions must block until their worker exits (e.g. `sbatch --wait`, `srun`, `subprocess.run`): daisy tracks worker liveness by the spawn call, so a fire-and-forget submit makes daisy respawn workers it believes dead and breaks the run's accounting.
 ```

@@ -11,6 +11,11 @@ users coming from daisy 1.x:
   `Server.run_blockwise` can build a Pipeline transparently.
 - `SerialServer` is a thin shim over the unified `Server` / serial
   path; daisy v2 dropped the separate class.
+- `daisy.Roi` / `daisy.Coordinate` are `funlib.geometry`'s classes, as
+  in 1.x. Every native entry point accepts them (and anything else with
+  integer `offset`/`shape`), `Block`s handed to process and check
+  functions carry them, and `Task.total_roi` & co return them. The
+  Rust-backed types stay at `daisy.v2.Roi` / `daisy.v2.Coordinate`.
 - `run_blockwise([task1, task2, ...])` accepts a list of tasks (the
   v1.x shape) and builds a Pipeline by walking each task's
   `upstream_tasks` declared at construction time.
@@ -30,16 +35,15 @@ import warnings
 from daisy import v2 as _v2
 from daisy._runner import _run_serial
 from daisy._task import _record_task_upstream
+from funlib.geometry import Coordinate, Roi  # noqa: F401 — 1.x re-exported these
 from daisy.v2 import (  # noqa: F401 — re-exported compat surface
     BlockStatus,
     BlockwiseDependencyGraph,
     Client,
     Context,
-    Coordinate,
     DependencyGraph,
     JsonProgressObserver,
     Pipeline,
-    Roi,
     Server,
     TaskState,
     __version__,
@@ -52,9 +56,16 @@ from daisy.v2 import (  # noqa: F401 — re-exported compat surface
 from daisy.v2 import run_blockwise as _v2_run_blockwise
 
 
+def _funlib_roi(native):
+    """The funlib.geometry view of a native Roi (what 1.x handed out)."""
+    return Roi(tuple(native.offset), tuple(native.shape))
+
+
 def _coerce_roi(value):
     """Coerce funlib.geometry.Roi (or anything with .offset/.shape) into
-    a daisy.Roi. Pass-through for daisy.Roi and None."""
+    a native daisy.v2.Roi. Pass-through for native ROIs and None. The
+    Rust constructors duck-type the same way; this keeps the coercion
+    visible on the Python side for the compat classes."""
     if value is None or isinstance(value, _v2.Roi):
         return value
     offset = getattr(value, "offset", None)
@@ -116,17 +127,11 @@ class Block(_v2.Block):
 
     @property
     def read_roi(self):
-        r = _v2.Block.read_roi.__get__(self)
-        from funlib.geometry import Roi as _FRoi
-
-        return _FRoi(tuple(r.offset), tuple(r.shape))
+        return _funlib_roi(_v2.Block.read_roi.__get__(self))
 
     @property
     def write_roi(self):
-        r = _v2.Block.write_roi.__get__(self)
-        from funlib.geometry import Roi as _FRoi
-
-        return _FRoi(tuple(r.offset), tuple(r.shape))
+        return _funlib_roi(_v2.Block.write_roi.__get__(self))
 
 
 def _install_compat_block_boundary():
@@ -268,6 +273,20 @@ class Task(_v2.Task):
         # PyO3 handles construction via __new__; nothing to do here.
         # Override kept so super().__init__() doesn't reject our kwargs.
         pass
+
+    # 1.x exposed the ROIs it was given; on the compat surface those are
+    # funlib.geometry ROIs, the same type the blocks carry.
+    @property
+    def total_roi(self):
+        return _funlib_roi(_v2.Task.total_roi.__get__(self))
+
+    @property
+    def read_roi(self):
+        return _funlib_roi(_v2.Task.read_roi.__get__(self))
+
+    @property
+    def write_roi(self):
+        return _funlib_roi(_v2.Task.write_roi.__get__(self))
 
 
 # v2's run_blockwise already accepts Pipeline / Task / list-of-tasks

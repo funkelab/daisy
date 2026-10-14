@@ -53,9 +53,75 @@ def test_native_coordinate_duck_eq():
     assert c != "xy"
 
 
-def test_cross_type_intersect_error_names_types():
-    with pytest.raises(TypeError, match="funlib.geometry"):
-        d2.Roi((0,), (10,)).intersect(fg.Roi((0,), (5,)))
+def test_native_methods_accept_funlib_arguments():
+    """Native entry points duck-type ROI/Coordinate arguments: a funlib Roi
+    (anything with integer offset/shape) and any int sequence. Results stay
+    native."""
+    r = d2.Roi((0, 0), (10, 10))
+    assert r.intersect(fg.Roi((5, 5), (10, 10))) == d2.Roi((5, 5), (5, 5))
+    assert isinstance(r.intersect(fg.Roi((5, 5), (10, 10))), d2.Roi)
+    assert r.contains(fg.Coordinate((1, 1)))
+    assert r.contains((1, 1)) and not r.contains([10, 0])
+    assert r.contains(fg.Roi((1, 1), (2, 2)))
+    assert d2.Roi(fg.Coordinate((1, 2)), fg.Coordinate((3, 4))) == d2.Roi((1, 2), (3, 4))
+    with pytest.raises(TypeError, match="got str"):
+        r.intersect("hello")
+    with pytest.raises(TypeError, match="got str"):
+        r.contains("hello")
+
+
+def test_native_task_and_block_accept_funlib_rois_positionally():
+    """The 1.x positional call form with funlib ROIs, on the native surface."""
+    seen = {}
+
+    def process(block):
+        seen["native"] = isinstance(block.read_roi, d2.Roi)
+
+    task = d2.Task(
+        "native-funlib",
+        fg.Roi((0,), (40,)),
+        fg.Roi((0,), (10,)),
+        fg.Roi((0,), (10,)),
+        process,
+        max_workers=1,
+        done_marker_path=False,
+    )
+    assert isinstance(task.total_roi, d2.Roi) and task.total_roi == fg.Roi((0,), (40,))
+    assert d2.run_blockwise(task, multiprocessing=False, progress=False)
+    assert seen == {"native": True}
+    b = d2.Block(fg.Roi((0,), (40,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)))
+    assert isinstance(b.read_roi, d2.Roi)
+    graph = d2.BlockwiseDependencyGraph(
+        "g",
+        fg.Roi((0,), (10,)),
+        fg.Roi((0,), (10,)),
+        read_write_conflict=False,
+        fit="valid",
+        total_read_roi=fg.Roi((0,), (40,)),
+    )
+    assert graph.num_blocks == 4
+
+
+def test_compat_surface_is_funlib_everywhere():
+    """`import daisy` (the compat surface) exposes funlib's classes as
+    daisy.Roi/daisy.Coordinate, as 1.x did, and every ROI a user gets back
+    is a funlib one — so funlib arithmetic and isinstance checks hold."""
+    import daisy
+
+    assert daisy.Roi is fg.Roi and daisy.Coordinate is fg.Coordinate
+    task = daisy.Task(
+        "compat-funlib",
+        daisy.Roi((0,), (40,)),
+        daisy.Roi((0,), (10,)),
+        daisy.Roi((0,), (10,)),
+        lambda block: None,
+        num_workers=1,
+        done_marker_path=False,
+    )
+    assert isinstance(task.total_roi, fg.Roi)
+    assert isinstance(task.read_roi, fg.Roi) and isinstance(task.write_roi, fg.Roi)
+    assert task.total_roi.intersect(daisy.Roi((30,), (40,))) == daisy.Roi((30,), (10,))
+    assert task.write_roi.offset + daisy.Coordinate((1,)) == daisy.Coordinate((1,))
 
 
 def test_compat_block_fn_receives_funlib_rois():

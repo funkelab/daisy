@@ -31,13 +31,13 @@ daisy 1.2.3 (1.x), python 3.12.0
 stderr: 194 lines, 194 other lines. Last lines:
 
 ```text
-Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=40605:task_id=t:worker_id=93) (pid 1326006) failed with exit code 1
+Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=33157:task_id=t:worker_id=93) (pid 1703478) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=40605:task_id=t:worker_id=94) (pid 1326071) failed with exit code 1
+Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=33157:task_id=t:worker_id=94) (pid 1703543) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=40605:task_id=t:worker_id=95) (pid 1326143) failed with exit code 1
+Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=33157:task_id=t:worker_id=95) (pid 1703608) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=40605:task_id=t:worker_id=96) (pid 1326208) failed with exit code 1
+Worker worker (logdir=logs:with:colon:hostname=10.11.12.171:port=33157:task_id=t:worker_id=96) (pid 1703673) failed with exit code 1
 Replacing 1 dead workers for task t
 ```
 

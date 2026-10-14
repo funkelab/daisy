@@ -85,7 +85,7 @@ stderr: 47 lines, 47 progress-bar refreshes.
 
 ## Output on daisy 2.0 (2.0.0)
 
-Status: exit 0, 1.8 s.
+Status: exit 0, 1.6 s.
 
 ```text
 ======================================
@@ -105,7 +105,7 @@ Execution Summary
       Traceback (most recent call last):
         File ".../site-packages/daisy/_task.py", line 423, in acquire_block
           yield block
-        File ".../site-packages/daisy/v1_compat.py", line 155, in acquire_block
+        File ".../site-packages/daisy/v1_compat.py", line 160, in acquire_block
           yield compat
         File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 38, in external_worker
           body(block)
@@ -115,7 +115,7 @@ Execution Summary
 
     See worker logs for details under daisy_logs/t/
 
-RAISED RuntimeError: task 't' was abandoned (worker restart cap exhausted): workers failed 11 times, 10 restarts performed; 9 of 10 blocks were orphaned. Last worker error:  (1.7 s)
+RAISED RuntimeError: task 't' was abandoned (worker restart cap exhausted): workers failed 11 times, 10 restarts performed; 9 of 10 blocks were orphaned. Last worker error:  (1.5 s)
 EVIDENCE blocks attempted 10/10, succeeded 0/10, total attempts 11
 EVIDENCE external jobs launched: 11
 ```

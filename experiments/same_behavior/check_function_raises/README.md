@@ -82,7 +82,7 @@ stderr: 12 lines, 3 progress-bar refreshes, 9 other lines. Last lines:
 ```text
   instance = super().__new__(cls, *args, max_workers=max_workers, **kwargs)
 Traceback (most recent call last):
-  File ".../site-packages/daisy/v1_compat.py", line 186, in _compat_block_fn
+  File ".../site-packages/daisy/v1_compat.py", line 191, in _compat_block_fn
     return fn(compat)
            ^^^^^^^^^^
   File "experiments/same_behavior/check_function_raises/run.py", line 19, in broken_check

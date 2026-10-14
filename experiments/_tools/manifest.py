@@ -7,6 +7,7 @@ timeout: seconds before the capture tool declares a hang
 
 EXPERIMENTS = [
     # group, directory, claim, timeout
+    ("same_behavior", "funlib_geometry_types", "funlib.geometry Roi/Coordinate work everywhere on the default surface: daisy.Roi is funlib's class, Task/Block accept them positionally and as keywords, blocks and task.total_roi hand them back.", 60),
     ("same_behavior", "check_function_numpy_bool", "A check_function returning numpy.bool_(True) skips every block on both lines.", 60),
     ("same_behavior", "check_function_raises", "A check_function that raises counts as 'not done' on both lines; 1.x logs it per block, 2.0 once per task.", 60),
     ("same_behavior", "worker_sigkill", "A SIGKILLed worker is replaced and its block retried on both lines (1.x master; 1.2.2 hangs).", 90),

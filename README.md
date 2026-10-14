@@ -4,7 +4,7 @@ Blockwise task scheduler for processing large volumetric data.
 
 Daisy v2 is a Rust rewrite of the original [daisy](https://pypi.org/project/daisy/1.2.2/), with a focus on faster scheduling, deterministic block dependencies, and resumable runs via on-disk done markers. The Python API is built on a Rust core (`daisy-core`) exposed through PyO3 (`daisy._daisy`).
 
-> **Upgrading from daisy 1.x?** v2 is a deliberate breaking release. Several 1.x APIs have moved or been removed (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`, the `funlib.geometry` Roi/Coordinate types). See [`CHANGELOG.md`](CHANGELOG.md) for the full list. If you depend on the 1.x surface, pin `daisy<2`.
+> **Upgrading from daisy 1.x?** v2 is a deliberate breaking release. Several 1.x APIs have moved or been removed (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`). See [`CHANGELOG.md`](CHANGELOG.md) for the full list. If you depend on the 1.x surface, pin `daisy<2`.
 
 ## Install
 

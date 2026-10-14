@@ -1,7 +1,7 @@
-"""Tests for core types: Roi, Coordinate, Block — covering the API surface
+"""Tests for the native core types (daisy.v2): Roi, Coordinate, Block — covering the API surface
 used by daisy's test_tcp.py, test_client.py, and general type operations."""
 
-from daisy import Block, BlockStatus, Coordinate, Roi
+from daisy.v2 import Block, BlockStatus, Coordinate, Roi
 
 
 def test_roi_basic():

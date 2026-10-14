@@ -81,7 +81,7 @@ EVIDENCE blocks attempted 2/2, succeeded 1/2, total attempts 2
 stderr: 39 lines, 39 other lines. Last lines:
 
 ```text
-  File ".../site-packages/daisy/v1_compat.py", line 186, in _compat_block_fn
+  File ".../site-packages/daisy/v1_compat.py", line 191, in _compat_block_fn
     return fn(compat)
            ^^^^^^^^^^
   File "experiments/v1_finishes_v2_abandons/late_failure_after_idle_release/run.py", line 28, in body

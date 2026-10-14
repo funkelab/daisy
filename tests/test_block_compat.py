@@ -44,9 +44,9 @@ def test_process_roi_helper_pattern():
     assert seen == {"is_funlib": True, "grown": True}
 
 
-def test_native_surface_block_stays_strict():
-    with pytest.raises(TypeError):
-        daisy.v2.Block(fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)))
+def test_native_surface_block_accepts_funlib_but_returns_native():
+    b = daisy.v2.Block(fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)))
+    assert isinstance(b.read_roi, daisy.v2.Roi) and b.read_roi == fg.Roi((0,), (10,))
 
 
 def test_compat_block_roundtrips_through_rust():

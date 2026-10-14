@@ -6,7 +6,7 @@ daisy v2 is a Rust rewrite. The Python surface is mostly compatible with daisy 1
 
 - **Existing 1.x code should keep working.** `pip install -U daisy` upgrades you to v2 and the top-level `import daisy` namespace is the **v1.x backwards-compatibility surface** (`daisy.v1_compat`). Code that uses `Task(num_workers=…)`, `daisy.SerialServer`, etc. continues to run; you'll just see `DeprecationWarning`s pointing at the v2 names.
 - **For new code, prefer the v2 interface.** Use `import daisy.v2 as daisy` to get the cleaner v2 API with no compat aliases (and no deprecation warnings).
-- **Some 1.x APIs are gone.** Array I/O (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`) and the `funlib.geometry` Roi/Coordinate types are no longer re-exported. See [Removed APIs](#removed-apis) below.
+- **Some 1.x APIs are gone.** Array I/O (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`) is no longer re-exported. See [Removed APIs](#removed-apis) below. `funlib.geometry` ROIs and Coordinates keep working everywhere.
 
 ## Importing the v2 interface
 
@@ -30,7 +30,7 @@ If you're starting a fresh project, **use `import daisy.v2 as daisy`**. If you'r
 | `daisy.SerialServer().run_blockwise(t)`  | `daisy.run_blockwise(t, multiprocessing=False)`               |
 | `daisy.Server().run_blockwise(t)`        | unchanged (or `daisy.run_blockwise(t)`)                       |
 | `daisy.run_blockwise(t)` returning bool  | unchanged signature; bool semantics tightened (see below)     |
-| `from funlib.geometry import Roi, Coord` | `daisy.Roi`, `daisy.Coordinate` (now native, not funlib)      |
+| `from funlib.geometry import Roi, Coord` | unchanged. `daisy.Roi`/`daisy.Coordinate` are still funlib's classes on the default surface, every entry point accepts them, and blocks hand them back. The Rust-backed types live at `daisy.v2.Roi`/`daisy.v2.Coordinate` and also accept funlib arguments. |
 | `daisy.persistence`, `Array`, etc.       | gone — use `funlib.persistence` directly                      |
 
 ### `run_blockwise` return value
@@ -118,6 +118,7 @@ shows the normal case first; the speed plots are in
 | Case | 1.x | 2.0 | Verify |
 | --- | --- | --- | --- |
 | Happy path: 512 3-D blocks with context, modes A, B, C and S | every block exactly once | every block exactly once | [representative/modes.py](experiments/representative/README.md) |
+| `funlib.geometry` `Roi`/`Coordinate` passed to `Task`, `Block`, used inside process functions | works; `daisy.Roi` is funlib's | works; `daisy.Roi` is funlib's, Rust entry points duck-type | [funlib_geometry_types](experiments/same_behavior/funlib_geometry_types/README.md) |
 | `check_function` returns `numpy.bool_(True)` | every block skipped | every block skipped | [check_function_numpy_bool](experiments/same_behavior/check_function_numpy_bool/README.md) |
 | `check_function` raises | block runs; exception logged per block | block runs; exception logged once per task | [check_function_raises](experiments/same_behavior/check_function_raises/README.md) |
 | A worker is SIGKILLed while holding a block | replaced, block retried (master; 1.2.2 hangs) | replaced, block retried | [worker_sigkill](experiments/same_behavior/worker_sigkill/README.md) |
@@ -175,7 +176,7 @@ These 1.x names are not exposed by daisy v2 (neither in `daisy` nor `daisy.v2`):
 - **`daisy.persistence`** — already deprecated in 1.x in favour of [`funlib.persistence`](https://github.com/funkelab/funlib.persistence). v2 drops the re-export. Import directly from `funlib.persistence`.
 - **`daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`** — same story. Use `funlib.persistence`.
 - **`daisy.messages`, `daisy.tcp`** — internal protocol modules. v2's wire protocol is bincode over tokio TCP, implemented in Rust; the message types are not exposed at the Python level. If you were writing a worker in another language, see `docs/source/design/PROTOCOL.md`.
-- **`funlib.geometry` Roi/Coordinate types** — v2 uses native Rust-backed types. The shape of the API (offset, shape, contains, intersect, grow, translate) is preserved but the types are not interchangeable with `funlib.geometry`'s. Most code that duck-types on these will work; explicit `isinstance(x, funlib.geometry.Roi)` checks won't.
+- **`funlib.geometry` Roi/Coordinate types** — not removed. The default (`import daisy`) surface re-exports funlib's classes as `daisy.Roi`/`daisy.Coordinate`, exactly as 1.x did, so `isinstance(x, funlib.geometry.Roi)` holds for every ROI you get back and funlib arithmetic (`roi.offset + Coordinate(...)`, `roi.snap_to_grid`, ...) keeps working. `daisy.v2.Roi`/`daisy.v2.Coordinate` are the Rust-backed types the scheduler uses internally; they accept funlib values (anything with integer `offset`/`shape`, any int sequence) as arguments and compare equal by value, but methods on them return native objects and the two kinds do not hash alike, so do not mix them as dict/set keys.
 
 ## Wire / on-disk format breaks
 

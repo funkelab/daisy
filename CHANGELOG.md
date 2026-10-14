@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `cloudpickle` and `funlib.geometry` are hard dependencies; the bare wheel
   can run the README example again.
+- `funlib.geometry` ROIs and Coordinates work everywhere, as in 1.x: the
+  default surface re-exports funlib's classes as `daisy.Roi`/`daisy.Coordinate`
+  (the Rust types stay at `daisy.v2.Roi`/`daisy.v2.Coordinate`), every native
+  entry point (`Task`, `Block`, `BlockwiseDependencyGraph`, `intersect`,
+  `contains`, ...) accepts a funlib Roi or any int sequence as a Coordinate,
+  and compat `Task.total_roi`/`read_roi`/`write_roi` return funlib ROIs.
+  Previously only keyword ROIs on the compat `Task` were converted; the 1.x
+  positional form `Task(id, total_roi, read_roi, write_roi, fn)` raised
+  `TypeError` with a funlib Roi.
 - `Task(max_workers=0)` (or negative) raises `ValueError` instead of
   waiting forever (#81).
 - `check_function` results are evaluated with Python truthiness, as in 1.x:
@@ -465,7 +474,7 @@ If you depend on the daisy 1.x API surface, pin `daisy<2`.
 ### Changed
 
 - **Wire protocol**: bincode over TCP (was tornado IOStreams + pickle in 1.x). Workers in other languages need a bincode codec for `Message` and `Block` — see `docs/PROTOCOL.md`. The 1.x `NotifyClientDisconnect` / `AckClientDisconnect` handshake is replaced by a single `Disconnect` message.
-- **Roi / Coordinate**: native Rust-backed types instead of `funlib.geometry`. The shape of the API (offset, shape, contains, intersect, grow, translate) is preserved but the types are not interchangeable with `funlib.geometry`'s.
+- **Roi / Coordinate**: the scheduler uses native Rust-backed types (`daisy.v2.Roi`, `daisy.v2.Coordinate`). The default surface keeps `funlib.geometry`'s classes as `daisy.Roi`/`daisy.Coordinate`; native entry points accept either.
 - **Minimum Python version**: 3.11 (was 3.10 in 1.x).
 
 ### Removed

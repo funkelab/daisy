@@ -63,13 +63,13 @@ Execution Summary
 
     task     blocks   completed  skipped  failed  orphaned
     ──────  ───────  ──────────  ───────  ──────  ────────
-    t …        2000         300        0       0         0
+    t …        2000         299        0       0         0
 
 RAISED KeyboardInterrupt: run aborted by SIGINT  (2.1 s)
-EVIDENCE blocks attempted 308/2000, succeeded 308/2000, total attempts 308
+EVIDENCE blocks attempted 307/2000, succeeded 307/2000, total attempts 307
 ```
 
-stderr: 146 lines, 146 other lines. Last lines:
+stderr: 117 lines, 117 other lines. Last lines:
 
 ```text
     with _orig_acquire(self) as block:

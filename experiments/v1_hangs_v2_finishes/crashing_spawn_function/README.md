@@ -30,19 +30,19 @@ daisy 1.2.3 (1.x), python 3.12.0
 stderr: 228 lines, 228 other lines. Last lines:
 
 ```text
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=37131:task_id=t:worker_id=110) (pid 1319170) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=45045:task_id=t:worker_id=110) (pid 1696445) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=37131:task_id=t:worker_id=111) (pid 1319171) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=45045:task_id=t:worker_id=111) (pid 1696446) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=37131:task_id=t:worker_id=112) (pid 1319172) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=45045:task_id=t:worker_id=112) (pid 1696447) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=37131:task_id=t:worker_id=113) (pid 1319174) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=45045:task_id=t:worker_id=113) (pid 1696448) failed with exit code 1
 Replacing 1 dead workers for task t
 ```
 
 ## Output on daisy 2.0 (2.0.0)
 
-Status: exit 0, 0.8 s.
+Status: exit 0, 0.9 s.
 
 ```text
 ================================
@@ -58,7 +58,7 @@ Execution Summary
     ──────  ───────  ──────────  ───────  ──────  ────────
     t ∅           4           0        0       0         4
 
-RAISED RuntimeError: task 't' was abandoned (worker restart cap exhausted): workers failed 11 times, 10 restarts performed; 4 of 4 blocks were orphaned. Last worker error:  (0.7 s)
+RAISED RuntimeError: task 't' was abandoned (worker restart cap exhausted): workers failed 11 times, 10 restarts performed; 4 of 4 blocks were orphaned. Last worker error:  (0.8 s)
 EVIDENCE spawn attempts: 11
 ```
 

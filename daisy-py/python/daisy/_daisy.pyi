@@ -6,11 +6,24 @@ pyright) read this `.pyi` instead of trying to introspect the
 compiled `.so`.
 """
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
-from typing import Any, Callable, Self
+from typing import Any, Callable, Protocol, Self, TypeAlias
 
 # -- Geometry primitives ------------------------------------------------
+
+class _RoiLike(Protocol):
+    """Anything exposing integer `offset` (or `begin`) and `shape`, e.g. a
+    `funlib.geometry.Roi`. Every native entry point that takes a Roi
+    accepts one; results are native `Roi`s."""
+
+    @property
+    def offset(self) -> Sequence[int]: ...
+    @property
+    def shape(self) -> Sequence[int]: ...
+
+RoiLike: TypeAlias = "Roi | _RoiLike"
+CoordinateLike: TypeAlias = "Coordinate | Sequence[int]"
 
 class Coordinate:
     def __init__(self, values: Iterable[int]) -> None: ...
@@ -21,8 +34,8 @@ class Coordinate:
     def __iter__(self) -> Iterator[int]: ...
     def __eq__(self, other: object) -> bool: ...
     def __hash__(self) -> int: ...
-    def __add__(self, other: Coordinate) -> Coordinate: ...
-    def __sub__(self, other: Coordinate) -> Coordinate: ...
+    def __add__(self, other: CoordinateLike) -> Coordinate: ...
+    def __sub__(self, other: CoordinateLike) -> Coordinate: ...
     def __neg__(self) -> Coordinate: ...
     def to_list(self) -> list[int]: ...
 
@@ -38,9 +51,9 @@ class Roi:
     def end(self) -> Coordinate: ...
     @property
     def dims(self) -> int: ...
-    def contains(self, other: Roi | Coordinate) -> bool: ...
-    def intersects(self, other: Roi) -> bool: ...
-    def intersect(self, other: Roi) -> Roi: ...
+    def contains(self, other: RoiLike | CoordinateLike) -> bool: ...
+    def intersects(self, other: RoiLike) -> bool: ...
+    def intersect(self, other: RoiLike) -> Roi: ...
     def grow(
         self,
         amount_neg: Coordinate | Iterable[int],
@@ -97,9 +110,9 @@ class Block:
     # __init__) so subclasses' super().__new__(cls, ...) type-checks.
     def __new__(
         cls,
-        total_roi: Roi,
-        read_roi: Roi,
-        write_roi: Roi,
+        total_roi: RoiLike,
+        read_roi: RoiLike,
+        write_roi: RoiLike,
         task_id: str | None = ...,
         block_id: int | None = ...,
     ) -> Self: ...
@@ -171,9 +184,9 @@ class Task:
     def __new__(
         cls,
         task_id: str,
-        total_roi: Roi,
-        read_roi: Roi,
-        write_roi: Roi,
+        total_roi: RoiLike,
+        read_roi: RoiLike,
+        write_roi: RoiLike,
         process_function: Callable[..., Any] | None = ...,
         check_function: Callable[..., Any] | None = ...,
         read_write_conflict: bool = ...,
@@ -267,12 +280,12 @@ class BlockwiseDependencyGraph:
     def __init__(
         self,
         task_id: str,
-        block_read_roi: Roi,
-        block_write_roi: Roi,
+        block_read_roi: RoiLike,
+        block_write_roi: RoiLike,
         read_write_conflict: bool,
         fit: str,
-        total_read_roi: Roi | None = ...,
-        total_write_roi: Roi | None = ...,
+        total_read_roi: RoiLike | None = ...,
+        total_write_roi: RoiLike | None = ...,
     ) -> None: ...
     @property
     def num_blocks(self) -> int: ...
@@ -283,7 +296,7 @@ class BlockwiseDependencyGraph:
     def root_gen(self) -> Iterator[Block]: ...
     def upstream(self, block: Block) -> list[Block]: ...
     def downstream(self, block: Block) -> list[Block]: ...
-    def get_subgraph_blocks(self, sub_roi: Roi) -> list[Block]: ...
+    def get_subgraph_blocks(self, sub_roi: RoiLike) -> list[Block]: ...
     def enumerate_all_dependencies(self) -> Iterator[Block]: ...
 
 class DependencyGraph:

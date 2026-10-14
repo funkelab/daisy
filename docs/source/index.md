@@ -6,7 +6,7 @@ Daisy v2 is a Rust rewrite of the original [daisy](https://pypi.org/project/dais
 
 :::{admonition} Upgrading from daisy 1.x?
 :class: tip
-v2 is a deliberate breaking release. Several 1.x APIs have moved or been removed (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`, the `funlib.geometry` Roi/Coordinate types). See the [changelog](changelog.md) for the full list. If you depend on the 1.x surface, pin `daisy<2`.
+v2 is a deliberate breaking release. Several 1.x APIs have moved or been removed (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`). See the [changelog](changelog.md) for the full list. If you depend on the 1.x surface, pin `daisy<2`.
 :::
 
 ## Install
