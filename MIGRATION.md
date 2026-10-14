@@ -96,11 +96,16 @@ escape hatch: single-threaded, no workers, your original function called
 directly. Use it for `pdb`, for closures over live objects, and in tests that
 need to observe in-process state.
 
-If your 0-arg worker function re-executes something itself (`srun`, `sbatch`,
-a container), forward `context.to_env()` as `DAISY_CONTEXT` and the grandchild
-has everything it needs. That includes logging: the context carries the
-master's log directory, and constructing a `daisy.Client()` adopts it, as in
-1.x. The old `set_log_basedir(client.context["logdir"])` line is now
+A 0-arg worker function runs in its own process with `DAISY_CONTEXT` already
+in that process's environment, so whatever it launches (`srun`, `sbatch`,
+`subprocess.run`) inherits the context and a `daisy.Client()` in the
+grandchild connects without you forwarding anything, exactly as in 1.x. The
+only launchers that need help are ones that drop the environment on purpose:
+`sbatch --export=NONE`, `docker run` without `-e DAISY_CONTEXT`, `ssh`. Pass
+the variable through there (`--export=ALL` or `-e DAISY_CONTEXT`), or declare
+`def start_worker(*, context)` to receive the parsed `daisy.Context` and hand
+`context.to_env()` to the launcher yourself. The context carries the master's
+log directory, and constructing a `daisy.Client()` adopts it, as in 1.x. The old `set_log_basedir(client.context["logdir"])` line is now
 redundant — harmless, but you can delete it. A worker that wants its logs
 somewhere else calls `set_log_basedir(...)` *after* constructing its client.
 
@@ -120,9 +125,10 @@ section below and in [`experiments/speed/`](experiments/speed/README.md).
 | --- | --- | --- | --- |
 | Happy path: 512 3-D blocks with context, modes A, B, C and S | every block exactly once | every block exactly once | [representative/modes.py](experiments/representative/README.md) |
 | `funlib.geometry` `Roi`/`Coordinate` passed to `Task`, `Block`, used inside process functions | works; `daisy.Roi` is funlib's | works; `daisy.Roi` is funlib's, Rust entry points duck-type | [funlib_geometry_types](experiments/same_behavior/funlib_geometry_types/README.md) |
+| A 0-arg worker function launches a subprocess that calls `daisy.Client()` | the grandchild finds `DAISY_CONTEXT` in its environment | the same, nothing to forward | [log_basedir_none](experiments/different_by_design/log_basedir_none/README.md) |
 | `check_function` returns `numpy.bool_(True)` | every block skipped | every block skipped | [check_function_numpy_bool](experiments/same_behavior/check_function_numpy_bool/README.md) |
 | `check_function` raises | block runs; exception logged per block | block runs; exception logged once per task | [check_function_raises](experiments/same_behavior/check_function_raises/README.md) |
-| A worker is SIGKILLed while holding a block | replaced, block retried (master; 1.2.2 hangs) | replaced, block retried | [worker_sigkill](experiments/same_behavior/worker_sigkill/README.md) |
+| A worker is SIGKILLed while holding a block | replaced, block retried | replaced, block retried | [worker_sigkill](experiments/same_behavior/worker_sigkill/README.md) |
 | Serial mode with a 0-argument worker function | TypeError at the first block | configuration error before the run | [serial_worker_function](experiments/same_behavior/serial_worker_function/README.md) |
 
 ### 1.x waits forever, 2.0 finishes or refuses
@@ -247,7 +253,7 @@ v2 introduces format identifiers under the v2 name; existing daisy 1.x stores we
 
 - **Block tracking** is a Zarr v3 *group* per task (children: `done`, `failures`, and the resource arrays when enabled), with a `daisy_task_hash` attribute on the group under the hash prefix `daisy-tracking:v1`. These are v2-only. An earlier v2 build wrote a bare Zarr *array* at this path instead; such a directory is refused with the usual actionable error ("Delete it to start fresh: `rm -rf …`"), so delete stale tracking directories when upgrading — the completed work is re-done once.
 - **The TCP frame carries a protocol version byte**, and `Block` carries an optional stats payload. The payload is positional bincode, which is not self-describing, so a driver and its workers must run the same daisy build. Before the version byte, a mismatch failed deep inside the decoder (`UnexpectedEnd`, or an `Option` tag parsed out of an unrelated string's length) or, in one direction, silently discarded the trailing bytes; now it reports both versions and tells you to rebuild your workers. The realistic way to hit this is external cluster workers loading daisy from a different environment (conda env, module tree) than the driver.
-- **Worker context** carries `hostname` (the address workers dial — auto-detected and verified, or set with `run_blockwise(host=...)` / `DAISY_HOST`; the scheduler listens on all interfaces unless you ask for loopback), `port`, `task_id`, `worker_id`, `resource_tracking` and `logdir` (the master's log directory, so a worker at the far end of an `srun` can place its own logs where the rest of the run's are). Values are percent-encoded — `%`, `:` and `=` become `%25`, `%3A`, `%3D` — because the `key=value:key=value` framing has no escape mechanism and both task ids and paths can contain those characters; `Context.to_env()`/`from_env()` hide this, so only code parsing the raw environment variable itself needs to care. The context reaches workers two ways. The `DAISY_CONTEXT` environment variable is set before each spawn-function call (1.x had no equivalent — workers in 1.x were spawned via `multiprocessing` + `dill`). Because that variable is process-global, a spawn function that blocks before its child captures the environment (an `sbatch`/`bsub` submission, a slow filesystem) can observe a *later* worker's value under concurrent spawns. Spawn functions that need a reliable identity should declare a keyword-only `context` parameter and receive this worker's `daisy.Context` by value:
+- **Worker context** carries `hostname` (the address workers dial — auto-detected and verified, or set with `run_blockwise(host=...)` / `DAISY_HOST`; the scheduler listens on all interfaces unless you ask for loopback), `port`, `task_id`, `worker_id`, `resource_tracking` and `logdir` (the master's log directory, so a worker at the far end of an `srun` can place its own logs where the rest of the run's are). Values are percent-encoded — `%`, `:` and `=` become `%25`, `%3A`, `%3D` — because the `key=value:key=value` framing has no escape mechanism and both task ids and paths can contain those characters; `Context.to_env()`/`from_env()` hide this, so only code parsing the raw environment variable itself needs to care. Each worker function runs in its own child process with `DAISY_CONTEXT` set in that process's environment before the function is called, so processes it launches inherit it; nothing has to be forwarded by hand unless the launcher drops the environment (`sbatch --export=NONE`, a container, `ssh`). A worker function that wants the parsed form can declare a keyword-only `context` parameter and receive this worker's `daisy.Context`:
 
   ```python
   def start_worker(*, context):
@@ -255,14 +261,14 @@ v2 introduces format identifiers under the v2 name; existing daisy 1.x stores we
           [
               "sbatch",
               "--wait",  # <- block until the job finishes (see below)
-              "--export",
-              f"DAISY_CONTEXT={context.to_env()}",
+              "--export=NONE",  # a launcher that drops the environment ...
+              f"--export=DAISY_CONTEXT={context.to_env()}",  # ... so forward it
               "worker.sh",
           ]
       )
   ```
 
-  The keyword-only parameter doesn't change the function's positional arity, so it still classifies as a spawn function; `context` supports dict access (`context["worker_id"]`) and `to_env()` for forwarding.
+  The keyword-only parameter doesn't change the function's positional arity, so it still classifies as a worker function; `context` supports dict access (`context["worker_id"]`) and `to_env()`.
 
 - **Spawn functions must block for the worker's lifetime.** daisy's worker accounting (`max_workers`, the start budget, abandonment) tracks the *spawn-function call*: while your function is running, that worker slot counts as alive; when it returns, the slot is considered dead and eligible for replacement. A submit-and-return spawn function (`sbatch` without `--wait`, `bsub` without `-K`, a bare `Popen`) breaks that link: daisy will submit `max_workers + max_worker_restarts` jobs instead of `max_workers`, all of which connect and process concurrently, and may abandon the task while your jobs are still waiting in the queue (it cannot tell a queued job from a dead one). Use the blocking form: `sbatch --wait`, `bsub -K`, `srun`, or `subprocess.run` for local workers. Connection-aware worker accounting that lifts this requirement is on the roadmap.
 
