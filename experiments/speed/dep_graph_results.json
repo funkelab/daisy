@@ -1,0 +1,38 @@
+[
+  {
+    "label": "1M blocks, no conflict",
+    "blocks": 1000000,
+    "levels": 1,
+    "build_s": 2.397899515926838e-05,
+    "iter_s": 1.2950636489549652,
+    "total_s": 1.2950876279501244,
+    "blocks_per_s": 772148.5237124907
+  },
+  {
+    "label": "1M blocks, with conflict",
+    "blocks": 970299,
+    "levels": 8,
+    "build_s": 4.5740045607089996e-05,
+    "iter_s": 3.3527803529868834,
+    "total_s": 3.3528260930324905,
+    "blocks_per_s": 289397.3540758284
+  },
+  {
+    "label": "125K blocks, small chunks",
+    "blocks": 125000,
+    "levels": 1,
+    "build_s": 1.769996015354991e-05,
+    "iter_s": 0.11582659999839962,
+    "total_s": 0.11584429995855317,
+    "blocks_per_s": 1079034.5320807546
+  },
+  {
+    "label": "1M blocks, small context",
+    "blocks": 970299,
+    "levels": 8,
+    "build_s": 4.9498979933559895e-05,
+    "iter_s": 3.5753057309775613,
+    "total_s": 3.575355229957495,
+    "blocks_per_s": 271385.341481589
+  }
+]

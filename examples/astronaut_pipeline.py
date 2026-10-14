@@ -21,7 +21,6 @@
 
 # %%
 import tempfile
-import threading
 import time
 from pathlib import Path
 
@@ -29,6 +28,7 @@ import daisy.logging as gl
 import daisy.v2 as daisy
 import matplotlib.pyplot as plt
 import numpy as np
+import zarr
 from scipy.ndimage import label as scipy_label
 from skimage.data import astronaut
 from skimage.filters import sobel
@@ -58,36 +58,30 @@ plt.axis("off")
 # %% [markdown]
 # ## Allocate the intermediate arrays
 #
-# Each step writes into its own shared array and reads from the
-# previous step's output. Worker threads share the process so plain
-# numpy arrays are fine.
+# Each step writes into its own array and reads from the previous
+# step's output. Every daisy worker is its own process, so the stages
+# exchange data through zarr arrays on disk, chunked to the block size
+# so concurrent workers never touch the same chunk. The process
+# functions open the group themselves: a path pickles, an open handle
+# does not.
 
 # %%
-EDGES = np.zeros((H, W), dtype=np.uint8)  # 0–255
-LABELS = np.zeros((H, W), dtype=np.uint32)  # global per-block ids
-OUTPUT = np.zeros((H, W, 3), dtype=np.uint8)
+ARRAY_PATH = str(_TMP / "arrays.zarr")
+_arrays = zarr.open_group(ARRAY_PATH, mode="w")
+_arrays.create_array("edges", shape=(H, W), chunks=(BLOCK, BLOCK), dtype=np.uint8)
+_arrays.create_array("labels", shape=(H, W), chunks=(BLOCK, BLOCK), dtype=np.uint32)
+_arrays.create_array("output", shape=(H, W, 3), chunks=(BLOCK, BLOCK, 3), dtype=np.uint8)
 
 # Per-task concurrency tracking, so we can plot how the dispatcher
-# distributes workers across the pipeline.
-_lock = threading.Lock()
-_alive = {"edges": 0, "segment": 0, "recolor": 0}
-_timeline: list[dict] = []
+# distributes workers across the pipeline. Workers append one line per
+# enter/exit to a shared log (small O_APPEND writes are atomic); the
+# driver rebuilds the timeline from it after the run.
+EVENTS = str(_TMP / "events.log")
 
 
 def _record(task_id, kind):
-    with _lock:
-        if kind == "enter":
-            _alive[task_id] += 1
-        elif kind == "exit":
-            _alive[task_id] -= 1
-        _timeline.append(
-            {
-                "t": time.perf_counter(),
-                "task": task_id,
-                "kind": kind,
-                "alive": dict(_alive),
-            }
-        )
+    with open(EVENTS, "a") as f:
+        f.write(f"{time.time():.6f} {task_id} {kind}\n")
 
 
 # %% [markdown]
@@ -110,7 +104,8 @@ def step_edges(block):
         rs, cs = shape[0], shape[1]
 
         gray = INPUT[r0 : r0 + rs, c0 : c0 + cs].mean(axis=-1) / 255.0
-        EDGES[r0 : r0 + rs, c0 : c0 + cs] = (
+        arrays = zarr.open_group(ARRAY_PATH, mode="r+")
+        arrays["edges"][r0 : r0 + rs, c0 : c0 + cs] = (
             (sobel(gray) * 255).clip(0, 255).astype(np.uint8)
         )
     finally:
@@ -139,14 +134,15 @@ def step_segment(block):
         r0, c0 = off[0], off[1]
         rs, cs = shape[0], shape[1]
 
-        edges_tile = EDGES[r0 : r0 + rs, c0 : c0 + cs].astype(np.float32) / 255.0
+        arrays = zarr.open_group(ARRAY_PATH, mode="r+")
+        edges_tile = arrays["edges"][r0 : r0 + rs, c0 : c0 + cs].astype(np.float32) / 255.0
         # Markers: where the edge response is low (object interiors).
         markers, _ = scipy_label(edges_tile < 0.04)
         seg = watershed(edges_tile, markers=markers).astype(np.uint32)
 
         # Make labels globally unique by offsetting per block.
         block_offset = block.block_id[1] * BLOCK * BLOCK
-        LABELS[r0 : r0 + rs, c0 : c0 + cs] = np.where(seg > 0, seg + block_offset, 0)
+        arrays["labels"][r0 : r0 + rs, c0 : c0 + cs] = np.where(seg > 0, seg + block_offset, 0)
     finally:
         _record("segment", "exit")
 
@@ -169,13 +165,14 @@ def step_recolor(block):
         r0, c0 = off[0], off[1]
         rs, cs = shape[0], shape[1]
 
-        labels_tile = LABELS[r0 : r0 + rs, c0 : c0 + cs]
+        arrays = zarr.open_group(ARRAY_PATH, mode="r+")
+        labels_tile = arrays["labels"][r0 : r0 + rs, c0 : c0 + cs]
         rgb_tile = INPUT[r0 : r0 + rs, c0 : c0 + cs]
         out_tile = np.zeros_like(rgb_tile)
         for label_id in np.unique(labels_tile):
             mask = labels_tile == label_id
             out_tile[mask] = rgb_tile[mask].mean(axis=0).astype(np.uint8)
-        OUTPUT[r0 : r0 + rs, c0 : c0 + cs] = out_tile
+        arrays["output"][r0 : r0 + rs, c0 : c0 + cs] = out_tile
     finally:
         _record("recolor", "exit")
 
@@ -247,6 +244,10 @@ print(f"\npipeline elapsed: {elapsed * 1e3:.0f} ms")
 # ## Visualise each stage of the pipeline
 
 # %%
+EDGES = _arrays["edges"][:]
+LABELS = _arrays["labels"][:]
+OUTPUT = _arrays["output"][:]
+
 fig, axes = plt.subplots(1, 4, figsize=(16, 4))
 axes[0].imshow(INPUT, interpolation="nearest")
 axes[0].set_title("1. input")
@@ -293,6 +294,14 @@ fig.tight_layout()
 #   dispatcher spawning new workers for the next ready task.
 
 # %%
+_timeline = []
+_alive = {"edges": 0, "segment": 0, "recolor": 0}
+with open(EVENTS) as f:
+    for line in sorted(f):
+        t, task_id, kind = line.split()
+        _alive[task_id] += 1 if kind == "enter" else -1
+        _timeline.append({"t": float(t), "task": task_id, "kind": kind, "alive": dict(_alive)})
+
 t0 = _timeline[0]["t"]
 times = [(e["t"] - t0) * 1e3 for e in _timeline]
 edges_alive = [e["alive"]["edges"] for e in _timeline]

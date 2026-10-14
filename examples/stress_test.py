@@ -4,9 +4,12 @@
 # Three chained "do-nothing" tasks running 100 000 blocks each in
 # **worker-function mode** (0-arg callable). Each worker connects to
 # the server, loops acquiring blocks, and occasionally raises — which
-# kills the worker thread. The runner respawns it (up to
+# kills the worker process. The runner respawns it (up to
 # `max_worker_restarts`); the block that was in flight goes back to
-# the ready queue and gets retried by another worker.
+# the ready queue and gets retried by another worker. When the restart
+# budget runs out the task is abandoned; the loop at the end keeps
+# re-running until every block is done, and the tracking store makes
+# each re-run skip the blocks already completed.
 #
 # Watch:
 #
@@ -34,7 +37,7 @@ _TMP = Path(tempfile.mkdtemp(prefix="daisy_stress_"))
 gl.set_log_basedir(_TMP / "logs")
 # Enable per-task done markers under _TMP/markers so partial progress
 # survives across the retry loop below — abandoned runs leave behind a
-# Zarr v3 array recording which blocks already completed, and the next
+# tracking store recording which blocks already completed, and the next
 # call to `run_blockwise` skips those blocks via the pre-check.
 daisy.set_done_marker_basedir(_TMP / "markers")
 print(f"output paths under: {_TMP}")
@@ -102,12 +105,17 @@ pipeline = make_task("extract") + make_task("predict") + make_task("label")
 # ## Run
 
 # %%
+# `run_blockwise` raises when a task is abandoned; `Server().run_blockwise`
+# returns the task states instead, which is what a retry loop wants.
+server = daisy.Server()
 completed = False
 while not completed:
     t0 = time.perf_counter()
-    completed = pipeline.run_blockwise()
+    states = server.run_blockwise(pipeline)
     elapsed = time.perf_counter() - t0
-    print(
-        f"\nrun_blockwise returned completed={completed}, total elapsed = {elapsed:.2f} s"
-    )
+    # completed_count includes the blocks skipped as already done.
+    completed = all(s.completed_count == s.total_block_count for s in states.values())
+    done = sum(s.completed_count for s in states.values())
+    total = sum(s.total_block_count for s in states.values())
+    print(f"\nrun finished: {done}/{total} blocks done, completed={completed}, elapsed = {elapsed:.2f} s")
 print(f"\nlogs and any failure tracebacks: {_TMP / 'logs'}")

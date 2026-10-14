@@ -65,5 +65,6 @@ api
 :caption: Reference
 
 design/index
+roadmap
 changelog
 :::

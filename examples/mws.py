@@ -236,7 +236,7 @@ def make_task(process_fn):
         read_write_conflict=False,
         max_workers=NUM_WORKERS,
         max_retries=2,
-        done_marker_path=str(MARKER_PATH),
+        tracking_path=str(MARKER_PATH),
     )
 
 
@@ -277,7 +277,8 @@ def show_run(run_info):
     )
     axes[0].axis("off")
 
-    marker = np.asarray(zarr.open(str(MARKER_PATH), mode="r")[:]).reshape(
+    # The tracking store is a zarr group; `done` holds one byte per block.
+    marker = np.asarray(zarr.open_group(str(MARKER_PATH), mode="r")["done"][:]).reshape(
         H // BLOCK,
         W // BLOCK,
     )
@@ -350,9 +351,9 @@ show_run(RUNS[-1])
 # %% [markdown]
 # ## Run 2 — re-run without resetting
 #
-# Same task, run again. Daisy's `set_log_basedir(...)` doubles as the
-# auto-resolved done-marker basedir for tasks with the default
-# `done_marker_path=None`; here we set the path explicitly so we can
+# Same task, run again. The tracking store lives under
+# `set_tracking_basedir(...)` (or the log basedir) for tasks with the
+# default `tracking_path=None`; here we set the path explicitly so we can
 # inspect it below. Either way, the scheduler's pre-check sees every
 # block already done and short-circuits without ever calling
 # `process_block`. The post-run summary shows `skipped=16`.

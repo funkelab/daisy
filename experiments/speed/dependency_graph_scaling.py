@@ -12,16 +12,18 @@ the cost lands in `iter_s`.
 
 Run from the repository root:
 
-    python benchmarks/bench_dependency_graph.py
+    python experiments/speed/dependency_graph_scaling.py
 
-Writes `benchmarks/dep_graph_results.json` and
-`benchmarks/dep_graph_benchmark.png`.
+Writes `dep_graph_results.json` and `dep_graph.png` next to this script.
 """
 
 import json
+import os
 import time
 
 from daisy import BlockwiseDependencyGraph, Roi
+
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 CONFIGS = [
     # (total_shape, block_shape, context, read_write_conflict, label)
@@ -89,7 +91,7 @@ def run_benchmarks():
 
         results.append({"label": label, **r})
 
-    with open("benchmarks/dep_graph_results.json", "w") as f:
+    with open(os.path.join(HERE, "dep_graph_results.json"), "w") as f:
         json.dump(results, f, indent=2)
 
     return results
@@ -125,8 +127,8 @@ def plot_results(results):
     ax.set_ylim(0, max(totals) * 1.25)
 
     plt.tight_layout()
-    plt.savefig("benchmarks/dep_graph_benchmark.png", dpi=150)
-    print("\nSaved benchmarks/dep_graph_benchmark.png")
+    plt.savefig(os.path.join(HERE, "dep_graph.png"), dpi=150)
+    print("\nSaved dep_graph.png")
 
 
 if __name__ == "__main__":

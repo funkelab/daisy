@@ -53,8 +53,7 @@ python-source = "daisy-py/python"
 module-name = "daisy._daisy"
 features = ["pyo3/extension-module"]
 exclude = [
-    { path = "dev/**", format = "sdist" },
-    { path = "benchmarks/**", format = "sdist" },
+    { path = "experiments/**", format = "sdist" },
     { path = "tests/**", format = "sdist" },
 ]
 

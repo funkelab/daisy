@@ -10,6 +10,7 @@ python experiments/speed/throughput_by_mode.py --csv throughput.csv   # run once
 python experiments/speed/scheduler_drain.py >> scheduler.csv          # run once per interpreter
 python experiments/different_by_design/resume_check_function_vs_tracking/run.py   # the resume numbers
 python experiments/speed/plots.py
+python experiments/speed/dependency_graph_scaling.py                  # dep_graph_results.json, dep_graph.png
 ```
 
 ## Throughput by worker mode and worker count
@@ -78,3 +79,20 @@ counts: in the evaluation's 100,000-block run the figures were 4.7 s for
 The store also records per-block failure counts and, with
 `resource_tracking=True`, per-block wall, CPU and memory figures at about
 10 µs per block.
+
+## Dependency graph construction and enumeration
+
+How the cost of building a task's block graph and enumerating every block
+with its upstream dependencies grows with block count, conflicts and
+context, on 2.0 only. Construction is lazy, so all the cost is in the
+enumeration; this is what decides whether a chunking is viable before any
+worker starts.
+
+![dependency graph scaling](dep_graph.png)
+
+| Grid | Blocks | Levels | Enumerate | Blocks/s |
+| --- | --- | --- | --- | --- |
+| 1000³ in 10³ blocks, no conflicts | 1,000,000 | 1 | 1.30 s | 772,149 |
+| 1000³ in 10³ blocks, context 2, conflicts | 970,299 | 8 | 3.35 s | 289,397 |
+| 200³ in 4³ blocks, no conflicts | 125,000 | 1 | 0.12 s | 1,079,035 |
+| 500³ in 5³ blocks, context 1, conflicts | 970,299 | 8 | 3.58 s | 271,385 |
