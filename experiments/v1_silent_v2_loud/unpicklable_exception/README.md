@@ -69,11 +69,11 @@ Execution Summary
 
     First failure in task 't':
       Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 526, in acquire_block
+        File ".../site-packages/daisy/_task.py", line 528, in acquire_block
           yield block
         File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
           process_function(block)
-        File "experiments/v1_silent_v2_loud/unpicklable_exception/run.py", line 25, in body
+        File "experiments/v1_silent_v2_loud/unpicklable_exception/run.py", line 156, in body
           raise LockedError(f"boom {block.block_id[1]}")
       LockedError: boom 0
       (+ 3 more failed blocks — see worker logs)
@@ -83,7 +83,7 @@ Execution Summary
 RETURNED False  (0.6 s)
 EVIDENCE blocks attempted 4/4, succeeded 0/4, total attempts 8
 --- daisy_logs/t/worker_0.err (112 lines, last 4) ---
-  File "experiments/v1_silent_v2_loud/unpicklable_exception/run.py", line 25, in body
+  File "experiments/v1_silent_v2_loud/unpicklable_exception/run.py", line 156, in body
     raise LockedError(f"boom {block.block_id[1]}")
 LockedError: boom 3
 worker function t failed: daisy worker subprocess exited with code 1
@@ -97,7 +97,7 @@ stderr: 239 lines, 239 other lines. Last lines:
     _run_block_loop(function)
   File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
     process_function(block)
-  File "experiments/v1_silent_v2_loud/unpicklable_exception/run.py", line 25, in body
+  File "experiments/v1_silent_v2_loud/unpicklable_exception/run.py", line 156, in body
     raise LockedError(f"boom {block.block_id[1]}")
 LockedError: boom 3
 ```

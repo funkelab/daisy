@@ -22,7 +22,7 @@ connects, because the launchers all "exited" at once).
 
 ## Output on daisy 1.x (1.2.3)
 
-Status: killed after 45 s (hang), 45.0 s.
+Status: killed after 45 s (hang), 45.1 s.
 
 ```text
 ======================================================
@@ -35,7 +35,7 @@ stderr: 6 lines, 6 progress-bar refreshes.
 
 ## Output on daisy 2.0 (2.0.0)
 
-Status: exit 0, 0.2 s.
+Status: exit 0, 0.3 s.
 
 ```text
 ======================================================

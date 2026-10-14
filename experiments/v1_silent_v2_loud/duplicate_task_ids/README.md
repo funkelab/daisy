@@ -17,7 +17,7 @@ second and runs the first (4 blocks); 2.0 raises.
 
 ## Output on daisy 1.x (1.2.3)
 
-Status: exit 0, 0.2 s.
+Status: exit 0, 0.1 s.
 
 ```text
 ==========================

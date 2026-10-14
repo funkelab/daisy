@@ -3,7 +3,11 @@
 Every claim in the migration guide's behaviour tables points at a directory
 here. Each directory holds a `run.py` that works with either daisy 1.x or
 daisy 2.0 installed, and a `README.md` with the outputs we captured on both,
-so the result can be read without running anything.
+so the result can be read without running anything. Every script is
+self-contained: copy one file anywhere and run it. The few helpers they
+share (a banner, the grid, a `Task` builder that hides the
+`num_workers`/`max_workers` rename, the evidence file) sit at the top of each
+file under a "helpers" comment, ahead of the experiment itself.
 
 ```
 python experiments/representative/modes.py A        # a 3-D task in each worker mode

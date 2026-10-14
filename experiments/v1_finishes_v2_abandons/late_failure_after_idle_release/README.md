@@ -84,7 +84,7 @@ stderr: 31 lines, 31 other lines. Last lines:
     _run_block_loop(function)
   File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
     process_function(block)
-  File "experiments/v1_finishes_v2_abandons/late_failure_after_idle_release/run.py", line 28, in body
+  File "experiments/v1_finishes_v2_abandons/late_failure_after_idle_release/run.py", line 133, in body
     raise RuntimeError("fails once")
 RuntimeError: fails once
  WARN worker exited with error worker_id=0 task_id=t

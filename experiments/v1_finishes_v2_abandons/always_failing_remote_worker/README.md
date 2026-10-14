@@ -103,11 +103,11 @@ Execution Summary
 
     First failure in task 't':
       Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 526, in acquire_block
+        File ".../site-packages/daisy/_task.py", line 528, in acquire_block
           yield block
-        File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 38, in external_worker
+        File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 144, in external_worker
           body(block)
-        File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 21, in body
+        File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 127, in body
           raise RuntimeError("always fails")
       RuntimeError: always fails
 
@@ -122,9 +122,9 @@ stderr: 309 lines, 309 other lines. Last lines:
 
 ```text
     external_worker()
-  File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 38, in external_worker
+  File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 144, in external_worker
     body(block)
-  File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 21, in body
+  File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 127, in body
     raise RuntimeError("always fails")
 RuntimeError: always fails
  WARN worker exited with error worker_id=10 task_id=t

@@ -27,16 +27,16 @@ spawn function exits immediately
 daisy 1.2.3 (1.x), python 3.12.0
 ```
 
-stderr: 230 lines, 230 other lines. Last lines:
+stderr: 228 lines, 228 other lines. Last lines:
 
 ```text
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=43103:task_id=t:worker_id=111) (pid 2034405) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=34287:task_id=t:worker_id=110) (pid 3583530) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=43103:task_id=t:worker_id=112) (pid 2034406) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=34287:task_id=t:worker_id=111) (pid 3583531) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=43103:task_id=t:worker_id=113) (pid 2034407) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=34287:task_id=t:worker_id=112) (pid 3583532) failed with exit code 1
 Replacing 1 dead workers for task t
-Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=43103:task_id=t:worker_id=114) (pid 2034408) failed with exit code 1
+Worker worker (logdir=daisy_logs:hostname=10.11.12.171:port=34287:task_id=t:worker_id=113) (pid 3583533) failed with exit code 1
 Replacing 1 dead workers for task t
 ```
 
@@ -65,7 +65,7 @@ EVIDENCE spawn attempts: 11
 stderr: 91 lines, 3 progress-bar refreshes, 88 other lines. Last lines:
 
 ```text
-  File ".../site-packages/daisy/_task.py", line 605, in wrapped
+  File ".../site-packages/daisy/_task.py", line 607, in wrapped
     return orig(context=context)
            ^^^^^^^^^^^^^^^^^^^^^
   File ".../site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process

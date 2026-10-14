@@ -83,11 +83,11 @@ Execution Summary
 
     First failure in task 't':
       Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 526, in acquire_block
+        File ".../site-packages/daisy/_task.py", line 528, in acquire_block
           yield block
         File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
           process_function(block)
-        File "experiments/v1_silent_v2_loud/return_value_with_failures/run.py", line 16, in body
+        File "experiments/v1_silent_v2_loud/return_value_with_failures/run.py", line 123, in body
           raise RuntimeError(f"boom {block.block_id[1]}")
       RuntimeError: boom 0
       (+ 3 more failed blocks — see worker logs)
@@ -107,7 +107,7 @@ stderr: 239 lines, 239 other lines. Last lines:
     _run_block_loop(function)
   File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
     process_function(block)
-  File "experiments/v1_silent_v2_loud/return_value_with_failures/run.py", line 16, in body
+  File "experiments/v1_silent_v2_loud/return_value_with_failures/run.py", line 123, in body
     raise RuntimeError(f"boom {block.block_id[1]}")
 RuntimeError: boom 3
 ```

@@ -45,4 +45,9 @@ RAISED RuntimeError: invalid configuration: task "down" has blocks (total_roi Ro
 EVIDENCE blocks attempted 0/50, succeeded 0/50, total attempts 0
 ```
 
-stderr: 0 lines.
+stderr: 2 lines, 2 other lines. Last lines:
+
+```text
+experiments/v1_hangs_v2_finishes/unreachable_downstream/run.py:51: DeprecationWarning: Task(upstream_tasks=[...]) is the daisy 1.x way to declare block-level dependencies. daisy v2 expresses this via `Pipeline` composition: `upstream_task + downstream_task`. This compat alias keeps your code working — `run_blockwise` will build a Pipeline from the upstream list automatically.
+  return daisy.Task(task_id, total, read, write, fn, **kw)
+```

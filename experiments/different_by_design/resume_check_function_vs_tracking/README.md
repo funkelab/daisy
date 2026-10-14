@@ -43,7 +43,7 @@ Execution Summary
     all blocks processed successfully
 
 RETURNED True  (215.0 s)
-TIMING markers first run: 214.99 s
+TIMING markers first run: 214.95 s
 
 ### marker files + check_function, resume (everything skipped)
 
@@ -59,15 +59,15 @@ Execution Summary
 
     all blocks processed successfully
 
-RETURNED True  (1.0 s)
-TIMING markers resume: 1.04 s
+RETURNED True  (1.1 s)
+TIMING markers resume: 1.07 s
 ```
 
-stderr: 41725 lines, 41725 progress-bar refreshes.
+stderr: 41727 lines, 41727 progress-bar refreshes.
 
 ## Output on daisy 2.0 (2.0.0)
 
-Status: exit 0, 2.4 s.
+Status: exit 0, 2.5 s.
 
 ```text
 ===========================================================
@@ -85,8 +85,8 @@ Execution Summary
     ───────  ───────  ──────────  ───────  ──────  ────────
     naive ✔    20000       20000        0       0         0
 
-RETURNED True  (1.3 s)
-TIMING markers first run: 1.26 s
+RETURNED True  (1.2 s)
+TIMING markers first run: 1.24 s
 
 ### marker files + check_function, resume (everything skipped)
 
@@ -98,7 +98,7 @@ Execution Summary
     naive ✔    20000       20000    20000       0         0
 
 RETURNED True  (0.2 s)
-TIMING markers resume: 0.19 s
+TIMING markers resume: 0.20 s
 
 ### built-in tracking store, first run
 
@@ -110,7 +110,7 @@ Execution Summary
     builtin ✔    20000       20000        0       0         0
 
 RETURNED True  (0.8 s)
-TIMING tracking first run: 0.77 s
+TIMING tracking first run: 0.78 s
 
 ### built-in tracking store, resume (everything skipped)
 
@@ -122,7 +122,7 @@ Execution Summary
     builtin ✔    20000       20000    20000       0         0
 
 RETURNED True  (0.1 s)
-TIMING tracking resume: 0.12 s
+TIMING tracking resume: 0.15 s
 ```
 
 stderr: 2 lines, 2 other lines. Last lines:
