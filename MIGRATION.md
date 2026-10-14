@@ -164,7 +164,7 @@ exceptions inside the block function, for data with many bad blocks.
 | --- | --- | --- | --- |
 | No `timeout` passed and a block runs 11 minutes | completes | killed at the 600 s default, retried, reported failed; pass `Task(timeout=...)` for long blocks | [default_timeout](experiments/different_by_design/default_timeout/README.md) |
 | Every block already done on a re-run | empty execution summary | summary with a `skipped` column | [all_blocks_already_done](experiments/different_by_design/all_blocks_already_done/README.md) |
-| `set_log_basedir(None)` seen by an external worker | `logdir=None`, the string | `logdir=`, empty, meaning off | [log_basedir_none](experiments/different_by_design/log_basedir_none/README.md) |
+| `set_log_basedir(None)` seen by an external worker | `logdir=None`, the string; a worker that redirects its output writes to `./None/<task>/worker_<n>.out` | `logdir=`, empty; `Client()` maps it back to `None` and nothing is written | [log_basedir_none](experiments/different_by_design/log_basedir_none/README.md) |
 | Progress output when stderr is a file | two refreshes per block | a handful of refreshes per second | [progress_output_volume](experiments/different_by_design/progress_output_volume/README.md) |
 | Resuming 20,000 done blocks | one `check_function` call per block on the scheduling thread | the same, or one byte per block with the built-in tracking store | [resume_check_function_vs_tracking](experiments/different_by_design/resume_check_function_vs_tracking/README.md) |
 

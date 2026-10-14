@@ -27,7 +27,7 @@ EXPERIMENTS = [
     ("v1_silent_v2_loud", "check_function_array", "A check_function returning an array aborts the whole 1.x run; 2.0 warns once and runs the block.", 60),
     ("different_by_design", "default_timeout", "No timeout passed: 1.x runs an 11-minute block to completion; 2.0 kills it at the 600 s default and reports it failed.", 1500),
     ("different_by_design", "all_blocks_already_done", "A run that skips every block prints an empty summary on 1.x and a table with a skipped column on 2.0.", 60),
-    ("different_by_design", "log_basedir_none", "set_log_basedir(None) reaches external workers as the string 'None' on 1.x and as an empty value on 2.0.", 60),
+    ("different_by_design", "log_basedir_none", "set_log_basedir(None) reaches external workers as the string 'None' on 1.x, so a worker that redirects its output writes to ./None/; 2.0 ships an empty value meaning off.", 60),
     ("different_by_design", "progress_output_volume", "With stderr redirected to a file, 1.x writes two progress refreshes per block; 2.0 refreshes on a timer.", 300),
     ("different_by_design", "resume_check_function_vs_tracking", "Resuming 20,000 blocks: a check_function costs one call per block on the scheduling thread; 2.0's built-in store is one byte per block.", 600),
 ]
