@@ -1,0 +1,91 @@
+# check function raises
+
+**Claim.** A check_function that raises counts as 'not done' on both lines; 1.x logs it per block, 2.0 once per task.
+
+**Table.** same behavior
+
+**Run it** (works with daisy 1.x or 2.0 installed):
+
+```
+python experiments/same_behavior/check_function_raises/run.py
+```
+
+## What the script does
+
+check_function that raises: both lines treat the block as not done and
+run it. 1.x logs the exception for every block, 2.0 once per task.
+
+## Output on daisy 1.x (1.2.3)
+
+Status: exit 0, 1.1 s.
+
+```text
+=====================
+check_function raises
+=====================
+daisy 1.2.3 (1.x), python 3.12.0
+
+
+Execution Summary
+-----------------
+
+  Task t:
+
+    num blocks : 20
+    completed ✔: 20 (skipped 0)
+    failed    ✗: 0
+    orphaned  ∅: 0
+
+    all blocks processed successfully
+
+RETURNED True  (0.9 s)
+EVIDENCE blocks attempted 20/20, succeeded 20/20, total attempts 20
+```
+
+stderr: 190 lines, 49 progress-bar refreshes, 141 other lines. Last lines:
+
+```text
+ValueError: check boom
+Traceback (most recent call last):
+  File ".../site-packages/daisy/scheduler.py", line 195, in __precheck
+    return self.task_map[block.task_id].check_function(block)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "experiments/same_behavior/check_function_raises/run.py", line 19, in broken_check
+    raise ValueError("check boom")
+ValueError: check boom
+```
+
+## Output on daisy 2.0 (2.0.0)
+
+Status: exit 0, 0.2 s.
+
+```text
+=====================
+check_function raises
+=====================
+daisy 2.0.0 (2.0), python 3.12.0
+
+
+Execution Summary
+-----------------
+
+    task     blocks   completed  skipped  failed  orphaned
+    ──────  ───────  ──────────  ───────  ──────  ────────
+    t ✔          20          20        0       0         0
+
+RETURNED True  (0.1 s)
+EVIDENCE blocks attempted 20/20, succeeded 20/20, total attempts 20
+```
+
+stderr: 12 lines, 3 progress-bar refreshes, 9 other lines. Last lines:
+
+```text
+  instance = super().__new__(cls, *args, max_workers=max_workers, **kwargs)
+Traceback (most recent call last):
+  File ".../site-packages/daisy/v1_compat.py", line 186, in _compat_block_fn
+    return fn(compat)
+           ^^^^^^^^^^
+  File "experiments/same_behavior/check_function_raises/run.py", line 19, in broken_check
+    raise ValueError("check boom")
+ValueError: check boom
+```

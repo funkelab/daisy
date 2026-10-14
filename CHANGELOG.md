@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (from the 1.x vs 2.0 evaluation review)
+
+- `cloudpickle` and `funlib.geometry` are hard dependencies; the bare wheel
+  can run the README example again.
+- `Task(max_workers=0)` (or negative) raises `ValueError` instead of
+  waiting forever (#81).
+- `check_function` results are evaluated with Python truthiness, as in 1.x:
+  ints, numpy bools and one-element arrays count as "done".
+- `Pipeline.run_blockwise(return_states=True)` returns the states dict
+  instead of raising.
+- Serial mode refuses a task without a 1-argument block function instead of
+  marking every block done without running anything.
+- The Rust core's `tracing` warnings (lost blocks, retired worker slots,
+  fire-and-forget spawn functions, abandonment) are written to stderr; there
+  was no subscriber before, so they went nowhere.
+- The execution summary is printed by one context manager,
+  `daisy._progress.execution_summary`, from every entry point: on normal
+  exit, on `KeyboardInterrupt` (what finished so far) and on abandonment;
+  `Server.run_blockwise` prints it too; `summary=False` silences it.
+- Hard errors in the server loop (fire-and-forget spawn detected, block
+  returned without required stats) now run the normal shutdown instead of
+  dropping the runtime with live worker subprocesses.
+- Progress observers are called from the 500 ms health tick (and once at
+  the end) instead of on every release, and skipped blocks count too; the
+  tqdm bar reaches its total on an all-skipped resume.
+- Worker subprocesses write straight to their `.out`/`.err` log files, so
+  output is visible while the worker runs; a dirty exit no longer writes
+  its traceback three times; log files are appended to across runs in one
+  process, with a run separator; `daisy.logging.clear_logs()` removes them.
+- `resource_tracking=True` without a tracking path uses a run-scoped store
+  under the log basedir (with a warning) instead of erroring; an explicit
+  `tracking_path` keeps the resumable behaviour.
+- `Task.failed_blocks()` returns the blocks whose failure count is above
+  zero and whose done flag is unset in the tracking store.
+- A pipeline whose downstream task has edge blocks with no upstream block to
+  depend on is refused before the run starts; such blocks could never become
+  ready and both runners waited forever.
+- `experiments/`: standalone scripts that verify the behaviour tables in
+  MIGRATION.md on either line, with captured outputs and speed plots.
+
 ### Added
 
 - `failures`: per-block count of failed attempts, written whenever tracking

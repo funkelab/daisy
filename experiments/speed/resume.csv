@@ -1,0 +1,4 @@
+version,strategy,phase,blocks,seconds
+1.x,check_function + marker files,resume,20000,1.05
+2.0,check_function + marker files,resume,20000,0.23
+2.0,built-in tracking store,resume,20000,0.15

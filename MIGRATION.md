@@ -103,6 +103,71 @@ master's log directory, and constructing a `daisy.Client()` adopts it, as in
 redundant — harmless, but you can delete it. A worker that wants its logs
 somewhere else calls `set_log_basedir(...)` *after* constructing its client.
 
+## Verified behaviour differences
+
+Every row below links to a script under [`experiments/`](experiments/README.md)
+that runs unchanged with daisy 1.x or 2.0 installed and prints what it
+measured, next to daisy's own report. Each experiment directory also has a
+README with the captured output on both lines, so you can read the result
+without running it. A [representative 3-D task in every worker mode](experiments/representative/README.md)
+shows the normal case first; the speed plots are in
+[`experiments/speed/`](experiments/speed/README.md).
+
+### Same behaviour on both lines
+
+| Case | 1.x | 2.0 | Verify |
+| --- | --- | --- | --- |
+| Happy path: 512 3-D blocks with context, modes A, B, C and S | every block exactly once | every block exactly once | [representative/modes.py](experiments/representative/README.md) |
+| `check_function` returns `numpy.bool_(True)` | every block skipped | every block skipped | [check_function_numpy_bool](experiments/same_behavior/check_function_numpy_bool/README.md) |
+| `check_function` raises | block runs; exception logged per block | block runs; exception logged once per task | [check_function_raises](experiments/same_behavior/check_function_raises/README.md) |
+| A worker is SIGKILLed while holding a block | replaced, block retried (master; 1.2.2 hangs) | replaced, block retried | [worker_sigkill](experiments/same_behavior/worker_sigkill/README.md) |
+| Serial mode with a 0-argument worker function | TypeError at the first block | configuration error before the run | [serial_worker_function](experiments/same_behavior/serial_worker_function/README.md) |
+
+### 1.x waits forever, 2.0 finishes or refuses
+
+| Case | 1.x | 2.0 | Verify |
+| --- | --- | --- | --- |
+| A block never returns, `Task(timeout=5)` | the timeout is never enforced; the run hangs | worker killed at 5 s, block retried, reported failed after `max_retries` | [hung_block_timeout](experiments/v1_hangs_v2_finishes/hung_block_timeout/README.md) |
+| The spawn function exits immediately | respawned 10 times a second, forever | `max_workers + max_worker_restarts` starts, then `RuntimeError` | [crashing_spawn_function](experiments/v1_hangs_v2_finishes/crashing_spawn_function/README.md) |
+| Fire-and-forget launcher whose worker later dies | nothing is respawned; the run hangs | `RuntimeError` explaining that spawn functions must block | [fire_and_forget_launcher](experiments/v1_hangs_v2_finishes/fire_and_forget_launcher/README.md) |
+| Log directory containing `:` with external workers | every worker fails to parse `DAISY_CONTEXT`; respawn storm | values are percent-encoded; the run completes | [log_dir_with_colon](experiments/v1_hangs_v2_finishes/log_dir_with_colon/README.md) |
+| `num_workers=0` / `max_workers=0` | waits forever | `ValueError` when the task is built | [zero_workers](experiments/v1_hangs_v2_finishes/zero_workers/README.md) |
+| Downstream task reaching beyond its upstream's write region | reachable blocks finish, then the run hangs | the pipeline is refused before it starts | [unreachable_downstream](experiments/v1_hangs_v2_finishes/unreachable_downstream/README.md) |
+
+### 1.x finishes with failed blocks, 2.0 abandons the task
+
+On 2.0 an exception in a block function kills its worker, and every worker
+death counts against `Task(max_worker_restarts=10)`. A run with more
+persistently failing blocks than that budget is abandoned, its remaining
+blocks are orphaned and `run_blockwise` raises. Raise the budget, or catch
+exceptions inside the block function, for data with many bad blocks.
+
+| Case | 1.x | 2.0 | Verify |
+| --- | --- | --- | --- |
+| 20 always-failing blocks of 2,000, 4 workers | finishes the other 1,980, returns `True` | abandoned after 14 worker deaths; the rest orphaned; `RuntimeError` | [twenty_bad_blocks](experiments/v1_finishes_v2_abandons/twenty_bad_blocks/README.md) |
+| External worker that fails every block | a new job every 4 failures; returns `True` | one job per failure until the budget is spent; `RuntimeError` | [always_failing_remote_worker](experiments/v1_finishes_v2_abandons/always_failing_remote_worker/README.md) |
+| A failure after the other worker was released as idle, `max_worker_restarts=0` | retried by the failing worker | abandoned with one orphan | [late_failure_after_idle_release](experiments/v1_finishes_v2_abandons/late_failure_after_idle_release/README.md) |
+
+### 1.x is silent, 2.0 is loud
+
+| Case | 1.x | 2.0 | Verify |
+| --- | --- | --- | --- |
+| Every block failed | `run_blockwise` returns `True` | returns `False` | [return_value_with_failures](experiments/v1_silent_v2_loud/return_value_with_failures/README.md) |
+| The block raises an exception that cannot be pickled | failure list empty, returns `True` | traceback carried as text, returns `False` | [unpicklable_exception](experiments/v1_silent_v2_loud/unpicklable_exception/README.md) |
+| Two tasks with the same `task_id` | the second is dropped silently | `ValueError` | [duplicate_task_ids](experiments/v1_silent_v2_loud/duplicate_task_ids/README.md) |
+| Ctrl-C mid-run | returns `False`; in-flight blocks missing from the summary | prints what finished, raises `KeyboardInterrupt` | [ctrl_c](experiments/v1_silent_v2_loud/ctrl_c/README.md) |
+| `check_function` returns an array | the whole run aborts with `ValueError` | warns once, treats the block as not done | [check_function_array](experiments/v1_silent_v2_loud/check_function_array/README.md) |
+
+### Different by design
+
+| Case | 1.x | 2.0 | Verify |
+| --- | --- | --- | --- |
+| No `timeout` passed and a block runs 11 minutes | completes | killed at the 600 s default, retried, reported failed; pass `Task(timeout=...)` for long blocks | [default_timeout](experiments/different_by_design/default_timeout/README.md) |
+| Every block already done on a re-run | empty execution summary | summary with a `skipped` column | [all_blocks_already_done](experiments/different_by_design/all_blocks_already_done/README.md) |
+| `set_log_basedir(None)` seen by an external worker | `logdir=None`, the string | `logdir=`, empty, meaning off | [log_basedir_none](experiments/different_by_design/log_basedir_none/README.md) |
+| Progress output when stderr is a file | two refreshes per block | a handful of refreshes per second | [progress_output_volume](experiments/different_by_design/progress_output_volume/README.md) |
+| Resuming 20,000 done blocks | one `check_function` call per block on the scheduling thread | the same, or one byte per block with the built-in tracking store | [resume_check_function_vs_tracking](experiments/different_by_design/resume_check_function_vs_tracking/README.md) |
+
 ## Removed APIs
 
 These 1.x names are not exposed by daisy v2 (neither in `daisy` nor `daisy.v2`):
@@ -145,7 +210,7 @@ v2 introduces format identifiers under the v2 name; existing daisy 1.x stores we
 ## Dependencies
 
 - daisy 1.x: hard runtime deps on `numpy`, `tornado`, `dill`, `funlib.math`, `funlib.geometry`, `tqdm`.
-- daisy v2: hard runtime dep on `tqdm` only. The Rust core uses no Python deps; everything else is optional.
+- daisy v2: hard runtime deps on `tqdm`, `cloudpickle` (worker payloads; the v1-compat block wrapper is a closure, so plain pickle is not enough) and `funlib.geometry` (the v1-compat `Block` hands out funlib ROIs). The Rust core uses no Python deps; `numpy`/`zarr` are only needed to read a tracking store from outside daisy.
 
 ## Suppressing deprecation warnings
 
