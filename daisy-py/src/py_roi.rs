@@ -2,6 +2,24 @@ use daisy_core::{coordinate::Coordinate, roi::Roi};
 use pyo3::prelude::*;
 use pyo3::IntoPyObjectExt;
 
+/// `funlib.geometry.Roi` for a core Roi: the type every ROI handed to
+/// Python is. The class is looked up once; `funlib.geometry` is a hard
+/// dependency.
+pub fn funlib_roi(py: Python<'_>, roi: &Roi) -> PyResult<Py<PyAny>> {
+    static ROI_CLS: std::sync::OnceLock<Py<PyAny>> = std::sync::OnceLock::new();
+    let cls = match ROI_CLS.get() {
+        Some(c) => c,
+        None => {
+            let c = py.import("funlib.geometry")?.getattr("Roi")?.unbind();
+            let _ = ROI_CLS.set(c);
+            ROI_CLS.get().expect("just set")
+        }
+    };
+    let offset: Vec<i64> = roi.offset().as_slice().to_vec();
+    let shape: Vec<i64> = roi.shape().as_slice().to_vec();
+    Ok(cls.bind(py).call1((offset, shape))?.unbind())
+}
+
 fn type_name_of(obj: &Bound<'_, PyAny>) -> String {
     obj.get_type()
         .fully_qualified_name()

@@ -98,15 +98,114 @@ def get_done_marker_basedir() -> Path | None:
 # operators, copy.copy support, attribute setters for process_function
 # / upstream_tasks so `_wrap_for_worker_logging` and Pipeline
 # materialize work).
-Roi = _rs.Roi
-Coordinate = _rs.Coordinate
-Block = _rs.Block
-BlockStatus = _rs.BlockStatus
-BlockwiseDependencyGraph = _rs.BlockwiseDependencyGraph
-DependencyGraph = _rs.DependencyGraph
+from funlib.geometry import Coordinate as Coordinate  # noqa: E402 — re-exported: the Coordinate daisy uses
+from funlib.geometry import Roi as Roi  # noqa: E402 — re-exported: the Roi daisy uses
+
+from daisy.block import Block, BlockStatus  # noqa: E402
+
 TaskState = _rs.TaskState
-Scheduler = _rs.Scheduler
 Context = _rs.Context
+
+
+def _blocks(natives):
+    return [Block._from_native(b) for b in natives]
+
+
+class DependencyGraph:
+    """Block-level dependencies of a scheduled pipeline, from
+    `Scheduler.dependency_graph`."""
+
+    def __init__(self, native):
+        self._native = native
+
+    def upstream(self, block):
+        return _blocks(self._native.upstream(block._native))
+
+    def downstream(self, block):
+        return _blocks(self._native.downstream(block._native))
+
+
+class BlockwiseDependencyGraph:
+    """The blocks of one task and their conflict dependencies, without a
+    scheduler. ROIs are `funlib.geometry.Roi` (or anything with integer
+    ``offset`` and ``shape``)."""
+
+    def __init__(
+        self,
+        task_id,
+        read_roi,
+        write_roi,
+        read_write_conflict,
+        fit,
+        total_read_roi=None,
+    ):
+        self._native = _rs.BlockwiseDependencyGraph(
+            task_id,
+            read_roi,
+            write_roi,
+            read_write_conflict,
+            fit,
+            total_read_roi=total_read_roi,
+        )
+
+    @property
+    def num_blocks(self):
+        return self._native.num_blocks
+
+    @property
+    def num_levels(self):
+        return self._native.num_levels
+
+    def num_roots(self):
+        return self._native.num_roots()
+
+    def enumerate_all_dependencies(self):
+        return [
+            (Block._from_native(b), _blocks(deps))
+            for b, deps in self._native.enumerate_all_dependencies()
+        ]
+
+    def get_subgraph_blocks(self, sub_roi, read_roi=False):
+        return _blocks(self._native.get_subgraph_blocks(sub_roi, read_roi))
+
+    def upstream(self, block):
+        return _blocks(self._native.upstream(block._native))
+
+    def downstream(self, block):
+        return _blocks(self._native.downstream(block._native))
+
+    def root_gen(self):
+        return _blocks(self._native.root_gen())
+
+
+class Scheduler:
+    """Hand out blocks in dependency order, one call at a time, without
+    workers or a server. Takes a `Pipeline` or a `Task`."""
+
+    def __init__(self, pipeline_or_task):
+        self._native = _rs.Scheduler(pipeline_or_task)
+
+    def acquire_block(self, task_id):
+        native = self._native.acquire_block(task_id)
+        return None if native is None else Block._from_native(native)
+
+    def release_block(self, block):
+        self._native.release_block(block._native)
+
+    @property
+    def task_states(self):
+        return self._native.task_states
+
+    @property
+    def dependency_graph(self):
+        return DependencyGraph(self._native.dependency_graph)
+
+
+def profile_block(block):
+    """Context manager measuring the wall, CPU, memory and I/O a block body
+    costs; the measurement lands on ``block.stats``. daisy's workers do
+    this automatically; call it yourself only to narrow what is measured."""
+    return _rs.profile_block(block._native)
 
 # positional index of `check_function` in the `_rs.Task` constructor
 # signature (task_id, total_roi, read_roi, write_roi, process_function,
@@ -174,6 +273,11 @@ class Task(_rs.Task):
         # PyO3 constructs via __new__; override so object.__init__
         # doesn't reject the constructor kwargs.
         pass
+
+    def failed_blocks(self):
+        """Blocks recorded as failed and not done in this task's tracking
+        store, as `Block`s."""
+        return _blocks(super().failed_blocks())
 
 
 def _block_fn_arity(fn):
@@ -404,10 +508,11 @@ class Client:
             # normal end-of-work signal
             yield None
             return
-        block = self._client.acquire_block()
-        if block is None:
+        native = self._client.acquire_block()
+        if native is None:
             yield None
             return
+        block = Block._from_native(native)
         reported = False
         # Measure the block here so every worker that goes through this
         # loop is covered: daisy's own subprocess shim and any hand-written
@@ -416,7 +521,7 @@ class Client:
         # why 0-arg workers need no extra code. A user who wants tighter
         # scoping can still use `daisy.profile_block(block)` inside their
         # function — the first measurement attached wins.
-        profiler = _rs.profile_block(block) if self.resource_tracking else None
+        profiler = _rs.profile_block(native) if self.resource_tracking else None
         if profiler is not None:
             profiler.__enter__()
         try:
@@ -446,7 +551,7 @@ class Client:
             # the cause without a trip to the worker logs. BlockFailed
             # is a complete block return — do not also release below.
             try:
-                self._client.report_failure(block, _capped_traceback())
+                self._client.report_failure(native, _capped_traceback())
                 reported = True
             except Exception:
                 pass
@@ -460,7 +565,7 @@ class Client:
             if block.status != BlockStatus.SUCCESS:
                 block.status = BlockStatus.FAILED
             if not reported:
-                self._client.release_block(block)
+                self._client.release_block(native)
 
     def __del__(self):
         try:

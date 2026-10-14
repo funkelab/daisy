@@ -69,6 +69,6 @@ EVIDENCE blocks attempted 0/20, succeeded 0/20, total attempts 0
 stderr: 5 lines, 3 progress-bar refreshes, 2 other lines. Last lines:
 
 ```text
-.../site-packages/daisy/v1_compat.py:268: UserWarning: Task(check_function=...) runs your callable on the server for EVERY block, and its result persists nowhere — every rerun pays the full check cost again. For resuming interrupted or repeated runs, prefer the built-in done markers (Task(tracking_path=...) or daisy.set_tracking_basedir(...)): one mmap'd byte per block, written on completion, checked in ~microseconds. Keep check_function only when the ground truth genuinely lives in your output data (e.g. verifying non-empty zarr chunks written by an earlier pipeline).
+.../site-packages/daisy/v1_compat.py:106: UserWarning: Task(check_function=...) runs your callable on the server for EVERY block, and its result persists nowhere — every rerun pays the full check cost again. For resuming interrupted or repeated runs, prefer the built-in done markers (Task(tracking_path=...) or daisy.set_tracking_basedir(...)): one mmap'd byte per block, written on completion, checked in ~microseconds. Keep check_function only when the ground truth genuinely lives in your output data (e.g. verifying non-empty zarr chunks written by an earlier pipeline).
   instance = super().__new__(cls, *args, max_workers=max_workers, **kwargs)
 ```

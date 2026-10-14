@@ -49,14 +49,14 @@ Execution Summary
 
     First failure in task 't':
       block processing failed: Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 502, in wrapped
+        File ".../site-packages/daisy/_task.py", line 605, in wrapped
           return orig(context=context)
                  ^^^^^^^^^^^^^^^^^^^^^
         File ".../site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process
           raise exc
       RuntimeError: daisy worker subprocess killed after a block exceeded timeout=5.0s (true preemption; the server retries the block under max_retries)
       worker stderr tail:
-      daisy worker 1: block t/3 still running after timeout=5s; killing worker process
+      daisy worker 0: block t/3 still running after timeout=5s; killing worker process
 
     3 block attempt(s) in task 't' exceeded the block timeout (5s; pass Task(timeout=...) to raise it for slow blocks)
 

@@ -14,7 +14,7 @@ python experiments/speed/plots.py
 
 ## Throughput by worker mode and worker count
 
-10,000 no-op blocks (1-D, no conflicts). 2.0 is 23 to 190 times faster
+10,000 no-op blocks (1-D, no conflicts). 2.0 is 17 to 330 times faster
 at every worker count and in every mode. 1.x is bounded at about 23
 blocks per second per worker, a 43 ms round trip per block that scales
 linearly with workers (its tornado sockets leave Nagle on and run into
@@ -25,18 +25,18 @@ its scheduler thread instead, peaking at 16 workers for a run this short.
 
 | Mode | Workers | 1.x blocks/s | 2.0 blocks/s | Ratio |
 | --- | --- | --- | --- | --- |
-| A block function | 1 | 24 | 6,368 | 265 |
-| A | 4 | 95 | 20,349 | 214 |
-| A | 16 | 377 | 42,714 | 113 |
-| A | 64 | 1,169 | 24,529 | 21 |
-| B worker function | 1 | 23 | 7,201 | 313 |
-| B | 4 | 94 | 26,310 | 280 |
-| B | 16 | 377 | 45,539 | 121 |
-| B | 64 | 1,177 | 26,500 | 23 |
-| C external worker | 1 | 23 | 8,125 | 353 |
-| C | 4 | 93 | 22,292 | 240 |
-| C | 16 | 375 | 35,407 | 94 |
-| C | 64 | 1,228 | 21,915 | 18 |
+| A block function | 1 | 24 | 7,999 | 333 |
+| A | 4 | 95 | 24,093 | 254 |
+| A | 16 | 377 | 49,897 | 132 |
+| A | 64 | 1,169 | 25,586 | 22 |
+| B worker function | 1 | 23 | 7,547 | 328 |
+| B | 4 | 94 | 26,235 | 279 |
+| B | 16 | 377 | 46,821 | 124 |
+| B | 64 | 1,177 | 26,192 | 22 |
+| C external worker | 1 | 23 | 7,511 | 327 |
+| C | 4 | 93 | 20,480 | 220 |
+| C | 16 | 375 | 34,895 | 93 |
+| C | 64 | 1,228 | 20,664 | 17 |
 
 The three modes cost the same on each line: the mode only changes who
 starts the worker process, not how blocks are handed out.
@@ -54,8 +54,8 @@ workers.
 
 | Grid | 1.x blocks/s | 2.0 blocks/s |
 | --- | --- | --- |
-| 1-D, 100,000 blocks, no conflicts | 24,626 | 847,342 |
-| 3-D, 8,000 blocks with context (conflicts) | 747 | 64,673 |
+| 1-D, 100,000 blocks, no conflicts | 24,626 | 613,371 |
+| 3-D, 8,000 blocks with context (conflicts) | 747 | 66,297 |
 
 ## Resume cost: check_function versus the built-in tracking store
 
@@ -72,8 +72,8 @@ counts: in the evaluation's 100,000-block run the figures were 4.7 s for
 | Strategy | Line | Resume, 20,000 blocks |
 | --- | --- | --- |
 | `check_function` that stats a marker file per block | 1.x | 1.05 s |
-| same | 2.0 | 0.23 s |
-| built-in tracking store (`Task(tracking_path=...)`) | 2.0 | 0.15 s |
+| same | 2.0 | 0.19 s |
+| built-in tracking store (`Task(tracking_path=...)`) | 2.0 | 0.12 s |
 
 The store also records per-block failure counts and, with
 `resource_tracking=True`, per-block wall, CPU and memory figures at about

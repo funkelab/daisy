@@ -11,12 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `cloudpickle` and `funlib.geometry` are hard dependencies; the bare wheel
   can run the README example again.
-- `funlib.geometry` ROIs and Coordinates work everywhere, as in 1.x: the
-  default surface re-exports funlib's classes as `daisy.Roi`/`daisy.Coordinate`
-  (the Rust types stay at `daisy.v2.Roi`/`daisy.v2.Coordinate`), every native
-  entry point (`Task`, `Block`, `BlockwiseDependencyGraph`, `intersect`,
-  `contains`, ...) accepts a funlib Roi or any int sequence as a Coordinate,
-  and compat `Task.total_roi`/`read_roi`/`write_roi` return funlib ROIs.
+- `funlib.geometry` ROIs and Coordinates work everywhere, as in 1.x, and
+  the Rust geometry types are no longer part of the Python API. `daisy.Roi`
+  and `daisy.Coordinate` are funlib's classes on both surfaces; every entry
+  point (`Task`, `Block`, `BlockwiseDependencyGraph`, `Scheduler`) accepts
+  a funlib Roi or anything with integer `offset`/`shape`, and every ROI
+  daisy hands back (`Block.read_roi`, `Task.total_roi`, ...) is a funlib
+  Roi. `daisy.Block` is a Python class (`daisy.block.Block`, the 1.x import
+  path) over the Rust carrier: funlib ROIs, picklable, the same type in
+  process functions, check functions, `Client.acquire_block`, the
+  dependency graphs and `Task.failed_blocks`. `Scheduler`,
+  `DependencyGraph` and `BlockwiseDependencyGraph` are thin Python
+  wrappers for the same reason. The compat layer's block proxies and ROI
+  coercions are gone because nothing needs converting any more.
   Previously only keyword ROIs on the compat `Task` were converted; the 1.x
   positional form `Task(id, total_roi, read_roi, write_roi, fn)` raised
   `TypeError` with a funlib Roi.
@@ -474,7 +481,7 @@ If you depend on the daisy 1.x API surface, pin `daisy<2`.
 ### Changed
 
 - **Wire protocol**: bincode over TCP (was tornado IOStreams + pickle in 1.x). Workers in other languages need a bincode codec for `Message` and `Block` — see `docs/PROTOCOL.md`. The 1.x `NotifyClientDisconnect` / `AckClientDisconnect` handshake is replaced by a single `Disconnect` message.
-- **Roi / Coordinate**: the scheduler uses native Rust-backed types (`daisy.v2.Roi`, `daisy.v2.Coordinate`). The default surface keeps `funlib.geometry`'s classes as `daisy.Roi`/`daisy.Coordinate`; native entry points accept either.
+- **Roi / Coordinate**: `funlib.geometry`'s classes on every surface, as in 1.x. The scheduler's own Rust geometry types stay private; entry points convert on the way in.
 - **Minimum Python version**: 3.11 (was 3.10 in 1.x).
 
 ### Removed

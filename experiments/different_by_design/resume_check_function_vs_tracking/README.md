@@ -43,7 +43,7 @@ Execution Summary
     all blocks processed successfully
 
 RETURNED True  (215.0 s)
-TIMING markers first run: 214.96 s
+TIMING markers first run: 214.99 s
 
 ### marker files + check_function, resume (everything skipped)
 
@@ -59,15 +59,15 @@ Execution Summary
 
     all blocks processed successfully
 
-RETURNED True  (1.1 s)
-TIMING markers resume: 1.07 s
+RETURNED True  (1.0 s)
+TIMING markers resume: 1.04 s
 ```
 
-stderr: 41722 lines, 41722 progress-bar refreshes.
+stderr: 41725 lines, 41725 progress-bar refreshes.
 
 ## Output on daisy 2.0 (2.0.0)
 
-Status: exit 0, 2.8 s.
+Status: exit 0, 2.4 s.
 
 ```text
 ===========================================================
@@ -85,8 +85,8 @@ Execution Summary
     ───────  ───────  ──────────  ───────  ──────  ────────
     naive ✔    20000       20000        0       0         0
 
-RETURNED True  (1.4 s)
-TIMING markers first run: 1.44 s
+RETURNED True  (1.3 s)
+TIMING markers first run: 1.26 s
 
 ### marker files + check_function, resume (everything skipped)
 
@@ -97,8 +97,8 @@ Execution Summary
     ───────  ───────  ──────────  ───────  ──────  ────────
     naive ✔    20000       20000    20000       0         0
 
-RETURNED True  (0.3 s)
-TIMING markers resume: 0.25 s
+RETURNED True  (0.2 s)
+TIMING markers resume: 0.19 s
 
 ### built-in tracking store, first run
 
@@ -109,8 +109,8 @@ Execution Summary
     ─────────  ───────  ──────────  ───────  ──────  ────────
     builtin ✔    20000       20000        0       0         0
 
-RETURNED True  (0.9 s)
-TIMING tracking first run: 0.94 s
+RETURNED True  (0.8 s)
+TIMING tracking first run: 0.77 s
 
 ### built-in tracking store, resume (everything skipped)
 
@@ -122,12 +122,12 @@ Execution Summary
     builtin ✔    20000       20000    20000       0         0
 
 RETURNED True  (0.1 s)
-TIMING tracking resume: 0.14 s
+TIMING tracking resume: 0.12 s
 ```
 
 stderr: 2 lines, 2 other lines. Last lines:
 
 ```text
-.../site-packages/daisy/v1_compat.py:268: UserWarning: Task(check_function=...) runs your callable on the server for EVERY block, and its result persists nowhere — every rerun pays the full check cost again. For resuming interrupted or repeated runs, prefer the built-in done markers (Task(tracking_path=...) or daisy.set_tracking_basedir(...)): one mmap'd byte per block, written on completion, checked in ~microseconds. Keep check_function only when the ground truth genuinely lives in your output data (e.g. verifying non-empty zarr chunks written by an earlier pipeline).
+.../site-packages/daisy/v1_compat.py:106: UserWarning: Task(check_function=...) runs your callable on the server for EVERY block, and its result persists nowhere — every rerun pays the full check cost again. For resuming interrupted or repeated runs, prefer the built-in done markers (Task(tracking_path=...) or daisy.set_tracking_basedir(...)): one mmap'd byte per block, written on completion, checked in ~microseconds. Keep check_function only when the ground truth genuinely lives in your output data (e.g. verifying non-empty zarr chunks written by an earlier pipeline).
   instance = super().__new__(cls, *args, max_workers=max_workers, **kwargs)
 ```

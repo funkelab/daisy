@@ -103,10 +103,8 @@ Execution Summary
 
     First failure in task 't':
       Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 423, in acquire_block
+        File ".../site-packages/daisy/_task.py", line 526, in acquire_block
           yield block
-        File ".../site-packages/daisy/v1_compat.py", line 160, in acquire_block
-          yield compat
         File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 38, in external_worker
           body(block)
         File "experiments/v1_finishes_v2_abandons/always_failing_remote_worker/run.py", line 21, in body
@@ -120,7 +118,7 @@ EVIDENCE blocks attempted 10/10, succeeded 0/10, total attempts 11
 EVIDENCE external jobs launched: 11
 ```
 
-stderr: 331 lines, 331 other lines. Last lines:
+stderr: 309 lines, 309 other lines. Last lines:
 
 ```text
     external_worker()

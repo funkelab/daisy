@@ -1,7 +1,8 @@
 """Direct v2 API surface.
 
-Exposes the Rust-defined types from `daisy._daisy` directly where
-they're usable as-is, plus the small Python wrappers needed to do
+Exposes the Rust-defined types from `daisy._daisy` where they're usable
+as-is (`Pipeline`, `TaskState`, `Context`), `funlib.geometry` ROIs and
+Coordinates, a Python `Block`, plus the small Python wrappers needed to do
 real Python-side work — per-worker log routing, progress
 observers, execution-summary printing, and resolving the marker
 path against `daisy.logging.LOG_BASEDIR`. No daisy 1.x
@@ -23,12 +24,19 @@ import daisy._daisy as _rs
 from daisy._progress import JsonProgressObserver
 from daisy._runner import Server, run_blockwise
 from daisy._task import (
+    Block,
+    BlockStatus,
+    BlockwiseDependencyGraph,
     Client,
     Context,
+    Coordinate,
+    DependencyGraph,
+    Roi,
     Scheduler,
     Task,
     get_done_marker_basedir,
     get_tracking_basedir,
+    profile_block,
     set_done_marker_basedir,
     set_tracking_basedir,
 )
@@ -37,20 +45,10 @@ from daisy._task import (
 # `Task` delegate to it. Exposed directly here.
 Pipeline = _rs.Pipeline
 
-# Pure value / algorithmic types from Rust — no Python ergonomics
-# needed, expose them directly:
-Roi = _rs.Roi
-Coordinate = _rs.Coordinate
-Block = _rs.Block
-BlockStatus = _rs.BlockStatus
+# `Roi` and `Coordinate` are funlib.geometry's classes; `Block` is the
+# Python class in `daisy.block`. The Rust carriers stay inside `daisy._daisy`.
 BlockStats = _rs.BlockStats
-
-# Per-block resource measurement. daisy applies this automatically; call
-# it explicitly only to narrow what gets measured within a block.
-profile_block = _rs.profile_block
 TaskState = _rs.TaskState
-BlockwiseDependencyGraph = _rs.BlockwiseDependencyGraph
-DependencyGraph = _rs.DependencyGraph
 
 try:
     __version__ = _version("daisy")

@@ -30,18 +30,10 @@ The `daisy` package re-exports the public surface from internal modules. All nam
 
 ## Geometry
 
-On the default surface `daisy.Roi` and `daisy.Coordinate` are
+`daisy.Roi` and `daisy.Coordinate` are
 [`funlib.geometry`](https://github.com/funkelab/funlib.geometry)'s classes,
-as in 1.x. The Rust-backed types below accept them wherever a Roi or
-Coordinate is expected.
-
-```{eval-rst}
-.. autoclass:: daisy.v2.Roi
-   :members:
-
-.. autoclass:: daisy.v2.Coordinate
-   :members:
-```
+as in 1.x. Every daisy entry point accepts them (or anything with integer
+`offset` and `shape`), and every ROI daisy hands back is one.
 
 ## Scheduling
 

@@ -6,7 +6,7 @@ daisy v2 is a Rust rewrite. The Python surface is mostly compatible with daisy 1
 
 - **Existing 1.x code should keep working.** `pip install -U daisy` upgrades you to v2 and the top-level `import daisy` namespace is the **v1.x backwards-compatibility surface** (`daisy.v1_compat`). Code that uses `Task(num_workers=…)`, `daisy.SerialServer`, etc. continues to run; you'll just see `DeprecationWarning`s pointing at the v2 names.
 - **For new code, prefer the v2 interface.** Use `import daisy.v2 as daisy` to get the cleaner v2 API with no compat aliases (and no deprecation warnings).
-- **It is a lot faster.** 20 to 300 times the block throughput of 1.x at every worker count, a scheduler that drains 100,000 blocks in a tenth of a second, and resumes that read one byte per block. See [Speed](#speed).
+- **It is a lot faster.** 17 to 330 times the block throughput of 1.x at every worker count, a scheduler that drains 100,000 blocks in a sixth of a second, and resumes that read one byte per block. See [Speed](#speed).
 - **Some 1.x APIs are gone.** Array I/O (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`) is no longer re-exported. See [Removed APIs](#removed-apis) below. `funlib.geometry` ROIs and Coordinates keep working everywhere.
 
 ## Importing the v2 interface
@@ -31,7 +31,7 @@ If you're starting a fresh project, **use `import daisy.v2 as daisy`**. If you'r
 | `daisy.SerialServer().run_blockwise(t)`  | `daisy.run_blockwise(t, multiprocessing=False)`               |
 | `daisy.Server().run_blockwise(t)`        | unchanged (or `daisy.run_blockwise(t)`)                       |
 | `daisy.run_blockwise(t)` returning bool  | unchanged signature; bool semantics tightened (see below)     |
-| `from funlib.geometry import Roi, Coord` | unchanged. `daisy.Roi`/`daisy.Coordinate` are still funlib's classes on the default surface, every entry point accepts them, and blocks hand them back. The Rust-backed types live at `daisy.v2.Roi`/`daisy.v2.Coordinate` and also accept funlib arguments. |
+| `from funlib.geometry import Roi, Coord` | unchanged. `daisy.Roi` and `daisy.Coordinate` are funlib's classes on every surface, every entry point accepts them, and every ROI daisy hands back (blocks, `Task.total_roi`) is one. The Rust core keeps its own geometry types private. |
 | `daisy.persistence`, `Array`, etc.       | gone — use `funlib.persistence` directly                      |
 
 ### `run_blockwise` return value
@@ -124,7 +124,7 @@ section below and in [`experiments/speed/`](experiments/speed/README.md).
 | Case | 1.x | 2.0 | Verify |
 | --- | --- | --- | --- |
 | Happy path: 512 3-D blocks with context, modes A, B, C and S | every block exactly once | every block exactly once | [representative/modes.py](experiments/representative/README.md) |
-| `funlib.geometry` `Roi`/`Coordinate` passed to `Task`, `Block`, used inside process functions | works; `daisy.Roi` is funlib's | works; `daisy.Roi` is funlib's, Rust entry points duck-type | [funlib_geometry_types](experiments/same_behavior/funlib_geometry_types/README.md) |
+| `funlib.geometry` `Roi`/`Coordinate` passed to `Task`, `Block`, used inside process functions | works; `daisy.Roi` is funlib's | works; `daisy.Roi` is funlib's | [funlib_geometry_types](experiments/same_behavior/funlib_geometry_types/README.md) |
 | A 0-arg worker function launches a subprocess that calls `daisy.Client()` | the grandchild finds `DAISY_CONTEXT` in its environment | the same, nothing to forward | [log_basedir_none](experiments/different_by_design/log_basedir_none/README.md) |
 | `check_function` returns `numpy.bool_(True)` | every block skipped | every block skipped | [check_function_numpy_bool](experiments/same_behavior/check_function_numpy_bool/README.md) |
 | `check_function` raises | block runs; exception logged per block | block runs; exception logged once per task | [check_function_raises](experiments/same_behavior/check_function_raises/README.md) |
@@ -196,11 +196,11 @@ same on each line; the mode only changes who starts the worker process.
 
 | Mode | Workers | 1.x blocks/s | 2.0 blocks/s | Ratio |
 | --- | --- | --- | --- | --- |
-| A, block function | 1 | 24 | 6,368 | 265 |
-| A | 16 | 377 | 42,714 | 113 |
-| A | 64 | 1,169 | 24,529 | 21 |
-| B, worker function | 16 | 377 | 45,539 | 121 |
-| C, external worker | 16 | 375 | 35,407 | 94 |
+| A, block function | 1 | 24 | 7,999 | 333 |
+| A | 16 | 377 | 49,897 | 132 |
+| A | 64 | 1,169 | 25,586 | 22 |
+| B, worker function | 16 | 377 | 46,821 | 124 |
+| C, external worker | 16 | 375 | 34,895 | 93 |
 
 The full table with 1, 4, 16 and 64 workers in every mode is in the
 [speed README](experiments/speed/README.md#throughput-by-worker-mode-and-worker-count).
@@ -218,8 +218,8 @@ many workers you add.
 
 | Grid | 1.x blocks/s | 2.0 blocks/s |
 | --- | --- | --- |
-| 1-D, 100,000 blocks, no conflicts | 24,626 | 847,342 |
-| 3-D, 8,000 blocks with context (conflicts) | 747 | 64,673 |
+| 1-D, 100,000 blocks, no conflicts | 24,626 | 613,371 |
+| 3-D, 8,000 blocks with context (conflicts) | 747 | 66,297 |
 
 ### Resuming a finished run
 
@@ -235,8 +235,8 @@ files, 1.0 s for 2.0 marker files and 0.3 s for the store.
 | Strategy | Line | Resume, 20,000 blocks |
 | --- | --- | --- |
 | `check_function` that stats a marker file per block | 1.x | 1.05 s |
-| same | 2.0 | 0.23 s |
-| built-in tracking store, `Task(tracking_path=...)` | 2.0 | 0.15 s |
+| same | 2.0 | 0.19 s |
+| built-in tracking store, `Task(tracking_path=...)` | 2.0 | 0.12 s |
 
 ## Removed APIs
 
@@ -245,7 +245,7 @@ These 1.x names are not exposed by daisy v2 (neither in `daisy` nor `daisy.v2`):
 - **`daisy.persistence`** — already deprecated in 1.x in favour of [`funlib.persistence`](https://github.com/funkelab/funlib.persistence). v2 drops the re-export. Import directly from `funlib.persistence`.
 - **`daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`** — same story. Use `funlib.persistence`.
 - **`daisy.messages`, `daisy.tcp`** — internal protocol modules. v2's wire protocol is bincode over tokio TCP, implemented in Rust; the message types are not exposed at the Python level. If you were writing a worker in another language, see `docs/source/design/PROTOCOL.md`.
-- **`funlib.geometry` Roi/Coordinate types** — not removed. The default (`import daisy`) surface re-exports funlib's classes as `daisy.Roi`/`daisy.Coordinate`, exactly as 1.x did, so `isinstance(x, funlib.geometry.Roi)` holds for every ROI you get back and funlib arithmetic (`roi.offset + Coordinate(...)`, `roi.snap_to_grid`, ...) keeps working. `daisy.v2.Roi`/`daisy.v2.Coordinate` are the Rust-backed types the scheduler uses internally; they accept funlib values (anything with integer `offset`/`shape`, any int sequence) as arguments and compare equal by value, but methods on them return native objects and the two kinds do not hash alike, so do not mix them as dict/set keys.
+- **`funlib.geometry` Roi/Coordinate types** — not removed. `daisy.Roi` and `daisy.Coordinate` are funlib's classes on both surfaces, exactly as in 1.x, so `isinstance(x, funlib.geometry.Roi)` holds for every ROI you get back and funlib arithmetic (`roi.offset + Coordinate(...)`, `roi.snap_to_grid`, ...) keeps working. The Rust core has its own geometry types, but they stay inside `daisy._daisy`: entry points convert on the way in (any object with integer `offset`/`shape` is a Roi, any int sequence a Coordinate) and hand funlib objects back. `daisy.Block` is a Python class over the Rust carrier; its ROIs are funlib's, it pickles, and it is the type process and check functions receive on every surface.
 
 ## Wire / on-disk format breaks
 

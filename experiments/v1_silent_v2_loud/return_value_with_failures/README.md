@@ -83,15 +83,10 @@ Execution Summary
 
     First failure in task 't':
       Traceback (most recent call last):
-        File ".../site-packages/daisy/_task.py", line 423, in acquire_block
+        File ".../site-packages/daisy/_task.py", line 526, in acquire_block
           yield block
-        File ".../site-packages/daisy/v1_compat.py", line 160, in acquire_block
-          yield compat
         File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
           process_function(block)
-        File ".../site-packages/daisy/v1_compat.py", line 191, in _compat_block_fn
-          return fn(compat)
-                 ^^^^^^^^^^
         File "experiments/v1_silent_v2_loud/return_value_with_failures/run.py", line 16, in body
           raise RuntimeError(f"boom {block.block_id[1]}")
       RuntimeError: boom 0
@@ -104,14 +99,14 @@ bool(result) = False
 EVIDENCE blocks attempted 4/4, succeeded 0/4, total attempts 8
 ```
 
-stderr: 303 lines, 303 other lines. Last lines:
+stderr: 239 lines, 239 other lines. Last lines:
 
 ```text
+    _run()
+  File ".../site-packages/daisy/_subprocess_worker.py", line 86, in _run
+    _run_block_loop(function)
   File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
     process_function(block)
-  File ".../site-packages/daisy/v1_compat.py", line 191, in _compat_block_fn
-    return fn(compat)
-           ^^^^^^^^^^
   File "experiments/v1_silent_v2_loud/return_value_with_failures/run.py", line 16, in body
     raise RuntimeError(f"boom {block.block_id[1]}")
 RuntimeError: boom 3

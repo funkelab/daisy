@@ -3,15 +3,14 @@
 funlib ROIs positionally and as keywords, blocks handed to the process
 function carry funlib ROIs (so funlib arithmetic works inside it), and
 task.total_roi comes back as a funlib Roi. 1.x re-exported funlib's
-classes; 2.0's compat surface does the same and its Rust entry points
-duck-type funlib values."""
+classes; 2.0 does the same on every surface and keeps its Rust geometry
+types private."""
 import os
 import sys
 import warnings
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 import common  # noqa: E402
-
 import daisy  # noqa: E402
 from funlib.geometry import Coordinate, Roi  # noqa: E402
 

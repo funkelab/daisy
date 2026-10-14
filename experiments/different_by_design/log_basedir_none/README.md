@@ -47,7 +47,7 @@ Execution Summary
 
 RETURNED True  (0.4 s)
 EVIDENCE blocks attempted 4/4, succeeded 4/4, total attempts 4
-DAISY_CONTEXT seen by the worker: logdir=None:hostname=10.11.12.171:port=43793:task_id=t:worker_id=0
+DAISY_CONTEXT seen by the worker: logdir=None:hostname=10.11.12.171:port=41255:task_id=t:worker_id=0
 get_log_basedir() inside the worker: PosixPath('None')
 directory named 'None' created in the cwd: None/t/worker_0.err, None/t/worker_0.out
   (worker output that should have gone to the terminal:)
@@ -81,9 +81,9 @@ Execution Summary
     ──────  ───────  ──────────  ───────  ──────  ────────
     t ✔           4           4        0       0         0
 
-RETURNED True  (0.1 s)
+RETURNED True  (0.2 s)
 EVIDENCE blocks attempted 4/4, succeeded 4/4, total attempts 4
-DAISY_CONTEXT seen by the worker: resource_tracking=0:worker_id=0:logdir=:port=36359:hostname=10.11.12.171:task_id=t
+DAISY_CONTEXT seen by the worker: task_id=t:resource_tracking=0:port=44545:worker_id=0:hostname=10.11.12.171:logdir=
 get_log_basedir() inside the worker: None
 directory named 'None' created in the cwd: no
 ```

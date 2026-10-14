@@ -40,7 +40,7 @@ Execution Summary
 
 
 RETURNED False  (2.0 s)
-EVIDENCE blocks attempted 167/2000, succeeded 167/2000, total attempts 167
+EVIDENCE blocks attempted 168/2000, succeeded 168/2000, total attempts 168
 ```
 
 stderr: 344 lines, 344 progress-bar refreshes.
@@ -63,21 +63,14 @@ Execution Summary
 
     task     blocks   completed  skipped  failed  orphaned
     ──────  ───────  ──────────  ───────  ──────  ────────
-    t …        2000         299        0       0         0
+    t …        2000         300        0       0         0
 
 RAISED KeyboardInterrupt: run aborted by SIGINT  (2.1 s)
-EVIDENCE blocks attempted 307/2000, succeeded 307/2000, total attempts 307
+EVIDENCE blocks attempted 308/2000, succeeded 308/2000, total attempts 308
 ```
 
-stderr: 117 lines, 117 other lines. Last lines:
+stderr: 1 lines, 1 other lines. Last lines:
 
 ```text
-    with _orig_acquire(self) as block:
-  File ".../lib/python3/contextlib.py", line 137, in __enter__
-    return next(self.gen)
-           ^^^^^^^^^^^^^^
-  File ".../site-packages/daisy/_task.py", line 407, in acquire_block
-    block = self._client.acquire_block()
-            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-RuntimeError: Broken pipe (os error 32)
+ WARN abort requested, exiting run loop
 ```

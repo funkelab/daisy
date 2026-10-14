@@ -277,19 +277,20 @@ impl PyTask {
         &self.task_id
     }
 
+    /// `funlib.geometry.Roi`, like every ROI daisy hands to Python.
     #[getter]
-    fn total_roi(&self) -> PyRoi {
-        self.total_roi.clone()
+    fn total_roi(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        crate::py_roi::funlib_roi(py, &self.total_roi.inner)
     }
 
     #[getter]
-    fn read_roi(&self) -> PyRoi {
-        self.read_roi.clone()
+    fn read_roi(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        crate::py_roi::funlib_roi(py, &self.read_roi.inner)
     }
 
     #[getter]
-    fn write_roi(&self) -> PyRoi {
-        self.write_roi.clone()
+    fn write_roi(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        crate::py_roi::funlib_roi(py, &self.write_roi.inner)
     }
 
     #[getter]

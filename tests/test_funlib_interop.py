@@ -1,84 +1,60 @@
-"""funlib.geometry interop (f04).
+"""funlib.geometry is daisy's geometry on every surface.
 
-Two guarantees:
-1. Native Roi/Coordinate equality is duck-typed: a funlib.geometry Roi (or
-   any object with offset/begin + shape), and any int sequence for
-   Coordinate, compare by value instead of silently returning False.
-   Unrelated types still compare unequal via NotImplemented, no exception.
-2. On the v1-compat surface, 1-arg (block-taking) process functions receive
-   compat `Block` views whose ROIs are funlib types — the same class
-   spawn-mode workers get from the patched `Client.acquire_block`.
-
-Cross-type *hash* equality is explicitly NOT guaranteed; mixed-type
-dict/set keys remain unsupported.
+- `daisy.Roi` / `daisy.Coordinate` (and the `daisy.v2` ones) are
+  funlib.geometry's classes; every ROI daisy hands back is one.
+- Every entry point accepts a funlib Roi (or anything with integer
+  offset/shape) and any int sequence as a Coordinate; the private Rust
+  carriers in `daisy._daisy` convert on the way in.
+- `daisy.Block` is one Python class for every surface and every path a
+  block takes to user code: process functions, check functions,
+  `Client.acquire_block`, `Scheduler`, the dependency graphs, pickles.
 """
 
+import pickle
+
+import daisy
+import daisy._daisy as _rs
+import daisy.v2 as d2
+import funlib.geometry as fg
 import pytest
 
-fg = pytest.importorskip("funlib.geometry")
 
-import daisy.v2 as d2  # noqa: E402 — importorskip must run first
-
-
-def test_native_roi_eq_funlib_roi():
-    assert d2.Roi((0, 5), (10, 20)) == fg.Roi((0, 5), (10, 20))
-    assert fg.Roi((0, 5), (10, 20)) == d2.Roi((0, 5), (10, 20))
-    assert d2.Roi((0,), (10,)) != fg.Roi((0,), (11,))
-    assert d2.Roi((0,), (10,)) != fg.Roi((1,), (10,))
+def test_public_geometry_is_funlib():
+    assert d2.Roi is fg.Roi and d2.Coordinate is fg.Coordinate
+    assert daisy.Roi is fg.Roi and daisy.Coordinate is fg.Coordinate
+    assert d2.Block is daisy.Block is daisy.block.Block
 
 
-def test_native_roi_eq_unrelated_types():
-    r = d2.Roi((0,), (10,))
-    assert r != "hello"
-    assert r != 42
-    assert r != (0, 10)
-
-
-def test_native_native_eq_and_hash_unchanged():
-    a, b = d2.Roi((0,), (10,)), d2.Roi((0,), (10,))
-    assert a == b and hash(a) == hash(b)
-    assert d2.Roi((0,), (10,)) != d2.Roi((0,), (11,))
-    ca, cb = d2.Coordinate((1, 2)), d2.Coordinate((1, 2))
-    assert ca == cb and hash(ca) == hash(cb)
-
-
-def test_native_coordinate_duck_eq():
-    c = d2.Coordinate((3, 4))
-    assert c == fg.Coordinate((3, 4))
-    assert fg.Coordinate((3, 4)) == c
-    assert c == (3, 4)
-    assert c == [3, 4]
-    assert c != (3, 5)
-    assert c != (3,)
-    assert c != "xy"
-
-
-def test_native_methods_accept_funlib_arguments():
-    """Native entry points duck-type ROI/Coordinate arguments: a funlib Roi
-    (anything with integer offset/shape) and any int sequence. Results stay
-    native."""
-    r = d2.Roi((0, 0), (10, 10))
-    assert r.intersect(fg.Roi((5, 5), (10, 10))) == d2.Roi((5, 5), (5, 5))
-    assert isinstance(r.intersect(fg.Roi((5, 5), (10, 10))), d2.Roi)
-    assert r.contains(fg.Coordinate((1, 1)))
-    assert r.contains((1, 1)) and not r.contains([10, 0])
+def test_private_carriers_accept_funlib_and_sequences():
+    """The Rust Roi/Coordinate never reach user code, but they take funlib
+    values and plain sequences wherever the Python side hands them in."""
+    r = _rs.Roi((0, 0), (10, 10))
+    assert r == fg.Roi((0, 0), (10, 10)) and fg.Roi((0, 0), (10, 10)) == r
+    assert r.intersect(fg.Roi((5, 5), (10, 10))) == fg.Roi((5, 5), (5, 5))
+    assert r.contains(fg.Coordinate((1, 1))) and r.contains((1, 1)) and not r.contains([10, 0])
     assert r.contains(fg.Roi((1, 1), (2, 2)))
-    assert d2.Roi(fg.Coordinate((1, 2)), fg.Coordinate((3, 4))) == d2.Roi((1, 2), (3, 4))
+    assert _rs.Roi(fg.Coordinate((1, 2)), fg.Coordinate((3, 4))) == fg.Roi((1, 2), (3, 4))
+    assert _rs.Coordinate((3, 4)) == fg.Coordinate((3, 4)) == (3, 4)
+    assert _rs.Coordinate((3, 4)) != (3, 5) and r != "hello"
     with pytest.raises(TypeError, match="got str"):
         r.intersect("hello")
     with pytest.raises(TypeError, match="got str"):
         r.contains("hello")
 
 
-def test_native_task_and_block_accept_funlib_rois_positionally():
-    """The 1.x positional call form with funlib ROIs, on the native surface."""
+@pytest.mark.parametrize("surface", [daisy, d2])
+def test_positional_funlib_rois_and_funlib_blocks(surface):
+    """The 1.x positional call form with funlib ROIs; the block the process
+    function gets is a daisy.Block with funlib ROIs, on either surface."""
     seen = {}
 
     def process(block):
-        seen["native"] = isinstance(block.read_roi, d2.Roi)
+        seen["cls"] = type(block)
+        seen["funlib"] = isinstance(block.read_roi, fg.Roi) and isinstance(block.write_roi, fg.Roi)
+        seen["end"] = block.write_roi.offset + block.write_roi.shape  # funlib arithmetic
 
-    task = d2.Task(
-        "native-funlib",
+    task = surface.Task(
+        "positional",
         fg.Roi((0,), (40,)),
         fg.Roi((0,), (10,)),
         fg.Roi((0,), (10,)),
@@ -86,81 +62,22 @@ def test_native_task_and_block_accept_funlib_rois_positionally():
         max_workers=1,
         done_marker_path=False,
     )
-    assert isinstance(task.total_roi, d2.Roi) and task.total_roi == fg.Roi((0,), (40,))
-    assert d2.run_blockwise(task, multiprocessing=False, progress=False)
-    assert seen == {"native": True}
-    b = d2.Block(fg.Roi((0,), (40,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)))
-    assert isinstance(b.read_roi, d2.Roi)
-    graph = d2.BlockwiseDependencyGraph(
-        "g",
-        fg.Roi((0,), (10,)),
-        fg.Roi((0,), (10,)),
-        read_write_conflict=False,
-        fit="valid",
-        total_read_roi=fg.Roi((0,), (40,)),
-    )
-    assert graph.num_blocks == 4
-
-
-def test_compat_surface_is_funlib_everywhere():
-    """`import daisy` (the compat surface) exposes funlib's classes as
-    daisy.Roi/daisy.Coordinate, as 1.x did, and every ROI a user gets back
-    is a funlib one — so funlib arithmetic and isinstance checks hold."""
-    import daisy
-
-    assert daisy.Roi is fg.Roi and daisy.Coordinate is fg.Coordinate
-    task = daisy.Task(
-        "compat-funlib",
-        daisy.Roi((0,), (40,)),
-        daisy.Roi((0,), (10,)),
-        daisy.Roi((0,), (10,)),
-        lambda block: None,
-        num_workers=1,
-        done_marker_path=False,
-    )
-    assert isinstance(task.total_roi, fg.Roi)
+    assert isinstance(task.total_roi, fg.Roi) and task.total_roi == fg.Roi((0,), (40,))
     assert isinstance(task.read_roi, fg.Roi) and isinstance(task.write_roi, fg.Roi)
-    assert task.total_roi.intersect(daisy.Roi((30,), (40,))) == daisy.Roi((30,), (10,))
-    assert task.write_roi.offset + daisy.Coordinate((1,)) == daisy.Coordinate((1,))
-
-
-def test_compat_block_fn_receives_funlib_rois():
-    import daisy.v1_compat as compat
-
-    seen = {}
-
-    def process(block):
-        seen["read_is_funlib"] = isinstance(block.read_roi, fg.Roi)
-        seen["write_is_funlib"] = isinstance(block.write_roi, fg.Roi)
-        seen["eq"] = block.read_roi == fg.Roi((0,), (10,))
-
-    task = compat.Task(
-        "compat-proxy",
-        total_roi=fg.Roi((0,), (10,)),  # single block: seen[] is unambiguous
-        read_roi=fg.Roi((0,), (10,)),
-        write_roi=fg.Roi((0,), (10,)),
-        process_function=process,
-        num_workers=1,
-        done_marker_path=False,
-    )
-    # the `seen` dict needs in-process execution; the proxy wrapping under
-    # test happens at construction, before any worker is involved
-    assert compat.run_blockwise([task], multiprocessing=False, progress=False)
-    assert seen == {"read_is_funlib": True, "write_is_funlib": True, "eq": True}
+    assert task.total_roi.intersect(fg.Roi((30,), (40,))) == fg.Roi((30,), (10,))
+    assert surface.run_blockwise([task], multiprocessing=False, progress=False)
+    assert seen["cls"] is daisy.Block and seen["funlib"]
+    assert isinstance(seen["end"], fg.Coordinate)
 
 
 @pytest.mark.parametrize("style", ["kwargs", "positional"])
-def test_compat_check_fn_receives_funlib_rois_and_skips_done_blocks(tmp_path, style):
+def test_check_fn_receives_funlib_rois_and_skips_done_blocks(tmp_path, style):
     """v1.x check functions do funlib arithmetic on the block's ROIs — the
-    same idiom as process functions (volara's resume path). They must get
-    the same compat `Block` view: an unwrapped check raises TypeError on
-    the native block, the Rust precheck swallows every exception into
-    "not done", and every done block silently re-runs on resume."""
-    import daisy.v1_compat as compat
+    same idiom as process functions (volara's resume path). The Rust
+    precheck swallows every exception into "not done", so a check that got
+    the wrong block type would silently re-run every done block."""
 
     def marker(block):
-        # funlib Coordinate arithmetic on the offset — raises TypeError on
-        # a native block (daisy._daisy.Coordinate has no arithmetic dunders)
         end = block.write_roi.offset + block.write_roi.shape
         return tmp_path / ("done_" + "_".join(str(c) for c in end))
 
@@ -172,7 +89,7 @@ def test_compat_check_fn_receives_funlib_rois_and_skips_done_blocks(tmp_path, st
 
     def make_task():
         if style == "kwargs":
-            return compat.Task(
+            return daisy.Task(
                 "compat-check",
                 total_roi=fg.Roi((0,), (40,)),
                 read_roi=fg.Roi((0,), (10,)),
@@ -182,48 +99,55 @@ def test_compat_check_fn_receives_funlib_rois_and_skips_done_blocks(tmp_path, st
                 num_workers=1,
                 tracking_path=False,
             )
-        # the v1 positional signature: (task_id, total_roi, read_roi,
-        # write_roi, process_function, check_function, ...)
-        return compat.Task(
+        return daisy.Task(
             "compat-check",
-            d2.Roi((0,), (40,)),
-            d2.Roi((0,), (10,)),
-            d2.Roi((0,), (10,)),
+            fg.Roi((0,), (40,)),
+            fg.Roi((0,), (10,)),
+            fg.Roi((0,), (10,)),
             process,
             check,
             num_workers=1,
             tracking_path=False,
         )
 
-    # run 1: no markers yet — every block processes and writes its marker
-    states = compat.run_blockwise(
-        [make_task()], multiprocessing=False, progress=False, return_states=True
-    )
+    states = daisy.run_blockwise([make_task()], multiprocessing=False, progress=False, return_states=True)
     assert states["compat-check"].completed_count == 4
     assert states["compat-check"].skipped_count == 0
-
-    # run 2 (the resume): the check sees every marker → all blocks skipped
-    states = compat.run_blockwise(
-        [make_task()], multiprocessing=False, progress=False, return_states=True
-    )
+    states = daisy.run_blockwise([make_task()], multiprocessing=False, progress=False, return_states=True)
     assert states["compat-check"].skipped_count == 4
 
 
-def test_compat_spawn_fn_not_wrapped():
-    """0-arg spawn functions must pass through unwrapped (arity preserved)."""
-    from daisy.v1_compat import _wrap_block_fn
+def test_scheduler_and_graphs_hand_out_blocks():
+    task = d2.Task(
+        "sched",
+        fg.Roi((0,), (40,)),
+        fg.Roi((0,), (10,)),
+        fg.Roi((0,), (10,)),
+        lambda block: None,
+        max_workers=1,
+        done_marker_path=False,
+    )
+    sched = d2.Scheduler(task)
+    first = sched.acquire_block("sched")
+    assert isinstance(first, daisy.Block) and isinstance(first.read_roi, fg.Roi)
+    first.status = daisy.BlockStatus.SUCCESS
+    sched.release_block(first)
+    assert sched.task_states["sched"].completed_count == 1
+    graph = sched.dependency_graph
+    second = sched.acquire_block("sched")
+    assert all(isinstance(b, daisy.Block) for b in graph.upstream(second) + graph.downstream(second))
+    bwg = d2.BlockwiseDependencyGraph(
+        "sched", fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), False, "valid", total_read_roi=fg.Roi((0,), (40,))
+    )
+    assert bwg.num_blocks == 4
+    assert all(isinstance(b, daisy.Block) for b in bwg.get_subgraph_blocks(fg.Roi((0,), (20,))))
+    assert all(isinstance(b, daisy.Block) and isinstance(ds, list) for b, ds in bwg.enumerate_all_dependencies())
 
-    def spawn():
-        pass
 
-    assert _wrap_block_fn(spawn) is spawn
-    assert _wrap_block_fn(None) is None
-
-    def block_fn(block):
-        pass
-
-    wrapped = _wrap_block_fn(block_fn)
-    assert wrapped is not block_fn
-    import inspect
-
-    assert len(inspect.getfullargspec(wrapped).args) == 1
+def test_block_pickles():
+    b = daisy.Block(fg.Roi((0,), (40,)), fg.Roi((0,), (10,)), fg.Roi((2,), (6,)), task_id="p")
+    b.status = daisy.BlockStatus.FAILED
+    c = pickle.loads(pickle.dumps(b))
+    assert c == b and hash(c) == hash(b)
+    assert c.read_roi == b.read_roi and c.write_roi == b.write_roi
+    assert c.block_id == b.block_id and c.status == daisy.BlockStatus.FAILED

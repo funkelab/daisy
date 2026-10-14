@@ -42,51 +42,51 @@ Execution Summary
     Failed Blocks:
 
       block 0 in worker 0 with exception RuntimeError('bad block 0')
-      block 100 in worker 2 with exception RuntimeError('bad block 100')
-      block 200 in worker 2 with exception RuntimeError('bad block 200')
-      block 300 in worker 2 with exception RuntimeError('bad block 300')
-      block 400 in worker 2 with exception RuntimeError('bad block 400')
+      block 100 in worker 1 with exception RuntimeError('bad block 100')
+      block 200 in worker 0 with exception RuntimeError('bad block 200')
+      block 300 in worker 0 with exception RuntimeError('bad block 300')
+      block 400 in worker 1 with exception RuntimeError('bad block 400')
       block 500 in worker 0 with exception RuntimeError('bad block 500')
-      block 600 in worker 0 with exception RuntimeError('bad block 600')
-      block 700 in worker 3 with exception RuntimeError('bad block 700')
-      block 800 in worker 3 with exception RuntimeError('bad block 800')
+      block 600 in worker 3 with exception RuntimeError('bad block 600')
+      block 700 in worker 4 with exception RuntimeError('bad block 700')
+      block 800 in worker 4 with exception RuntimeError('bad block 800')
       block 900 in worker 4 with exception RuntimeError('bad block 900')
-      block 1000 in worker 0 with exception RuntimeError('bad block 1000')
-      block 1100 in worker 3 with exception RuntimeError('bad block 1100')
+      block 1000 in worker 4 with exception RuntimeError('bad block 1000')
+      block 1100 in worker 5 with exception RuntimeError('bad block 1100')
 ... (27 lines omitted) ...
-      block 400 in worker 10 with exception RuntimeError('bad block 400')
-      block 500 in worker 11 with exception RuntimeError('bad block 500')
-      block 600 in worker 9 with exception RuntimeError('bad block 600')
-      block 700 in worker 10 with exception RuntimeError('bad block 700')
-      block 800 in worker 11 with exception RuntimeError('bad block 800')
-      block 900 in worker 9 with exception RuntimeError('bad block 900')
-      block 1100 in worker 12 with exception RuntimeError('bad block 1100')
-      block 1200 in worker 10 with exception RuntimeError('bad block 1200')
-      block 1300 in worker 11 with exception RuntimeError('bad block 1300')
-      block 1400 in worker 12 with exception RuntimeError('bad block 1400')
-      block 1600 in worker 10 with exception RuntimeError('bad block 1600')
-      block 1800 in worker 12 with exception RuntimeError('bad block 1800')
-      block 1900 in worker 13 with exception RuntimeError('bad block 1900')
+      block 300 in worker 10 with exception RuntimeError('bad block 300')
+      block 500 in worker 9 with exception RuntimeError('bad block 500')
+      block 600 in worker 10 with exception RuntimeError('bad block 600')
+      block 700 in worker 11 with exception RuntimeError('bad block 700')
+      block 800 in worker 9 with exception RuntimeError('bad block 800')
+      block 900 in worker 10 with exception RuntimeError('bad block 900')
+      block 1000 in worker 11 with exception RuntimeError('bad block 1000')
+      block 1200 in worker 12 with exception RuntimeError('bad block 1200')
+      block 1400 in worker 11 with exception RuntimeError('bad block 1400')
+      block 1500 in worker 12 with exception RuntimeError('bad block 1500')
+      block 1600 in worker 11 with exception RuntimeError('bad block 1600')
+      block 1900 in worker 12 with exception RuntimeError('bad block 1900')
+      block 1800 in worker 13 with exception RuntimeError('bad block 1800')
 
     See worker logs for details:
 
       daisy_logs/t/worker_0.err / .out
-      daisy_logs/t/worker_2.err / .out
-      daisy_logs/t/worker_2.err / .out
-      daisy_logs/t/worker_2.err / .out
-      daisy_logs/t/worker_2.err / .out
+      daisy_logs/t/worker_1.err / .out
       daisy_logs/t/worker_0.err / .out
       daisy_logs/t/worker_0.err / .out
+      daisy_logs/t/worker_1.err / .out
+      daisy_logs/t/worker_0.err / .out
       daisy_logs/t/worker_3.err / .out
-      daisy_logs/t/worker_3.err / .out
+      daisy_logs/t/worker_4.err / .out
+      daisy_logs/t/worker_4.err / .out
       daisy_logs/t/worker_4.err / .out
       ...
 
-RETURNED True  (22.0 s)
+RETURNED True  (22.1 s)
 EVIDENCE blocks attempted 2000/2000, succeeded 1980/2000, total attempts 2032
 ```
 
-stderr: 4266 lines, 4266 progress-bar refreshes.
+stderr: 4264 lines, 4264 progress-bar refreshes.
 
 ## Output on daisy 2.0 (2.0.0)
 
@@ -110,15 +110,15 @@ RAISED RuntimeError: task 't' was abandoned (worker restart cap exhausted): work
 EVIDENCE blocks attempted 1301/2000, succeeded 1287/2000, total attempts 1301
 ```
 
-stderr: 533 lines, 533 other lines. Last lines:
+stderr: 421 lines, 421 other lines. Last lines:
 
 ```text
-  File ".../site-packages/daisy/v1_compat.py", line 191, in _compat_block_fn
-    return fn(compat)
-           ^^^^^^^^^^
+    _run_block_loop(function)
+  File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
+    process_function(block)
   File "experiments/v1_finishes_v2_abandons/twenty_bad_blocks/run.py", line 22, in body
     raise RuntimeError(f"bad block {bid}")
 RuntimeError: bad block 1300
- WARN worker exited with error worker_id=12 task_id=t
+ WARN worker exited with error worker_id=13 task_id=t
  WARN task abandoned: worker restart cap reached, accounting remaining blocks as orphaned task_id=t failures=14 restarts=10 max_restarts=10 orphaned=713
 ```

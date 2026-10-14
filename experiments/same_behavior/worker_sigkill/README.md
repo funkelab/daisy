@@ -75,7 +75,7 @@ EVIDENCE blocks attempted 20/20, succeeded 20/20, total attempts 21
 stderr: 9 lines, 9 other lines. Last lines:
 
 ```text
-  File ".../site-packages/daisy/_task.py", line 502, in wrapped
+  File ".../site-packages/daisy/_task.py", line 605, in wrapped
     return orig(context=context)
            ^^^^^^^^^^^^^^^^^^^^^
   File ".../site-packages/daisy/_worker_processes.py", line 315, in _spawn_worker_process

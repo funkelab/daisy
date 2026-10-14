@@ -78,12 +78,12 @@ RAISED RuntimeError: task 't' was abandoned (worker restart cap exhausted): work
 EVIDENCE blocks attempted 2/2, succeeded 1/2, total attempts 2
 ```
 
-stderr: 39 lines, 39 other lines. Last lines:
+stderr: 31 lines, 31 other lines. Last lines:
 
 ```text
-  File ".../site-packages/daisy/v1_compat.py", line 191, in _compat_block_fn
-    return fn(compat)
-           ^^^^^^^^^^
+    _run_block_loop(function)
+  File ".../site-packages/daisy/_subprocess_worker.py", line 54, in _run_block_loop
+    process_function(block)
   File "experiments/v1_finishes_v2_abandons/late_failure_after_idle_release/run.py", line 28, in body
     raise RuntimeError("fails once")
 RuntimeError: fails once

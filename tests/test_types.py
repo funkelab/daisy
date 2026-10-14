@@ -1,5 +1,6 @@
-"""Tests for the native core types (daisy.v2): Roi, Coordinate, Block — covering the API surface
-used by daisy's test_tcp.py, test_client.py, and general type operations."""
+"""The public types on the v2 surface: Roi and Coordinate (funlib.geometry's
+classes) and the Python Block — the API surface used by test_tcp.py,
+test_client.py, and general type operations."""
 
 from daisy.v2 import Block, BlockStatus, Coordinate, Roi
 
@@ -51,7 +52,7 @@ def test_coordinate_basic():
     assert c[0] == 1
     assert c[1] == 2
     assert c[2] == 3
-    assert c.to_list() == [1, 2, 3]
+    assert list(c) == [1, 2, 3]
 
 
 def test_coordinate_equality():

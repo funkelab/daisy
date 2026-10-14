@@ -8,9 +8,8 @@ subprocess workers) fails with "Can't pickle <class 'builtins.Roi'>".
 
 import pickle
 
-import pytest
-
 import daisy
+import pytest
 
 
 @pytest.mark.parametrize(
@@ -34,12 +33,15 @@ def test_native_classes_pickle_by_reference():
         assert pickle.loads(pickle.dumps(cls)) is cls
 
 
-def test_compat_wrapped_fn_survives_cloudpickle():
+def test_block_using_fn_survives_cloudpickle():
+    """Process functions that build or inspect daisy.Block are cloudpickled
+    for subprocess workers; the Python Block and its funlib ROIs pickle."""
     cloudpickle = pytest.importorskip("cloudpickle")
-    from daisy.v1_compat import _wrap_block_fn
+    import funlib.geometry as fg
 
     def fn(block):
-        return block.read_roi
+        return daisy.Block(block.read_roi, block.read_roi, block.write_roi, task_id=block.task_id)
 
-    wrapped = _wrap_block_fn(fn)
-    assert cloudpickle.loads(cloudpickle.dumps(wrapped)) is not None
+    restored = cloudpickle.loads(cloudpickle.dumps(fn))
+    b = daisy.Block(fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), task_id="t")
+    assert restored(b) == b

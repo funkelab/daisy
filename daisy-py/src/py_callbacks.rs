@@ -110,13 +110,31 @@ impl PyCheckBlock {
     }
 }
 
+/// The `daisy.block.Block` view of a native block: what process and check
+/// functions receive. Status and stats written through it land on the
+/// native object, so the caller reads them back from `native` afterwards.
+fn wrap_block(py: Python<'_>, native: &Py<PyBlock>) -> PyResult<Py<PyAny>> {
+    static BLOCK_CLS: std::sync::OnceLock<Py<PyAny>> = std::sync::OnceLock::new();
+    let cls = match BLOCK_CLS.get() {
+        Some(c) => c,
+        None => {
+            let c = py.import("daisy.block")?.getattr("Block")?.unbind();
+            let _ = BLOCK_CLS.set(c);
+            BLOCK_CLS.get().expect("just set")
+        }
+    };
+    Ok(cls
+        .bind(py)
+        .call_method1("_from_native", (native.clone_ref(py),))?
+        .unbind())
+}
+
 impl CheckBlock for PyCheckBlock {
     fn check(&self, block: &Block) -> bool {
         Python::attach(|py| {
-            let py_block = PyBlock::from_core(block.clone());
-            match self
-                .py_fn
-                .call1(py, (py_block,))
+            match Py::new(py, PyBlock::from_core(block.clone()))
+                .and_then(|native| wrap_block(py, &native))
+                .and_then(|py_block| self.py_fn.call1(py, (py_block,)))
                 // Python truthiness, as 1.x did (`if check_function(block)`):
                 // ints, numpy bools and other truthy objects all count.
                 .and_then(|r: Py<PyAny>| r.bind(py).is_truthy())
@@ -161,7 +179,6 @@ unsafe impl Sync for PyProcessBlock {}
 impl ProcessBlock for PyProcessBlock {
     fn process(&self, block: &mut Block) -> Result<(), DaisyError> {
         Python::attach(|py| {
-            let py_block = PyBlock::from_core(block.clone());
             // Serial mode measures here rather than through the Python
             // context manager: same measurement code, no GIL round trip,
             // and it covers the whole call including anything the user
@@ -169,14 +186,26 @@ impl ProcessBlock for PyProcessBlock {
             let profiler = self
                 .resource_tracking
                 .then(daisy_core::block_profile::BlockProfiler::start);
-            let result: PyResult<Py<PyAny>> = self.py_fn.call1(py, (py_block.clone(),));
-            // Carry back whatever the function attached; fall back to our
-            // own measurement. Done for failures too, so a failing block's
-            // cost is still recorded.
-            block.stats = py_block.inner.stats.or_else(|| profiler.map(|p| p.finish()));
+            let native = Py::new(py, PyBlock::from_core(block.clone()));
+            let result: PyResult<Py<PyAny>> = native
+                .as_ref()
+                .map_err(|e| e.clone_ref(py))
+                .and_then(|native| wrap_block(py, native))
+                .and_then(|py_block| self.py_fn.call1(py, (py_block,)));
+            // Carry back whatever the function attached (status, stats);
+            // fall back to our own measurement. Done for failures too, so a
+            // failing block's cost is still recorded.
+            let (status, stats) = match native.as_ref() {
+                Ok(native) => {
+                    let b = native.borrow(py);
+                    (b.inner.status, b.inner.stats)
+                }
+                Err(_) => (block.status, None),
+            };
+            block.stats = stats.or_else(|| profiler.map(|p| p.finish()));
             match result {
                 Ok(_) => {
-                    block.status = py_block.inner.status;
+                    block.status = status;
                     Ok(())
                 }
                 Err(e) => {

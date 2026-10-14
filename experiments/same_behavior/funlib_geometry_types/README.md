@@ -17,8 +17,8 @@ funlib.geometry Roi and Coordinate used everywhere, on the default
 funlib ROIs positionally and as keywords, blocks handed to the process
 function carry funlib ROIs (so funlib arithmetic works inside it), and
 task.total_roi comes back as a funlib Roi. 1.x re-exported funlib's
-classes; 2.0's compat surface does the same and its Rust entry points
-duck-type funlib values.
+classes; 2.0 does the same on every surface and keeps its Rust geometry
+types private.
 
 ## Output on daisy 1.x (1.2.3)
 

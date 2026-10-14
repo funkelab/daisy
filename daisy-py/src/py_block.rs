@@ -2,7 +2,7 @@ use daisy_core::block::{Block, BlockId, BlockStatus};
 use daisy_core::block_profile::BlockStats;
 use pyo3::prelude::*;
 
-use crate::py_roi::PyRoi;
+use crate::py_roi::{funlib_roi, PyRoi};
 
 #[pyclass(name = "BlockStatus", skip_from_py_object, module = "daisy._daisy")]
 #[derive(Clone)]
@@ -122,8 +122,9 @@ impl PyBlockStats {
     }
 }
 
-/// Block pyclass. Not frozen (status is mutable), so eq/hash are manual.
-#[pyclass(name = "Block", from_py_object, subclass, module = "daisy._daisy")]
+/// Block pyclass: the carrier behind `daisy.block.Block`, which is what
+/// user code sees. Not frozen (status is mutable), so eq/hash are manual.
+#[pyclass(name = "Block", from_py_object, module = "daisy._daisy")]
 #[derive(Clone)]
 pub struct PyBlock {
     pub inner: Block,
@@ -151,18 +152,15 @@ impl PyBlock {
         Self { inner: block }
     }
 
+    /// `funlib.geometry.Roi`, like every ROI daisy hands to Python.
     #[getter]
-    fn read_roi(&self) -> PyRoi {
-        PyRoi {
-            inner: self.inner.read_roi.clone(),
-        }
+    fn read_roi(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        funlib_roi(py, &self.inner.read_roi)
     }
 
     #[getter]
-    fn write_roi(&self) -> PyRoi {
-        PyRoi {
-            inner: self.inner.write_roi.clone(),
-        }
+    fn write_roi(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        funlib_roi(py, &self.inner.write_roi)
     }
 
     /// Return block_id as (task_id, spatial_id) tuple, matching daisy format.

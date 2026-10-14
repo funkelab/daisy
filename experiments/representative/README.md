@@ -80,7 +80,7 @@ if __name__ == "__main__":
 
 ### daisy 1.x (1.2.3)
 
-Status: exit 0, 7.0 s.
+Status: exit 0, 6.9 s.
 
 ```text
 =================================
@@ -107,11 +107,11 @@ EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 worker log files: 8
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
 --- daisy_logs/sleep3d/worker_0.out (128 lines, last 5) ---
-block 875 write roi [68:84, 100:116, 100:116] (16, 16, 16) done by pid 1776560
-block 391 write roi [100:116, 4:20, 100:116] (16, 16, 16) done by pid 1776560
-block 602 write roi [100:116, 36:52, 100:116] (16, 16, 16) done by pid 1776560
-block 621 write roi [100:116, 68:84, 68:84] (16, 16, 16) done by pid 1776560
-block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 1776560
+block 875 write roi [68:84, 100:116, 100:116] (16, 16, 16) done by pid 2162903
+block 391 write roi [100:116, 4:20, 100:116] (16, 16, 16) done by pid 2162903
+block 406 write roi [100:116, 36:52, 68:84] (16, 16, 16) done by pid 2162903
+block 425 write roi [100:116, 68:84, 36:52] (16, 16, 16) done by pid 2162903
+block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 2162903
 ```
 
 stderr: 1090 lines, 1090 progress-bar refreshes.
@@ -139,12 +139,12 @@ EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 
 worker log files: 8
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
---- daisy_logs/sleep3d/worker_0.out (129 lines, last 5) ---
-block 619 write roi [68:84, 100:116, 68:84] (16, 16, 16) done by pid 1776683
-block 247 write roi [100:116, 4:20, 68:84] (16, 16, 16) done by pid 1776683
-block 406 write roi [100:116, 36:52, 68:84] (16, 16, 16) done by pid 1776683
-block 425 write roi [100:116, 68:84, 36:52] (16, 16, 16) done by pid 1776683
-block 900 write roi [100:116, 100:116, 68:84] (16, 16, 16) done by pid 1776683
+--- daisy_logs/sleep3d/worker_0.out (127 lines, last 5) ---
+block 260 write roi [68:84, 68:84, 36:52] (16, 16, 16) done by pid 2163026
+block 619 write roi [68:84, 100:116, 68:84] (16, 16, 16) done by pid 2163026
+block 162 write roi [100:116, 36:52, 4:20] (16, 16, 16) done by pid 2163026
+block 281 write roi [100:116, 68:84, 4:20] (16, 16, 16) done by pid 2163026
+block 877 write roi [100:116, 68:84, 100:116] (16, 16, 16) done by pid 2163026
 ```
 
 stderr: 6 lines, 6 progress-bar refreshes.
@@ -174,17 +174,17 @@ Execution Summary
 
     all blocks processed successfully
 
-RETURNED True  (6.9 s)
+RETURNED True  (6.8 s)
 EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 
 worker log files: 8
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
 --- daisy_logs/sleep3d/worker_0.out (128 lines, last 5) ---
-block 875 write roi [68:84, 100:116, 100:116] (16, 16, 16) done by pid 1777652
-block 391 write roi [100:116, 4:20, 100:116] (16, 16, 16) done by pid 1777652
-block 602 write roi [100:116, 36:52, 100:116] (16, 16, 16) done by pid 1777652
-block 621 write roi [100:116, 68:84, 68:84] (16, 16, 16) done by pid 1777652
-block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 1777652
+block 875 write roi [68:84, 100:116, 100:116] (16, 16, 16) done by pid 2164009
+block 391 write roi [100:116, 4:20, 100:116] (16, 16, 16) done by pid 2164009
+block 602 write roi [100:116, 36:52, 100:116] (16, 16, 16) done by pid 2164009
+block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 2164009
+block 900 write roi [100:116, 100:116, 68:84] (16, 16, 16) done by pid 2164009
 ```
 
 stderr: 1090 lines, 1090 progress-bar refreshes.
@@ -213,11 +213,11 @@ EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 worker log files: 8
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
 --- daisy_logs/sleep3d/worker_0.out (128 lines, last 5) ---
-block 423 write roi [68:84, 100:116, 36:52] (16, 16, 16) done by pid 1777782
-block 147 write roi [100:116, 4:20, 36:52] (16, 16, 16) done by pid 1777782
-block 262 write roi [100:116, 36:52, 36:52] (16, 16, 16) done by pid 1777782
-block 448 write roi [100:116, 100:116, 4:20] (16, 16, 16) done by pid 1777782
-block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 1777782
+block 423 write roi [68:84, 100:116, 36:52] (16, 16, 16) done by pid 2164128
+block 147 write roi [100:116, 4:20, 36:52] (16, 16, 16) done by pid 2164128
+block 262 write roi [100:116, 36:52, 36:52] (16, 16, 16) done by pid 2164128
+block 448 write roi [100:116, 100:116, 4:20] (16, 16, 16) done by pid 2164128
+block 877 write roi [100:116, 68:84, 100:116] (16, 16, 16) done by pid 2164128
 ```
 
 stderr: 6 lines, 6 progress-bar refreshes.
@@ -253,11 +253,11 @@ EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 worker log files: 8
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
 --- daisy_logs/sleep3d/worker_0.out (128 lines, last 5) ---
-block 600 write roi [68:84, 68:84, 100:116] (16, 16, 16) done by pid 1778753
-block 83 write roi [100:116, 4:20, 4:20] (16, 16, 16) done by pid 1778753
-block 162 write roi [100:116, 36:52, 4:20] (16, 16, 16) done by pid 1778753
-block 281 write roi [100:116, 68:84, 4:20] (16, 16, 16) done by pid 1778753
-block 877 write roi [100:116, 68:84, 100:116] (16, 16, 16) done by pid 1778753
+block 875 write roi [68:84, 100:116, 100:116] (16, 16, 16) done by pid 2165107
+block 391 write roi [100:116, 4:20, 100:116] (16, 16, 16) done by pid 2165107
+block 602 write roi [100:116, 36:52, 100:116] (16, 16, 16) done by pid 2165107
+block 621 write roi [100:116, 68:84, 68:84] (16, 16, 16) done by pid 2165107
+block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 2165107
 ```
 
 stderr: 1090 lines, 1090 progress-bar refreshes.
@@ -280,17 +280,17 @@ Execution Summary
     ─────────  ───────  ──────────  ───────  ──────  ────────
     sleep3d ✔      512         512        0       0         0
 
-RETURNED True  (1.6 s)
+RETURNED True  (1.5 s)
 EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 
 worker log files: 8
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
---- daisy_logs/sleep3d/worker_0.out (129 lines, last 5) ---
-block 875 write roi [68:84, 100:116, 100:116] (16, 16, 16) done by pid 1779130
-block 391 write roi [100:116, 4:20, 100:116] (16, 16, 16) done by pid 1779130
-block 602 write roi [100:116, 36:52, 100:116] (16, 16, 16) done by pid 1779130
-block 621 write roi [100:116, 68:84, 68:84] (16, 16, 16) done by pid 1779130
-block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 1779130
+--- daisy_logs/sleep3d/worker_0.out (128 lines, last 5) ---
+block 600 write roi [68:84, 68:84, 100:116] (16, 16, 16) done by pid 2165487
+block 83 write roi [100:116, 4:20, 4:20] (16, 16, 16) done by pid 2165487
+block 162 write roi [100:116, 36:52, 4:20] (16, 16, 16) done by pid 2165487
+block 281 write roi [100:116, 68:84, 4:20] (16, 16, 16) done by pid 2165487
+block 877 write roi [100:116, 68:84, 100:116] (16, 16, 16) done by pid 2165487
 ```
 
 stderr: 6 lines, 6 progress-bar refreshes.
@@ -299,7 +299,7 @@ stderr: 6 lines, 6 progress-bar refreshes.
 
 ### daisy 1.x (1.2.3)
 
-Status: exit 0, 6.5 s.
+Status: exit 0, 6.1 s.
 
 ```text
 =================================
@@ -307,25 +307,25 @@ Status: exit 0, 6.5 s.
 =================================
 daisy 1.2.3 (1.x), python 3.12.0
 
-block 14 write roi [20:36, 20:36, 20:36] (16, 16, 16) done by pid 1780032
-block 39 write roi [20:36, 20:36, 52:68] (16, 16, 16) done by pid 1780032
-block 88 write roi [20:36, 20:36, 84:100] (16, 16, 16) done by pid 1780032
-block 169 write roi [20:36, 20:36, 116:132] (16, 16, 16) done by pid 1780032
-block 46 write roi [20:36, 52:68, 20:36] (16, 16, 16) done by pid 1780032
-block 95 write roi [20:36, 52:68, 52:68] (16, 16, 16) done by pid 1780032
-block 176 write roi [20:36, 52:68, 84:100] (16, 16, 16) done by pid 1780032
-block 297 write roi [20:36, 52:68, 116:132] (16, 16, 16) done by pid 1780032
-block 106 write roi [20:36, 84:100, 20:36] (16, 16, 16) done by pid 1780032
-block 187 write roi [20:36, 84:100, 52:68] (16, 16, 16) done by pid 1780032
-block 308 write roi [20:36, 84:100, 84:100] (16, 16, 16) done by pid 1780032
-block 477 write roi [20:36, 84:100, 116:132] (16, 16, 16) done by pid 1780032
-block 202 write roi [20:36, 116:132, 20:36] (16, 16, 16) done by pid 1780032
-block 323 write roi [20:36, 116:132, 52:68] (16, 16, 16) done by pid 1780032
-block 492 write roi [20:36, 116:132, 84:100] (16, 16, 16) done by pid 1780032
+block 14 write roi [20:36, 20:36, 20:36] (16, 16, 16) done by pid 2166387
+block 39 write roi [20:36, 20:36, 52:68] (16, 16, 16) done by pid 2166387
+block 88 write roi [20:36, 20:36, 84:100] (16, 16, 16) done by pid 2166387
+block 169 write roi [20:36, 20:36, 116:132] (16, 16, 16) done by pid 2166387
+block 46 write roi [20:36, 52:68, 20:36] (16, 16, 16) done by pid 2166387
+block 95 write roi [20:36, 52:68, 52:68] (16, 16, 16) done by pid 2166387
+block 176 write roi [20:36, 52:68, 84:100] (16, 16, 16) done by pid 2166387
+block 297 write roi [20:36, 52:68, 116:132] (16, 16, 16) done by pid 2166387
+block 106 write roi [20:36, 84:100, 20:36] (16, 16, 16) done by pid 2166387
+block 187 write roi [20:36, 84:100, 52:68] (16, 16, 16) done by pid 2166387
+block 308 write roi [20:36, 84:100, 84:100] (16, 16, 16) done by pid 2166387
+block 477 write roi [20:36, 84:100, 116:132] (16, 16, 16) done by pid 2166387
+block 202 write roi [20:36, 116:132, 20:36] (16, 16, 16) done by pid 2166387
+block 323 write roi [20:36, 116:132, 52:68] (16, 16, 16) done by pid 2166387
+block 492 write roi [20:36, 116:132, 84:100] (16, 16, 16) done by pid 2166387
 ... (494 lines omitted) ...
-block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 1780032
-block 900 write roi [100:116, 100:116, 68:84] (16, 16, 16) done by pid 1780032
-block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 1780032
+block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 2166387
+block 900 write roi [100:116, 100:116, 68:84] (16, 16, 16) done by pid 2166387
+block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 2166387
 
 Execution Summary
 -----------------
@@ -339,13 +339,13 @@ Execution Summary
 
     all blocks processed successfully
 
-RETURNED defaultdict with 1 task state(s)  (6.3 s)
+RETURNED defaultdict with 1 task state(s)  (5.9 s)
 EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 
 worker log files: 0
 ```
 
-stderr: 1085 lines, 1085 progress-bar refreshes.
+stderr: 1082 lines, 1082 progress-bar refreshes.
 
 ### daisy 2.0 (2.0.0)
 
@@ -365,17 +365,17 @@ Execution Summary
     ─────────  ───────  ──────────  ───────  ──────  ────────
     sleep3d ✔      512         512        0       0         0
 
-RETURNED True  (5.4 s)
+RETURNED True  (5.3 s)
 EVIDENCE blocks attempted 512/512, succeeded 512/512, total attempts 512
 
 worker log files: 2
 --- daisy_logs/sleep3d/worker_0.err (0 lines) ---
 --- daisy_logs/sleep3d/worker_0.out (512 lines, last 5) ---
-block 621 write roi [100:116, 68:84, 68:84] (16, 16, 16) done by pid 1780120
-block 877 write roi [100:116, 68:84, 100:116] (16, 16, 16) done by pid 1780120
-block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 1780120
-block 900 write roi [100:116, 100:116, 68:84] (16, 16, 16) done by pid 1780120
-block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 1780120
+block 621 write roi [100:116, 68:84, 68:84] (16, 16, 16) done by pid 2166454
+block 877 write roi [100:116, 68:84, 100:116] (16, 16, 16) done by pid 2166454
+block 644 write roi [100:116, 100:116, 36:52] (16, 16, 16) done by pid 2166454
+block 900 write roi [100:116, 100:116, 68:84] (16, 16, 16) done by pid 2166454
+block 1224 write roi [100:116, 100:116, 100:116] (16, 16, 16) done by pid 2166454
 ```
 
 stderr: 0 lines.
