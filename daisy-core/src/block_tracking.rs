@@ -38,10 +38,11 @@
 //! directory written by an older daisy (a bare zarr *array* rather than a
 //! group) fails the same way, with the same actionable message.
 //!
-//! A store with NO `daisy_task_hash` is treated as *caller-provided*: the
-//! supported way to seed skip state is to build a zarr group with a `done`
-//! array at the task's block-grid shape, mark the blocks to skip as 1, and
-//! point `tracking_path` at it. Such a store is trusted by FORMAT rather than by
+//! A store with NO `daisy_task_hash` is treated as *caller-provided*: a zarr
+//! group with a `done` array at the task's block-grid shape, the blocks to
+//! skip marked 1, handed in via `tracking_path`. (To skip blocks for one run
+//! without touching the store, prefer `Task::skip_mask`, which is anchored at
+//! the first block rather than at `total_roi` and keeps the layout hash.) Such a store is trusted by FORMAT rather than by
 //! hash — the per-array shape/dtype check (`verify_existing_array`) is the
 //! authority and raises `InvalidMetadata` with the expected-vs-stored shape if
 //! the `done` array was built at the wrong grid shape. This is how a mask of

@@ -115,18 +115,51 @@ the currently-written region can be skipped by the process function.
 `Scheduler::acquire_block` (daisy-core/src/scheduler.rs:140) calls `precheck` after pulling a block from the ready queue:
 
 ```rust
-fn precheck(&self, task_id: &str, block: &Block) -> bool {
-    if let Some(marker) = self.done_markers.get(task_id) {
-        if marker.is_done(block) {
-            return true;
+fn precheck(&self, task_id: &str, block: &Block) -> Precheck {
+    if let Some(tracking) = self.task_tracking.get(task_id) {
+        if tracking.is_done(block) {
+            return Precheck::SkipDone;
         }
     }
-    // fall through to user's check_function if any
+    if task.is_masked(block) {          // Task(skip_mask=...)
+        return Precheck::SkipMasked;
+    }
+    // fall through to user's check_function if any -> SkipDone / Run
     ...
 }
 ```
 
-The done marker is checked before the user's `check_function` because it's much cheaper (single byte read vs Python callback through PyO3 GIL acquisition). When `is_done` returns true, the scheduler synthesizes a `Success` release immediately without ever dispatching to a worker, increments `skipped_count`, and recurses to fetch the next block.
+The done marker is checked before the skip mask and the user's `check_function` because it's the cheapest (single byte read; the mask is one in-memory byte, the check function a Python callback through PyO3 GIL acquisition). On any skip the scheduler synthesizes a `Success` release immediately without ever dispatching to a worker, increments `skipped_count`, and recurses to fetch the next block. `SkipDone` skips are recorded in the tracking store as before; `SkipMasked` skips are not (see below).
+
+## Skip masks
+
+`Task(skip_mask=mask)` takes an array with one cell per block, nonzero
+meaning "skip this block". It is the way to tell daisy ahead of a run which
+blocks carry no work (far from a predicted surface, outside the acquired
+region, ...). It is held in memory on the task (`daisy-core/src/skip_mask.rs`)
+and never written to the tracking store, which gives it per-run semantics:
+
+- masked blocks are reported as skipped and release their downstream
+  dependencies, exactly like a done block;
+- nothing is recorded for them, so a later run with a narrower mask (or no
+  mask) runs them, and a block that was done stays done;
+- a store written on a masked run is still a daisy-written store with its
+  `daisy_task_hash`, so the layout-mismatch guard keeps working.
+
+The mask is indexed by **block position**, in C order: the cell of a block is
+`(block.write_roi.offset - total_write_roi.offset) // write_roi.shape`, where
+`total_write_roi` is `total_roi` shrunk by the read/write context. Cell
+`(0, 0, ...)` is the first block whatever the context, and the required shape
+is `Task.block_grid_shape` (blocks per axis; `fit="valid"` drops a partial
+trailing block, `overhang`/`shrink` keep it). This deliberately differs from
+the tracking arrays' internal grid, which is anchored at `total_roi` and shifts
+by `context // block_size` once the context is at least one block wide. A mask
+of the wrong shape is rejected when the `Task` is constructed.
+
+A caller-provided hash-less tracking store (a `done` array written by hand,
+see "Layout-mismatch detection") still works but is no longer the recommended
+way to seed skips: it reuses the internal grid anchor and forgoes the layout
+hash.
 
 ## When the marker gets written
 
@@ -135,6 +168,8 @@ Only on `Success`. The marker bookmark only exists for blocks that completed cle
 - Failed blocks (after max retries): not marked. A future run will re-attempt them.
 - Orphaned blocks (upstream failed): not marked. A future run will re-attempt if upstream is fixed.
 - Skipped blocks (the marker said "done"): not re-marked (it's already 1).
+- Blocks skipped by a `skip_mask`: not marked. They were not done; the mask
+  only applies to the run it was passed to.
 
 Failures and orphans staying unmarked is the natural way to make resume-after-failure work: the user fixes the bug, re-runs, and only the previously-failing blocks are retried.
 
@@ -198,6 +233,12 @@ terminal, and users who want the notice enable it with
 - Layout mismatch (different write_roi → error)
 - Concurrent marker writes from multiple workers
 - Resume after a partial failure
+
+`tests/test_skip_mask.py` covers `Task(skip_mask=...)`: block-grid shape per
+fit mode, the cell anchor under a block-wide context, dtype handling, shape
+rejection, composition with the tracking store across runs (masked blocks are
+not recorded, the store keeps its hash), downstream release, and the
+multiprocessing server path.
 
 ## Implementation pointer
 

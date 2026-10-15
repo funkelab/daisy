@@ -18,6 +18,7 @@ pub mod run_stats;
 pub mod scheduler;
 pub mod serial;
 pub mod server;
+pub mod skip_mask;
 pub mod task;
 pub mod task_state;
 pub mod worker_context;

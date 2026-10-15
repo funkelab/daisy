@@ -12,6 +12,17 @@ use tracing::{debug, warn};
 
 /// Core scheduler: tracks task states, dispatches blocks to workers, and
 /// updates the dependency graph as blocks complete.
+/// Outcome of the per-block pre-check in `acquire_block`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Precheck {
+    /// Hand the block to a worker.
+    Run,
+    /// Already done (done array or check function): skip and record done.
+    SkipDone,
+    /// Masked out by the caller's `skip_mask`: skip, record nothing.
+    SkipMasked,
+}
+
 pub struct Scheduler {
     /// The task DAG. `Arc` because the closures inside `ready_surface`
     /// also need to call `downstream`/`upstream` on it — sharing one
@@ -135,6 +146,23 @@ impl Scheduler {
     /// rather than something to silently ignore.
     pub fn init_tracking(&mut self) -> Result<(), DaisyError> {
         for (task_id, task) in &self.task_map {
+            if let Some(mask) = task.skip_mask.as_ref() {
+                let expected = task.block_grid_shape();
+                if mask.shape() != expected.as_slice() {
+                    return Err(DaisyError::InvalidConfig(format!(
+                        "task {task_id:?}: skip_mask has shape {:?} but the task's block \
+                         grid is {:?} (one cell per block; see Task.block_grid_shape)",
+                        mask.shape(),
+                        expected
+                    )));
+                }
+                debug!(
+                    task_id = %task_id,
+                    shape = ?mask.shape(),
+                    masked = mask.count(),
+                    "skip mask installed",
+                );
+            }
             let Some(ref dir) = task.tracking_path else {
                 if task.resource_tracking {
                     return Err(DaisyError::InvalidConfig(format!(
@@ -239,10 +267,10 @@ impl Scheduler {
                 rt.note_acquired();
             }
 
-            // Run the pre-check: skip if block is already done.
-            let already_done = self.precheck(task_id, &block);
-            if already_done {
-                debug!(block_id = %block.block_id, "skipping already-processed block");
+            // Run the pre-check: skip if block is already done or masked.
+            let skip = self.precheck(task_id, &block);
+            if skip != Precheck::Run {
+                debug!(block_id = %block.block_id, ?skip, "skipping block");
                 let mut block = block;
                 block.status = BlockStatus::Success;
                 if let Some(rt) = self.running_mut(task_id) {
@@ -253,7 +281,11 @@ impl Scheduler {
                     .unwrap()
                     .processing_blocks
                     .insert(block.block_id.clone());
-                self.release_block(block);
+                // A block the caller masked out was not done and must not
+                // be recorded as done: the mask is an input to this run,
+                // not persisted state. Done-marker and check-function
+                // skips are recorded as before.
+                self.release_block_impl(block, skip == Precheck::SkipDone);
                 continue;
             }
 
@@ -272,6 +304,12 @@ impl Scheduler {
     /// run loop uses for opportunistic rebalancing. The caller still
     /// inspects `task_states` directly when it needs more.
     pub fn release_block(&mut self, block: Block) -> Vec<String> {
+        self.release_block_impl(block, true)
+    }
+
+    /// `release_block` with control over whether a successful block is
+    /// recorded in the tracking store (`false` only for skip-mask skips).
+    fn release_block_impl(&mut self, block: Block, record_done: bool) -> Vec<String> {
         let task_id = block.task_id().to_string();
 
         // Strip from in-flight tracking unconditionally — even for
@@ -298,10 +336,12 @@ impl Scheduler {
                 if let Some(rt) = self.running_mut(&task_id) {
                     rt.note_completed();
                 }
-                if let Some(tracking) = self.task_tracking.get_mut(&task_id) {
-                    // Records done + any resource stats the block carried,
-                    // and folds both into this run's aggregates.
-                    tracking.record(&block);
+                if record_done {
+                    if let Some(tracking) = self.task_tracking.get_mut(&task_id) {
+                        // Records done + any resource stats the block carried,
+                        // and folds both into this run's aggregates.
+                        tracking.record(&block);
+                    }
                 }
                 let newly_ready = self.update_ready_queue(new_blocks);
                 self.maybe_finalize(&task_id);
@@ -360,26 +400,31 @@ impl Scheduler {
         }
     }
 
-    fn precheck(&self, task_id: &str, block: &Block) -> bool {
+    fn precheck(&self, task_id: &str, block: &Block) -> Precheck {
         // The done array is the cheapest check (single byte), do it first.
         if let Some(tracking) = self.task_tracking.get(task_id) {
             if tracking.is_done(block) {
-                return true;
+                return Precheck::SkipDone;
             }
         }
         if let Some(task) = self.task_map.get(task_id) {
+            // Then the caller's skip mask (one in-memory byte), then the
+            // user's check function, which may be arbitrarily slow.
+            if task.is_masked(block) {
+                return Precheck::SkipMasked;
+            }
             if let Some(ref check_fn) = task.check_function {
                 match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     check_fn.check(block)
                 })) {
-                    Ok(result) => result,
-                    Err(_) => false,
+                    Ok(true) => Precheck::SkipDone,
+                    Ok(false) | Err(_) => Precheck::Run,
                 }
             } else {
-                false
+                Precheck::Run
             }
         } else {
-            false
+            Precheck::Run
         }
     }
 

@@ -44,6 +44,8 @@ For larger end-to-end examples (mutex watershed, multi-task pipelines, JSON prog
 
 A **task** declares a `total_roi`, a `read_roi`, and a `write_roi`. Daisy tiles the total ROI into blocks at the stride of the write ROI, and dispatches blocks subject to the dependency constraints implied by overlap between read and write ROIs (within a task and across upstream/downstream tasks).
 
+A **skip mask** (`Task(skip_mask=…)`) is an array with one cell per block, nonzero meaning "skip this block this run"; a **tracking path** (`Task(tracking_path=…)`) persists which blocks completed so a rerun resumes. The two compose: done blocks stay done, masked blocks are reported as skipped but never recorded as done.
+
 A **block function** receives one block at a time. A **worker function** takes zero arguments — daisy spawns one per worker slot, and the worker drives its own `daisy.Client` loop. Worker-function mode is the right choice when you have per-worker setup (model load, DB connection, mmap'd array) you want to amortise across many blocks.
 
 ## Documentation

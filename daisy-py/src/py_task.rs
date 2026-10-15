@@ -1,7 +1,8 @@
 use daisy_core::block_tracking::TaskTracking;
+use daisy_core::skip_mask::SkipMask;
 use daisy_core::task::{Fit, Task};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
@@ -164,6 +165,36 @@ pub struct PyTask {
     /// reclaims any block that's been processing longer than this and
     /// re-queues it for retry (or orphans, depending on retry budget).
     pub timeout_secs: Option<f64>,
+    /// Caller-provided blocks to skip this run: C-ordered bytes at the
+    /// task's block-grid shape, nonzero = skip. See
+    /// `daisy_core::skip_mask`. Validated against the layout here, at
+    /// construction, so a wrong shape fails before anything runs.
+    pub skip_mask: Option<SkipMask>,
+}
+
+/// Accept a numpy-like array (anything with `.shape` and `.tobytes()`),
+/// or a `(bytes, shape)` pair, as a skip mask. The Python `Task`
+/// wrapper normalises arrays to contiguous uint8 first; this fallback
+/// handles direct `_daisy.Task` construction.
+fn parse_skip_mask(v: &Bound<'_, PyAny>) -> PyResult<SkipMask> {
+    let (data, shape): (Vec<u8>, Vec<usize>) = if v.hasattr("tobytes")? && v.hasattr("shape")? {
+        let shape: Vec<usize> = v.getattr("shape")?.extract()?;
+        let data: Vec<u8> = v.call_method0("tobytes")?.extract()?;
+        (data, shape)
+    } else if let Ok(pair) = v.extract::<(Vec<u8>, Vec<usize>)>() {
+        pair
+    } else {
+        return Err(PyErr::new::<pyo3::exceptions::PyTypeError, _>(
+            "skip_mask must be an array (anything with .shape and .tobytes(), \
+             e.g. a numpy uint8 array) or a (bytes, shape) pair",
+        ));
+    };
+    SkipMask::new(shape, data).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "skip_mask: {e}; pass a contiguous uint8 (or bool) array with one \
+             cell per block"
+        ))
+    })
 }
 
 #[pymethods]
@@ -185,6 +216,7 @@ impl PyTask {
         resource_tracking=false,
         requires=None,
         max_worker_restarts=10,
+        skip_mask=None,
     ))]
     fn new(
         task_id: String,
@@ -202,6 +234,7 @@ impl PyTask {
         resource_tracking: bool,
         requires: Option<Bound<'_, PyDict>>,
         max_worker_restarts: u32,
+        skip_mask: Option<&Bound<'_, PyAny>>,
     ) -> PyResult<Self> {
         // A task with no workers can never make progress: the server would
         // wait forever for a block that nobody will ever acquire (#81).
@@ -253,6 +286,30 @@ impl PyTask {
         } else {
             HashMap::new()
         };
+        let skip_mask = match skip_mask {
+            None => None,
+            Some(v) if v.is_none() => None,
+            Some(v) => {
+                let mask = parse_skip_mask(v)?;
+                let layout = Task::builder(&task_id)
+                    .total_roi(total_roi.inner.clone())
+                    .read_roi(read_roi.inner.clone())
+                    .write_roi(write_roi.inner.clone())
+                    .fit(Fit::from_str(&fit))
+                    .build();
+                let expected = layout.block_grid_shape();
+                if mask.shape() != expected.as_slice() {
+                    return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                        "skip_mask has shape {:?} but task {task_id:?} has a block grid \
+                         of shape {:?} (one cell per block, cell 0 is the first block; \
+                         see Task.block_grid_shape)",
+                        mask.shape(),
+                        expected
+                    )));
+                }
+                Some(mask)
+            }
+        };
         Ok(Self {
             task_id,
             total_roi,
@@ -269,7 +326,48 @@ impl PyTask {
             requires: reqs,
             max_worker_restarts,
             timeout_secs,
+            skip_mask,
         })
+    }
+
+    /// Number of blocks per axis, as a tuple: the shape a `skip_mask`
+    /// must have. Cell ``(0, 0, ...)`` is the first block regardless of
+    /// context.
+    #[getter]
+    fn block_grid_shape(&self) -> Vec<usize> {
+        Task::builder(&self.task_id)
+            .total_roi(self.total_roi.inner.clone())
+            .read_roi(self.read_roi.inner.clone())
+            .write_roi(self.write_roi.inner.clone())
+            .fit(Fit::from_str(&self.fit))
+            .build()
+            .block_grid_shape()
+    }
+
+    /// The blocks this run skips, as a uint8 numpy array over the block
+    /// grid (``block_grid_shape``; nonzero = skip), or None.
+    ///
+    /// Cell ``(0, 0, ...)`` is the first block, whatever the context: the
+    /// cell of a block is ``(block.write_roi.offset -
+    /// total_write_roi.offset) // write_roi.shape``. The mask is an input
+    /// to this run, not persisted state: masked blocks are reported as
+    /// skipped and release their downstream dependencies, nothing is
+    /// written to the tracking store for them, and a later run with a
+    /// narrower mask (or none) runs them.
+    #[getter]
+    fn skip_mask(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let Some(m) = self.skip_mask.as_ref() else {
+            return Ok(py.None());
+        };
+        let np = py.import("numpy")?;
+        let arr = np.call_method1(
+            "frombuffer",
+            (PyBytes::new(py, m.data()), "uint8"),
+        )?;
+        let arr = arr.call_method1("reshape", (m.shape().to_vec(),))?;
+        // frombuffer gives a read-only view over the bytes; hand out a
+        // copy so callers can edit it and pass it to a new Task.
+        Ok(arr.call_method0("copy")?.unbind())
     }
 
     #[getter]
@@ -370,6 +468,7 @@ impl PyTask {
             requires: self.requires.clone(),
             max_worker_restarts: self.max_worker_restarts,
             timeout_secs: self.timeout_secs,
+            skip_mask: self.skip_mask.clone(),
         }
     }
 
@@ -492,6 +591,7 @@ impl PyTask {
             requires: HashMap::new(),
             max_worker_restarts: 10,
             timeout_secs: Some(DEFAULT_BLOCK_TIMEOUT_SECS),
+            skip_mask: None,
         }
     }
 
@@ -536,6 +636,9 @@ impl PyTask {
             None => {}
         }
         builder = builder.resource_tracking(borrow.resource_tracking);
+        if let Some(mask) = borrow.skip_mask.as_ref() {
+            builder = builder.skip_mask(mask.clone());
+        }
         if !borrow.requires.is_empty() {
             builder = builder.requires(borrow.requires.clone());
         }

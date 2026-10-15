@@ -1,4 +1,5 @@
 use crate::roi::Roi;
+use crate::skip_mask::{block_grid_shape, SkipMask};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -104,11 +105,29 @@ pub struct Task {
     /// exceeds the budget across all tasks competing for the same
     /// resources.
     pub requires: HashMap<String, i64>,
+    /// Caller-provided blocks to skip this run: one byte per block in
+    /// C order at `block_grid_shape()`, nonzero = skip. Checked by the
+    /// scheduler next to the done array; never written to the tracking
+    /// store, so it is an input to this run rather than persisted state.
+    /// See `crate::skip_mask`.
+    pub skip_mask: Option<SkipMask>,
 }
 
 impl Task {
     pub fn builder(task_id: &str) -> TaskBuilder {
         TaskBuilder::new(task_id)
+    }
+
+    /// Number of blocks per axis: the shape a `skip_mask` must have.
+    pub fn block_grid_shape(&self) -> Vec<usize> {
+        block_grid_shape(&self.total_write_roi, &self.write_roi, &self.fit)
+    }
+
+    /// Whether `block` is masked out by `skip_mask`.
+    pub fn is_masked(&self, block: &Block) -> bool {
+        self.skip_mask
+            .as_ref()
+            .is_some_and(|m| m.contains(block, &self.total_write_roi, &self.write_roi))
     }
 }
 
@@ -129,6 +148,7 @@ pub struct TaskBuilder {
     resource_tracking: bool,
     requires: HashMap<String, i64>,
     max_worker_restarts: u32,
+    skip_mask: Option<SkipMask>,
 }
 
 impl TaskBuilder {
@@ -150,6 +170,7 @@ impl TaskBuilder {
             resource_tracking: false,
             requires: HashMap::new(),
             max_worker_restarts: 10,
+            skip_mask: None,
         }
     }
 
@@ -234,6 +255,13 @@ impl TaskBuilder {
         self
     }
 
+    /// Blocks to skip this run. See `Task::skip_mask`; the shape is
+    /// validated against the layout when the scheduler opens the task.
+    pub fn skip_mask(mut self, mask: SkipMask) -> Self {
+        self.skip_mask = Some(mask);
+        self
+    }
+
     pub fn build(self) -> Task {
         let total_roi = self.total_roi.expect("total_roi is required");
         let read_roi = self.read_roi.expect("read_roi is required");
@@ -262,6 +290,7 @@ impl TaskBuilder {
             resource_tracking: self.resource_tracking,
             requires: self.requires,
             max_worker_restarts: self.max_worker_restarts,
+            skip_mask: self.skip_mask,
         }
     }
 }

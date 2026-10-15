@@ -65,6 +65,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Task(skip_mask=...)`: a caller-provided mask over the block grid (a
+  uint8 or bool array at `Task.block_grid_shape`, nonzero = skip). Masked
+  blocks are reported as skipped and release their downstream dependencies,
+  but nothing is written to the tracking store for them: the mask is an
+  input to the run, not persisted state, so a later run with a narrower
+  mask (or none) runs them, and blocks that were done stay done. Cell
+  `(0, 0, ...)` is the first block whatever the context (the cell of a
+  block is `(block.write_roi.offset - total_write_roi.offset) //
+  write_roi.shape`), and a wrong shape is rejected at construction. This
+  replaces hand-writing a hash-less `done` array into the tracking store,
+  which lost the layout-mismatch guard.
 - `failures`: per-block count of failed attempts, written whenever tracking
   is on at all (independent of `resource_tracking`), covering both
   worker-reported failures and timeout reclaims.

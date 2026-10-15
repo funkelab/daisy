@@ -200,6 +200,7 @@ class Task:
         resource_tracking: bool = ...,
         requires: dict[str, int] | None = ...,
         max_worker_restarts: int = ...,
+        skip_mask: Any | None = ...,
     ) -> Self: ...
 
     # Read-only views of the constructor args.
@@ -229,6 +230,10 @@ class Task:
     def done_marker_path(self) -> str | bool | None: ...
     @property
     def resource_tracking(self) -> bool: ...
+    @property
+    def block_grid_shape(self) -> list[int]: ...
+    @property
+    def skip_mask(self) -> Any | None: ...
 
     # Settable so `_wrap_for_worker_logging` can replace the callable
     # on a clone produced by `copy.copy(task)`.

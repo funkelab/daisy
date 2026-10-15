@@ -207,6 +207,7 @@ def profile_block(block):
     this automatically; call it yourself only to narrow what is measured."""
     return _rs.profile_block(block._native)
 
+
 # positional index of `check_function` in the `_rs.Task` constructor
 # signature (task_id, total_roi, read_roi, write_roi, process_function,
 # check_function, ...)
@@ -231,6 +232,13 @@ class Task(_rs.Task):
     """
 
     def __new__(cls, *args, **kwargs):
+        # `skip_mask`: any array-like becomes a contiguous uint8 array so
+        # the Rust side sees one byte per cell (bool arrays map True -> 1).
+        mask = kwargs.get("skip_mask")
+        if mask is not None:
+            import numpy as np
+
+            kwargs["skip_mask"] = np.ascontiguousarray(mask, dtype=np.uint8)
         # `tracking_path` is the canonical name; the Rust constructor still
         # takes `done_marker_path`, kept as a deprecated alias because the
         # directory now holds failure counts and resource measurements too.
