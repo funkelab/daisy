@@ -22,6 +22,7 @@ from importlib.metadata import version as _version
 
 import daisy._daisy as _rs
 from daisy._progress import JsonProgressObserver
+from daisy._report import RunReport, TaskReport, last_report
 from daisy._runner import Server, run_blockwise
 from daisy._task import (
     Block,
@@ -66,12 +67,15 @@ __all__ = [
     "JsonProgressObserver",
     "Pipeline",
     "Roi",
+    "RunReport",
     "Scheduler",
     "Server",
     "Task",
+    "TaskReport",
     "TaskState",
     "__version__",
     "BlockStats",
+    "last_report",
     "get_done_marker_basedir",
     "get_tracking_basedir",
     "run_blockwise",

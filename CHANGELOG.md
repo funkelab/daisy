@@ -65,6 +65,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-worker time tracking and the run report.** Every run now returns a
+  `daisy.RunReport` (`daisy.last_report()`, `Server.last_report`, and
+  `daisy_run_report` on the `KeyboardInterrupt` / abandonment error) with
+  one `TaskReport` per task: `blocks` (count, failures, and `mean ± std`
+  for wall, CPU, peak RSS, IO, plus the per-block `overhead` — server round
+  trip minus the worker's own wall time — and the wall-time trend) and
+  `workers` (count, `startup`, `idle`, `compute`, `teardown` as
+  distributions, exit kinds, and a row per worker under `by_id`).
+  `TaskReport.worker(id)` and `TaskReport.block(block | grid coord | id)`
+  drill down; the latter reads the tracking store (`Task.block_record`).
+  Worker timing is stamped by the server from the lifecycle events it
+  already sees — spawn, first acquire, each dispatch and return, the
+  shutdown reply, the spawn thread's exit — so it needs no protocol change,
+  is always collected (O(workers) memory), and covers startup and teardown,
+  which a worker cannot report about itself. The "Resource Utilization"
+  panel now prints `± ` figures, the worker line and a per-worker table
+  (ten rows, then a pointer) for tasks with `resource_tracking=True`.
+  With `resource_tracking=True` the tracking store gains `worker_id`,
+  `sent_at` and `returned_at` arrays (who ran each block and when, scheduler
+  clock) and a `runs.jsonl` with the task's report appended once per run.
+  **Removed**: `Server.last_tracking_summary` and the `{"per_task": {...}}`
+  dict it held; `daisy_run_stats` on the partial-run errors (now
+  `daisy_run_report`).
 - `Task(skip_mask=...)`: a caller-provided mask over the block grid (a
   uint8 or bool array at `Task.block_grid_shape`, nonzero = skip). Masked
   blocks are reported as skipped and release their downstream dependencies,

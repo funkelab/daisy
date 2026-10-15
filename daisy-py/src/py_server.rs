@@ -179,8 +179,8 @@ pub fn _run_blockwise_orchestrator(
     };
 
     // Dispatch to the appropriate runner. Both paths return a
-    // `(task_id → PyTaskState, tracking summary)` tuple — serial mode
-    // measures blocks the same way, so it reports the same summary.
+    // `(task_id → PyTaskState, RunReport)` tuple — serial mode measures
+    // blocks the same way, so it reports the same shape (with no workers).
     let result: Py<PyAny> = if multiprocessing {
         _run_distributed_server(
             py,
@@ -196,7 +196,7 @@ pub fn _run_blockwise_orchestrator(
     };
     let tup = result.bind(py);
     let states_obj: Py<PyAny> = tup.get_item(0)?.into_pyobject(py)?.into_any().unbind();
-    let run_stats_obj: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
+    let run_report_obj: Py<PyAny> = tup.get_item(1)?.into_pyobject(py)?.into_any().unbind();
     // The post-run report is printed by `daisy._progress.execution_summary`,
     // the context manager every Python entry point wraps its run in; it
     // prints on normal exit and on the exceptions below that carry states.
@@ -282,12 +282,12 @@ pub fn _run_blockwise_orchestrator(
         // still printed before the error surfaces.
         let val = err.value(py);
         val.setattr("daisy_states", &states_obj)?;
-        val.setattr("daisy_run_stats", &run_stats_obj)?;
+        val.setattr("daisy_run_report", &run_report_obj)?;
         val.setattr("daisy_task_order", &order_py)?;
         return Err(err);
     }
 
-    let out = pyo3::types::PyTuple::new(py, &[states_obj.bind(py).clone(), run_stats_obj.bind(py).clone()])?;
+    let out = pyo3::types::PyTuple::new(py, &[states_obj.bind(py).clone(), run_report_obj.bind(py).clone()])?;
     Ok(out.into_any().unbind())
 }
 
@@ -322,15 +322,15 @@ pub fn _run_serial(
             };
         }
     };
-    let (states, summaries) = states;
+    let (states, reports) = states;
     let states_py: HashMap<String, PyTaskState> = states
         .into_iter()
         .map(|(k, v)| (k, PyTaskState { inner: v }))
         .collect();
-    let summary_py = tracking_summary_to_py(py, &summaries)?;
+    let report_py = reports_to_py(py, &reports)?;
     let out = pyo3::types::PyTuple::new(
         py,
-        &[states_py.into_pyobject(py)?.into_any(), summary_py],
+        &[states_py.into_pyobject(py)?.into_any(), report_py],
     )?;
     Ok(out.into_any().unbind())
 }
@@ -339,8 +339,8 @@ pub fn _run_serial(
 /// Worker threads call back into Python via the GIL to execute
 /// process_function / spawn_function.
 ///
-/// Returns a 2-tuple `(task_states, run_stats)` where `run_stats` is a
-/// nested dict matching `daisy_core::run_stats::RunStats`.
+/// Returns a 2-tuple `(task_states, run_report)` where `run_report` is a
+/// `daisy._report.RunReport` built from `daisy_core::run_report`.
 ///
 /// `progress_observer`, if provided, must be a Python object exposing
 /// `on_start(states)`, `on_progress(states)`, and `on_finish(states)`
@@ -414,7 +414,7 @@ pub fn _run_distributed_server(
         libc::signal(libc::SIGINT, prev as libc::sighandler_t);
     }
 
-    let (states, summaries) = match result {
+    let (states, reports) = match result {
         Ok(v) => v,
         Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
             let err = PyErr::new::<pyo3::exceptions::PyKeyboardInterrupt, _>(
@@ -431,10 +431,10 @@ pub fn _run_distributed_server(
                     .iter()
                     .map(|(k, v)| (k.clone(), PyTaskState { inner: v.clone() }))
                     .collect();
-                let stats_py = tracking_summary_to_py(py, &ab.summaries)?;
+                let report_py = reports_to_py(py, &ab.reports)?;
                 let val = err.value(py);
                 val.setattr("daisy_states", states_py.into_pyobject(py)?)?;
-                val.setattr("daisy_run_stats", stats_py)?;
+                val.setattr("daisy_run_report", report_py)?;
             }
             return Err(err);
         }
@@ -445,41 +445,23 @@ pub fn _run_distributed_server(
         .into_iter()
         .map(|(k, v)| (k, PyTaskState { inner: v }))
         .collect();
-    let stats_py = tracking_summary_to_py(py, &summaries)?;
+    let report_py = reports_to_py(py, &reports)?;
 
-    let result = pyo3::types::PyTuple::new(py, &[states_py.into_pyobject(py)?.into_any(), stats_py])?;
+    let result = pyo3::types::PyTuple::new(py, &[states_py.into_pyobject(py)?.into_any(), report_py])?;
     Ok(result.unbind())
 }
 
-/// Convert this run's per-task tracking aggregates into the dict the
-/// Python summary renderer consumes.
+/// Hand this run's per-task reports to Python as a `daisy._report.RunReport`.
 ///
-/// Everything here was measured per block inside the workers and folded by
-/// `block_tracking::TaskTracking` as blocks were recorded — there is no
-/// separate accumulator, so `blocks` cannot disagree with what the
-/// scheduler saw. Tasks without tracking configured simply don't appear,
-/// which is how the renderer knows to omit the resource panel.
-fn tracking_summary_to_py<'py>(
+/// The Rust side serializes the same JSON it appends to each task's
+/// `runs.jsonl`; the Python side builds its dataclasses from it, so the
+/// in-memory report and the persisted one cannot drift apart.
+fn reports_to_py<'py>(
     py: Python<'py>,
-    summaries: &HashMap<String, daisy_core::block_tracking::TaskSummary>,
+    reports: &HashMap<String, daisy_core::run_report::TaskReport>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let per_task = PyDict::new(py);
-    for (task_id, s) in summaries {
-        let (mean_ms, slope_ms) = s.block_ms_trend();
-        let d = PyDict::new(py);
-        d.set_item("blocks", s.blocks_recorded)?;
-        d.set_item("failures", s.failures_recorded)?;
-        d.set_item("has_stats", s.has_stats)?;
-        d.set_item("total_cpu_secs", s.total_cpu_seconds)?;
-        d.set_item("total_block_secs", s.total_wall_seconds)?;
-        d.set_item("max_peak_rss_bytes", s.max_peak_rss_bytes)?;
-        d.set_item("io_read_bytes", s.total_io_read_bytes)?;
-        d.set_item("io_write_bytes", s.total_io_write_bytes)?;
-        d.set_item("mean_block_ms", mean_ms)?;
-        d.set_item("block_ms_slope", slope_ms)?;
-        per_task.set_item(task_id, d)?;
-    }
-    let out = PyDict::new(py);
-    out.set_item("per_task", per_task)?;
-    Ok(out.into_any())
+    let json = daisy_core::run_report::reports_to_json(reports);
+    py.import("daisy._report")?
+        .getattr("RunReport")?
+        .call_method1("from_json", (json,))
 }

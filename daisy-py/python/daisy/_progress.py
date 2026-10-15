@@ -1,5 +1,6 @@
-"""Progress display: tqdm bars, JSON observer, post-run summary,
-resource report, and the topological ordering that drives them.
+"""Progress display: tqdm bars, JSON observer, post-run summary, the
+resource / worker report panel, and the topological ordering that drives
+them.
 
 Imports nothing from `_runner.py`; both `_runner.py` and the public
 `__init__.py` import from here.
@@ -10,6 +11,7 @@ import logging
 import sys
 import time
 
+from daisy import _report
 from daisy import logging as _worker_log
 
 logger = logging.getLogger(__name__)
@@ -163,18 +165,19 @@ def _print_execution_summary(states, task_order=None):
 
 class _SummaryRecorder:
     """What `execution_summary` prints on exit: the final states, the
-    display order and the tracking summaries, set by the entry point once
-    the run has returned."""
+    display order and the run report, set by the entry point once the run
+    has returned."""
 
     def __init__(self):
         self.states = None
         self.order = None
-        self.stats = None
+        self.report = None
 
-    def set(self, states, stats=None, order=None):
+    def set(self, states, report=None, order=None):
         self.states = states
-        if stats is not None:
-            self.stats = stats
+        if report is not None:
+            self.report = report
+            _report._set_last(report)
         if order is not None:
             self.order = order
 
@@ -207,11 +210,13 @@ class execution_summary:
     def __exit__(self, exc_type, exc, tb):
         if not self.enabled:
             return False
-        states, order, stats = self.rec.states, self.rec.order, self.rec.stats
+        states, order, report = self.rec.states, self.rec.order, self.rec.report
         if exc is not None:
             states = getattr(exc, "daisy_states", None)
             order = getattr(exc, "daisy_task_order", None) or order
-            stats = getattr(exc, "daisy_run_stats", None)
+            report = getattr(exc, "daisy_run_report", None)
+            if report is not None:
+                _report._set_last(report)
             if states is None:
                 return False
             if isinstance(exc, KeyboardInterrupt):
@@ -225,7 +230,7 @@ class execution_summary:
             return False
         _print_execution_summary(states, order)
         _log_resume_summary(states)
-        _print_resource_utilization(stats, order)
+        _print_resource_utilization(report, order)
         return False
 
 
@@ -436,32 +441,25 @@ class JsonProgressObserver:
                 pass
 
 
-def _format_bytes(n):
-    n = float(n)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(n) < 1024.0:
-            return f"{n:.1f} {unit}"
-        n /= 1024.0
-    return f"{n:.1f} PB"
+_format_bytes = _report._format_bytes
 
 
-def _print_resource_utilization(stats, task_order=None):
-    """Post-run resource report, agglomerated from per-block measurements.
+def _print_resource_utilization(report, task_order=None):
+    """Post-run resource and worker panel, rendered from the `RunReport`.
 
-    Every figure here is a fold over what the tracking layer wrote as
-    blocks came back — `blocks` is the same count the scheduler completed,
-    because it is the same counter. Tasks that did not opt into
-    `resource_tracking` have no resource figures, so the panel is omitted
-    rather than printing a table of zeros.
+    Every figure is a fold over what the tracking layer wrote as blocks
+    came back and over the lifecycle events the server stamped — `blocks`
+    is the same count the scheduler completed, because it is the same
+    counter. Tasks that did not opt into `resource_tracking` have no
+    resource figures, so the panel is omitted rather than printing a table
+    of zeros; `report.tasks[...]` still carries their worker timing.
     """
-    if stats is None:
+    if report is None:
+        return
+    text = report.render(task_order)
+    if not text:
         return
     import sys
-
-    per_task = (stats.get("per_task") or {}) if hasattr(stats, "get") else {}
-    measured = {k: v for k, v in per_task.items() if v.get("has_stats")}
-    if not measured:
-        return
 
     # While the per-worker proxies are installed, write to the real stdout
     # they wrap; once they are uninstalled (the summary now prints after
@@ -471,56 +469,7 @@ def _print_resource_utilization(stats, task_order=None):
     # object that has since been closed — never let the summary crash a run
     if getattr(out, "closed", False):
         out = sys.__stdout__ or sys.stdout
-
-    def p(s=""):
-        try:
-            print(s, file=out)
-        except ValueError:  # closed file raced us
-            pass
-
-    total_cpu = sum(float(t.get("total_cpu_secs", 0.0)) for t in measured.values())
-    total_block = sum(float(t.get("total_block_secs", 0.0)) for t in measured.values())
-    peak_rss = max(int(t.get("max_peak_rss_bytes", 0)) for t in measured.values())
-    io_r = sum(int(t.get("io_read_bytes", 0)) for t in measured.values())
-    io_w = sum(int(t.get("io_write_bytes", 0)) for t in measured.values())
-    n_blocks = sum(int(t.get("blocks", 0)) for t in measured.values())
-
-    p()
-    p("Resource Utilization")
-    p("--------------------")
-    p()
-    p("  Totals (summed over measured blocks):")
-    p(f"    blocks measured : {n_blocks}")
-    p(f"    CPU time        : {total_cpu:.2f} s")
-    p(f"    in-block time   : {total_block:.2f} s")
-    if total_block > 0:
-        # How much CPU each second of block time consumed: ~1.0 means
-        # CPU-bound, well under 1.0 means the blocks were waiting on IO.
-        p(
-            f"    CPU per block-s : {total_cpu / total_block:.2f}"
-            "   (≈1.0 CPU-bound, «1.0 IO-bound)"
-        )
-    p(f"    peak RSS        : {_format_bytes(peak_rss)}   (largest single worker)")
-    p(f"    IO read         : {_format_bytes(io_r)}")
-    p(f"    IO write        : {_format_bytes(io_w)}")
-
-    p()
-    p("  Per-task:")
-    p(
-        f"    {'task':<14}{'blocks':>8}{'fails':>7}"
-        f"    {'mean ms ∠ slope':<22}{'cpu s':>9}{'peak RSS':>11}"
-    )
-    p(f"    {'─' * 14}{'─' * 8}{'─' * 7}    {'─' * 22}{'─' * 9}{'─' * 11}")
-    for task_id in _ordered_states(measured, task_order):
-        t = measured[task_id]
-        blocks = int(t.get("blocks", 0))
-        fails = int(t.get("failures", 0))
-        mean_ms = float(t.get("mean_block_ms", 0.0))
-        slope = float(t.get("block_ms_slope", 0.0))
-        cpu = float(t.get("total_cpu_secs", 0.0))
-        rss = int(t.get("max_peak_rss_bytes", 0))
-        trend = f"{mean_ms:6.2f} ∠ {slope:+.4f}"
-        p(
-            f"    {task_id:<14}{blocks:>8}{fails:>7}"
-            f"    {trend:<22}{cpu:>8.2f}s{_format_bytes(rss):>11}"
-        )
+    try:
+        print(text, file=out)
+    except ValueError:  # closed file raced us
+        pass

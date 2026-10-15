@@ -16,8 +16,18 @@
 //!   io_read_bytes/     uint64    |
 //!   io_write_bytes/    uint64    |
 //!   gpu_util_pct/      float32   |  reserved (NaN)
-//!   gpu_mem_bytes/     uint64   /   reserved (0)
+//!   gpu_mem_bytes/     uint64    |  reserved (0)
+//!   worker_id/         uint32    |  worker that completed the block (u32::MAX = none)
+//!   sent_at/           float64   |  dispatch time, seconds since the UNIX epoch
+//!   returned_at/       float64  /   return time, seconds since the UNIX epoch
+//!   runs.jsonl                   one JSON line per run: the task's run report
 //! ```
+//!
+//! `worker_id`, `sent_at` and `returned_at` are stamped by the server, so a
+//! full per-worker timeline (who ran what, when, with what gaps) can be
+//! reconstructed from the store after the fact. Worker ids restart at 0
+//! every run, so the value is "the worker, in the run that completed this
+//! block". `runs.jsonl` is append-only and ignored by zarr readers.
 //!
 //! Each array's layout is what `zarr.create(..., codecs=[BytesCodec()])`
 //! emits in zarr-python 3, so the whole group opens in any zarr v3 reader
@@ -52,15 +62,16 @@
 //! ## This is the only place that counts blocks
 //!
 //! The tracking object also carries the run's *running aggregates* — blocks
-//! recorded, Σcpu, Σio, max peak-RSS, and the per-block wall times used for
-//! the end-of-run trend fit. The end-of-run summary is an agglomeration of
-//! exactly what was written here, so there is one counter in the codebase
-//! rather than a scheduler count and a stats count that can disagree.
+//! recorded and one `Welford` (mean / std / min / max / sum) per resource
+//! metric, plus the running slope of per-block wall time. The end-of-run
+//! report is an agglomeration of exactly what was written here, so there is
+//! one counter in the codebase rather than a scheduler count and a stats
+//! count that can disagree.
 
 use crate::block::Block;
 use crate::block_profile::BlockStats;
 use crate::roi::Roi;
-use crate::run_stats::linear_trend;
+use crate::run_stats::{Trend, Welford};
 use crate::task::Fit;
 use memmap2::MmapMut;
 use serde_json::json;
@@ -115,6 +126,7 @@ enum Dtype {
     U32,
     U64,
     F32,
+    F64,
 }
 
 impl Dtype {
@@ -124,6 +136,7 @@ impl Dtype {
             Dtype::U32 => 4,
             Dtype::U64 => 8,
             Dtype::F32 => 4,
+            Dtype::F64 => 8,
         }
     }
 
@@ -133,6 +146,7 @@ impl Dtype {
             Dtype::U32 => "uint32",
             Dtype::U64 => "uint64",
             Dtype::F32 => "float32",
+            Dtype::F64 => "float64",
         }
     }
 }
@@ -148,6 +162,15 @@ pub const ARRAY_IO_READ: &str = "io_read_bytes";
 pub const ARRAY_IO_WRITE: &str = "io_write_bytes";
 pub const ARRAY_GPU_UTIL: &str = "gpu_util_pct";
 pub const ARRAY_GPU_MEM: &str = "gpu_mem_bytes";
+pub const ARRAY_WORKER_ID: &str = "worker_id";
+pub const ARRAY_SENT_AT: &str = "sent_at";
+pub const ARRAY_RETURNED_AT: &str = "returned_at";
+
+/// `worker_id` value for a block no managed worker completed.
+pub const NO_WORKER: u32 = u32::MAX;
+
+/// Per-run report lines, appended at the end of every run.
+pub const RUNS_FILE: &str = "runs.jsonl";
 
 /// Arrays present whenever tracking is on at all.
 const BASE_ARRAYS: &[(&str, Dtype)] = &[(ARRAY_DONE, Dtype::U8), (ARRAY_FAILURES, Dtype::U32)];
@@ -161,7 +184,32 @@ const STAT_ARRAYS: &[(&str, Dtype)] = &[
     (ARRAY_IO_WRITE, Dtype::U64),
     (ARRAY_GPU_UTIL, Dtype::F32),
     (ARRAY_GPU_MEM, Dtype::U64),
+    (ARRAY_WORKER_ID, Dtype::U32),
+    (ARRAY_SENT_AT, Dtype::F64),
+    (ARRAY_RETURNED_AT, Dtype::F64),
 ];
+
+/// Who ran a block and when, as the server saw it. Rides with the block
+/// into `record` and lands in the `worker_id` / `sent_at` / `returned_at`
+/// arrays. Times are seconds since the UNIX epoch on the server clock.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BlockDispatch {
+    pub worker_id: Option<u64>,
+    pub sent_at: f64,
+    pub returned_at: f64,
+}
+
+/// Everything the store holds for one block (diagnostics / `Task.block_record`).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BlockRecord {
+    pub done: bool,
+    pub failures: u32,
+    /// `None` when the store has no stat arrays.
+    pub stats: Option<BlockStats>,
+    /// `None` when the store has no stat arrays or the block has no
+    /// recorded dispatch.
+    pub dispatch: Option<BlockDispatch>,
+}
 
 /// Hash a task's layout into a stable hex string. Anything that changes
 /// the block grid (total/read/write ROIs, fit mode) must change this.
@@ -263,20 +311,22 @@ pub struct TaskSummary {
     pub failures_recorded: u64,
     /// True once any recorded block carried resource stats.
     pub has_stats: bool,
-    pub total_cpu_seconds: f64,
-    pub total_wall_seconds: f64,
-    pub max_peak_rss_bytes: u64,
-    pub total_io_read_bytes: u64,
-    pub total_io_write_bytes: u64,
-    /// Per-block wall times in milliseconds, in completion order, for the
-    /// mean/slope trend fit.
-    pub block_ms: Vec<f64>,
+    /// Seconds in the block, per block.
+    pub wall: Welford,
+    /// CPU seconds, per block.
+    pub cpu: Welford,
+    /// Peak RSS bytes, per block.
+    pub peak_rss: Welford,
+    pub io_read: Welford,
+    pub io_write: Welford,
+    /// Per-block wall time in milliseconds against completion order.
+    pub wall_trend: Trend,
 }
 
 impl TaskSummary {
     /// Mean and slope of per-block wall time in milliseconds.
     pub fn block_ms_trend(&self) -> (f64, f64) {
-        linear_trend(&self.block_ms)
+        (self.wall_trend.mean(), self.wall_trend.slope())
     }
 }
 
@@ -433,8 +483,9 @@ impl TaskTracking {
     }
 
     /// Record a completed block: mark it done, persist any resource stats
-    /// it carried, and fold both into this run's aggregates.
-    pub fn record(&mut self, block: &Block) {
+    /// it carried and the dispatch the server stamped, and fold the stats
+    /// into this run's aggregates.
+    pub fn record(&mut self, block: &Block, dispatch: Option<&BlockDispatch>) {
         let Some(idx) = self.index_of(block) else {
             // Not addressable (boundary block); still counts as work done
             // so the summary's block count matches the scheduler's.
@@ -450,6 +501,66 @@ impl TaskTracking {
             self.write_stats(idx, stats);
             self.fold_stats(stats);
         }
+        if let Some(d) = dispatch {
+            self.write_dispatch(idx, d);
+        }
+    }
+
+    /// Append one line to the store's `runs.jsonl`: the task's report for
+    /// a run that just ended.
+    pub fn append_run_record(&self, json_line: &str) -> io::Result<()> {
+        let mut f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(self.path.join(RUNS_FILE))?;
+        f.write_all(json_line.as_bytes())?;
+        f.write_all(b"\n")?;
+        Ok(())
+    }
+
+    /// Everything recorded for one block (diagnostics / `Task.block_record`).
+    pub fn record_of(&self, block: &Block) -> Option<BlockRecord> {
+        let idx = self.index_of(block)?;
+        let done = self
+            .arrays
+            .get(ARRAY_DONE)
+            .map(|m| m[idx] != 0)
+            .unwrap_or(false);
+        let failures = self
+            .arrays
+            .get(ARRAY_FAILURES)
+            .map(|m| read_u32(m, idx))
+            .unwrap_or(0);
+        Some(BlockRecord {
+            done,
+            failures,
+            stats: self.stats_of(block),
+            dispatch: self.dispatch_of(block),
+        })
+    }
+
+    /// The dispatch stamped for a block, if the stat arrays exist and the
+    /// block was ever recorded with one.
+    pub fn dispatch_of(&self, block: &Block) -> Option<BlockDispatch> {
+        if !self.with_stats {
+            return None;
+        }
+        let idx = self.index_of(block)?;
+        let sent_at = self.read_f64(ARRAY_SENT_AT, idx);
+        let returned_at = self.read_f64(ARRAY_RETURNED_AT, idx);
+        if sent_at == 0.0 && returned_at == 0.0 {
+            return None;
+        }
+        let wid = self
+            .arrays
+            .get(ARRAY_WORKER_ID)
+            .map(|m| read_u32(m, idx))
+            .unwrap_or(NO_WORKER);
+        Some(BlockDispatch {
+            worker_id: (wid != NO_WORKER).then_some(wid as u64),
+            sent_at,
+            returned_at,
+        })
     }
 
     /// Note one failed attempt for this block (a worker-reported failure
@@ -522,19 +633,43 @@ impl TaskTracking {
         }
     }
 
+    fn write_dispatch(&mut self, idx: usize, d: &BlockDispatch) {
+        if !self.with_stats {
+            return;
+        }
+        let wid = d
+            .worker_id
+            .and_then(|w| u32::try_from(w).ok())
+            .filter(|w| *w != NO_WORKER)
+            .unwrap_or(NO_WORKER);
+        if let Some(m) = self.arrays.get_mut(ARRAY_WORKER_ID) {
+            write_u32(m, idx, wid);
+        }
+        if let Some(m) = self.arrays.get_mut(ARRAY_SENT_AT) {
+            write_f64(m, idx, d.sent_at);
+        }
+        if let Some(m) = self.arrays.get_mut(ARRAY_RETURNED_AT) {
+            write_f64(m, idx, d.returned_at);
+        }
+    }
+
     fn fold_stats(&mut self, stats: &BlockStats) {
         let s = &mut self.summary;
         s.has_stats = true;
-        s.total_cpu_seconds += stats.cpu_seconds;
-        s.total_wall_seconds += stats.wall_seconds;
-        s.max_peak_rss_bytes = s.max_peak_rss_bytes.max(stats.peak_rss_bytes);
-        s.total_io_read_bytes = s.total_io_read_bytes.saturating_add(stats.io_read_bytes);
-        s.total_io_write_bytes = s.total_io_write_bytes.saturating_add(stats.io_write_bytes);
-        s.block_ms.push(stats.wall_seconds * 1000.0);
+        s.wall.push(stats.wall_seconds);
+        s.cpu.push(stats.cpu_seconds);
+        s.peak_rss.push(stats.peak_rss_bytes as f64);
+        s.io_read.push(stats.io_read_bytes as f64);
+        s.io_write.push(stats.io_write_bytes as f64);
+        s.wall_trend.push(stats.wall_seconds * 1000.0);
     }
 
     fn read_f32(&self, name: &'static str, idx: usize) -> f32 {
         self.arrays.get(name).map(|m| read_f32(m, idx)).unwrap_or(0.0)
+    }
+
+    fn read_f64(&self, name: &'static str, idx: usize) -> f64 {
+        self.arrays.get(name).map(|m| read_f64(m, idx)).unwrap_or(0.0)
     }
 
     fn read_u64(&self, name: &'static str, idx: usize) -> u64 {
@@ -607,6 +742,18 @@ fn write_f32(m: &mut MmapMut, idx: usize, v: f32) {
     m[o..o + 4].copy_from_slice(&v.to_le_bytes());
 }
 
+fn read_f64(m: &MmapMut, idx: usize) -> f64 {
+    let o = idx * 8;
+    let mut buf = [0u8; 8];
+    buf.copy_from_slice(&m[o..o + 8]);
+    f64::from_le_bytes(buf)
+}
+
+fn write_f64(m: &mut MmapMut, idx: usize, v: f64) {
+    let o = idx * 8;
+    m[o..o + 8].copy_from_slice(&v.to_le_bytes());
+}
+
 fn write_json(path: &Path, value: &serde_json::Value) -> io::Result<()> {
     let mut f = OpenOptions::new()
         .create(true)
@@ -641,7 +788,7 @@ fn open_or_create_array(
     let n_bytes = n_cells * dtype.width();
     let shape_json: Vec<u64> = grid_shape.iter().map(|&v| v as u64).collect();
     let fill: serde_json::Value = match dtype {
-        Dtype::F32 => json!(0.0),
+        Dtype::F32 | Dtype::F64 => json!(0.0),
         _ => json!(0),
     };
     let layout = json!({
@@ -1042,17 +1189,22 @@ mod tests {
             gpu_util_pct: f32::NAN,
             gpu_mem_bytes: 0,
         });
-        m.record(&b);
+        let dispatch = BlockDispatch {
+            worker_id: Some(3),
+            sent_at: 1_700_000_000.25,
+            returned_at: 1_700_000_000.75,
+        };
+        m.record(&b, Some(&dispatch));
 
         let summary = m.summary();
         assert_eq!(summary.blocks_recorded, 1);
         assert!(summary.has_stats);
-        assert!((summary.total_cpu_seconds - 0.25).abs() < 1e-6);
-        assert_eq!(summary.max_peak_rss_bytes, 4096);
-        assert_eq!(summary.total_io_read_bytes, 128);
-        assert_eq!(summary.total_io_write_bytes, 256);
-        assert_eq!(summary.block_ms.len(), 1);
-        assert!((summary.block_ms[0] - 500.0).abs() < 1e-3);
+        assert!((summary.cpu.sum() - 0.25).abs() < 1e-6);
+        assert_eq!(summary.peak_rss.max(), 4096.0);
+        assert_eq!(summary.io_read.sum(), 128.0);
+        assert_eq!(summary.io_write.sum(), 256.0);
+        assert_eq!(summary.wall.n(), 1);
+        assert!((summary.wall_trend.mean() - 500.0).abs() < 1e-3);
 
         drop(m);
         let m2 = open(&dir, &total, &block_shape, true);
@@ -1064,6 +1216,52 @@ mod tests {
         assert_eq!(back.io_write_bytes, 256);
         assert!(back.gpu_util_pct.is_nan(), "gpu slot should stay NaN");
         assert!(m2.is_done(&b), "record must also mark done");
+        assert_eq!(m2.dispatch_of(&b), Some(dispatch));
+        let rec = m2.record_of(&b).unwrap();
+        assert!(rec.done);
+        assert_eq!(rec.failures, 0);
+        assert_eq!(rec.dispatch, Some(dispatch));
+        assert!(rec.stats.is_some());
+
+        // A block never dispatched reads back without one.
+        let other = block_at(&total, &[30], &[10]);
+        assert_eq!(m2.dispatch_of(&other), None);
+        assert_eq!(m2.record_of(&other).unwrap().done, false);
+    }
+
+    #[test]
+    fn dispatch_without_a_managed_worker_reads_back_as_none_worker() {
+        let dir = tempdir();
+        let total = make_roi(&[0], &[100]);
+        let block_shape = make_roi(&[0], &[10]);
+        let mut m = open(&dir, &total, &block_shape, true);
+        let b = block_at(&total, &[0], &[10]);
+        m.record(
+            &b,
+            Some(&BlockDispatch {
+                worker_id: None,
+                sent_at: 1.0,
+                returned_at: 2.0,
+            }),
+        );
+        let d = m.dispatch_of(&b).unwrap();
+        assert_eq!(d.worker_id, None);
+        assert_eq!((d.sent_at, d.returned_at), (1.0, 2.0));
+    }
+
+    #[test]
+    fn run_records_append_one_line_each() {
+        let dir = tempdir();
+        let total = make_roi(&[0], &[100]);
+        let block_shape = make_roi(&[0], &[10]);
+        let m = open(&dir, &total, &block_shape, false);
+        m.append_run_record("{\"run\": 1}").unwrap();
+        m.append_run_record("{\"run\": 2}").unwrap();
+        let text = std::fs::read_to_string(dir.join(RUNS_FILE)).unwrap();
+        assert_eq!(text, "{\"run\": 1}\n{\"run\": 2}\n");
+        // Still a valid group: the stray file does not disturb reopening.
+        drop(m);
+        let _ = open(&dir, &total, &block_shape, false);
     }
 
     #[test]
@@ -1075,10 +1273,12 @@ mod tests {
 
         let mut b = block_at(&total, &[20], &[10]);
         b.stats = Some(BlockStats::default());
-        m.record(&b);
+        m.record(&b, Some(&BlockDispatch::default()));
 
         assert!(!m.with_stats());
         assert!(m.stats_of(&b).is_none());
+        assert!(m.dispatch_of(&b).is_none());
+        assert!(!dir.join("worker_id").exists());
         assert!(dir.join("done").is_dir());
         assert!(dir.join("failures").is_dir());
         assert!(!dir.join("cpu_seconds").exists());
@@ -1101,7 +1301,7 @@ mod tests {
                 wall_seconds: ms / 1000.0,
                 ..BlockStats::default()
             });
-            m.record(&b);
+            m.record(&b, None);
         }
         let (mean, slope) = m.summary().block_ms_trend();
         assert!((mean - 20.0).abs() < 1e-3, "mean={mean}");
@@ -1127,6 +1327,8 @@ mod tests {
             (ARRAY_FAILURES, "uint32"),
             (ARRAY_CPU_SECONDS, "float32"),
             (ARRAY_PEAK_RSS, "uint64"),
+            (ARRAY_WORKER_ID, "uint32"),
+            (ARRAY_SENT_AT, "float64"),
         ] {
             let meta: serde_json::Value =
                 serde_json::from_slice(&std::fs::read(dir.join(name).join("zarr.json")).unwrap())

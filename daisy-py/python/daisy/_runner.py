@@ -49,18 +49,18 @@ class Server:
     wraps process functions with per-worker logging context first.
 
     Most users go through `daisy.run_blockwise(...)`. Instantiate this
-    class directly when you want access to `last_tracking_summary` or
-    `last_task_order` after the run."""
+    class directly when you want access to `last_report` or
+    `last_task_order` after the run (`daisy.last_report()` returns the
+    same report for whichever entry point ran last)."""
 
     def __init__(self, stop_event=None):
         self._stop_event = stop_event
         self.hostname = None
         self.port = None
-        #: This run's per-task aggregates, agglomerated from the per-block
-        #: measurements the tracking layer wrote (``{"per_task": {...}}``).
-        #: Empty of resource figures unless a task set
-        #: ``resource_tracking=True``.
-        self.last_tracking_summary = None
+        #: This run's `daisy.RunReport`: per-task block aggregates (resource
+        #: figures only for tasks with ``resource_tracking=True``) and
+        #: per-worker startup / idle / compute / teardown timing.
+        self.last_report = None
         self.last_task_order = None
 
     def run_blockwise(
@@ -76,14 +76,15 @@ class Server:
         abandoned tasks (inspect the states instead). The execution summary
         is printed on return and on KeyboardInterrupt; `summary=False`
         silences it."""
-        pipeline = _prepare(_coerce_pipeline(pipeline))
+        original = _coerce_pipeline(pipeline)
+        pipeline = _prepare(original)
         order = _rs._topo_order(pipeline)
         self.last_task_order = order
         observer = _resolve_observer(progress, order)
         with execution_summary(summary) as rec:
             rec.order = order
             try:
-                states, stats = _rs._run_distributed_server(
+                states, report = _rs._run_distributed_server(
                     pipeline,
                     resources,
                     observer,
@@ -92,23 +93,26 @@ class Server:
                 )
             finally:
                 _worker_log.close_all_log_files()
-            self.last_tracking_summary = stats
-            rec.set(states, stats)
+            report._attach(original.tasks)
+            self.last_report = report
+            rec.set(states, report)
         return states
 
 
 def _run_serial(pipeline, block_tracking=True, summary=True):
     """Single-threaded execution path (no TCP, no workers). Runs the
     original process functions in-process — no subprocess wrapping."""
-    pipeline = _prepare(_coerce_pipeline(pipeline), distributed=False)
+    original = _coerce_pipeline(pipeline)
+    pipeline = _prepare(original, distributed=False)
     order = _rs._topo_order(pipeline)
     with execution_summary(summary) as rec:
         rec.order = order
         try:
-            states, stats = _rs._run_serial(pipeline, block_tracking=block_tracking)
+            states, report = _rs._run_serial(pipeline, block_tracking=block_tracking)
         finally:
             _worker_log.close_all_log_files()
-        rec.set(states, stats)
+        report._attach(original.tasks)
+        rec.set(states, report)
     return states
 
 
@@ -162,7 +166,9 @@ def run_blockwise(
     raises ``RuntimeError`` either way.
 
     ``summary=False`` silences the execution summary that is otherwise
-    printed on return, on KeyboardInterrupt and on abandonment.
+    printed on return, on KeyboardInterrupt and on abandonment. The run's
+    `daisy.RunReport` (per-block and per-worker timing) is available
+    afterwards from ``daisy.last_report()`` either way.
 
     ``host`` is the address workers are told to connect to. Leave it
     unset and daisy detects one — this host's resolved name, else the
@@ -176,12 +182,13 @@ def run_blockwise(
     value from the environment, for pipeline libraries that don't thread
     the argument through.
     """
-    pipeline = _prepare(_coerce_pipeline(pipeline), distributed=multiprocessing)
+    original = _coerce_pipeline(pipeline)
+    pipeline = _prepare(original, distributed=multiprocessing)
     order = _rs._topo_order(pipeline)
     with execution_summary(summary) as rec:
         rec.order = order
         try:
-            states, stats = _rs._run_blockwise_orchestrator(
+            states, report = _rs._run_blockwise_orchestrator(
                 pipeline,
                 multiprocessing=multiprocessing,
                 resources=resources,
@@ -191,7 +198,8 @@ def run_blockwise(
             )
         finally:
             _worker_log.close_all_log_files()
-        rec.set(states, stats)
+        report._attach(original.tasks)
+        rec.set(states, report)
     if return_states:
         return states
     return _all_succeeded(states)
