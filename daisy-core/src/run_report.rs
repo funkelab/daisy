@@ -25,6 +25,9 @@ pub struct BlockReport {
     pub failures: u64,
     /// True once any block carried resource measurements.
     pub has_stats: bool,
+    /// Server round trip per completed block (dispatch → return). Needs
+    /// no tracking store, so it is reported for every distributed task.
+    pub round_trip: Welford,
     pub wall: Welford,
     pub cpu: Welford,
     pub peak_rss: Welford,
@@ -39,11 +42,12 @@ pub struct BlockReport {
 }
 
 impl BlockReport {
-    fn from_summary(s: &TaskSummary, overhead: Welford) -> Self {
+    fn from_summary(s: &TaskSummary, round_trip: Welford, overhead: Welford) -> Self {
         Self {
             count: s.blocks_recorded,
             failures: s.failures_recorded,
             has_stats: s.has_stats,
+            round_trip,
             wall: s.wall.clone(),
             cpu: s.cpu.clone(),
             peak_rss: s.peak_rss.clone(),
@@ -87,13 +91,15 @@ pub fn build_reports(
     counters
         .iter()
         .map(|(task_id, c)| {
+            let round_trip = timeline.round_trip(task_id);
             let overhead = timeline.overhead(task_id);
             let (tracked, blocks) = match summaries.get(task_id) {
-                Some(s) => (true, BlockReport::from_summary(s, overhead)),
+                Some(s) => (true, BlockReport::from_summary(s, round_trip, overhead)),
                 None => (
                     false,
                     BlockReport {
                         count: c.completed_count.max(0) as u64,
+                        round_trip,
                         overhead,
                         ..BlockReport::default()
                     },

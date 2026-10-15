@@ -80,8 +80,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shutdown reply, the spawn thread's exit — so it needs no protocol change,
   is always collected (O(workers) memory), and covers startup and teardown,
   which a worker cannot report about itself. The "Resource Utilization"
-  panel now prints `± ` figures, the worker line and a per-worker table
-  (ten rows, then a pointer) for tasks with `resource_tracking=True`.
+  panel prints what needs no tracking store for every distributed task —
+  the scheduler's per-block `round trip` and the worker line plus a
+  per-worker table (ten rows, then a pointer) — and the in-worker
+  measurements (`wall`, `cpu`, `peak RSS`, IO, `overhead`, `trend`) only
+  for tasks with `resource_tracking=True`.
   With `resource_tracking=True` the tracking store gains `worker_id`,
   `sent_at` and `returned_at` arrays (who ran each block and when, scheduler
   clock) and a `runs.jsonl` with the task's report appended once per run.

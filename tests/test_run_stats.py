@@ -183,7 +183,11 @@ def test_untracked_task_reports_no_measurements(tmp_path):
     assert not t.blocks.has_stats
     assert t.blocks.count == 4
     assert t.workers.count >= 1
-    assert server.last_report.render() == ""
+    # The store-free figures still print: round trip and worker timing...
+    out = server.last_report.render()
+    assert "round trip" in out and "workers  startup" in out
+    # ...but nothing that needs the store.
+    assert "cpu" not in out and "peak RSS" not in out and "trend" not in out
 
 
 def _render(report):
@@ -226,12 +230,48 @@ def _report(**tasks):
     )
 
 
-def test_renderer_omits_panel_without_measurements():
-    """Nothing at all when no task measured anything — a table of zeros is
-    worse than no table."""
+def test_renderer_omits_panel_without_anything_to_show():
+    """Nothing at all when no task has a round trip, a worker or a
+    measurement (a serial run without resource tracking) — a table of
+    zeros is worse than no table."""
     assert _render(None) == ""
     assert _render(_report()) == ""
     assert _render(_report(t={"blocks": {"has_stats": False, "count": 4}})) == ""
+
+
+def test_renderer_prints_store_free_figures_without_resource_tracking():
+    """Round trip and worker timing need no tracking store, so they print
+    for every distributed task; the in-worker measurements do not."""
+    out = _render(
+        _report(
+            plain={
+                "blocks": {"count": 4, "round_trip": _stat(4, 0.05, 0.001)},
+                "workers": {
+                    "count": 1,
+                    "startup": _stat(1, 0.1),
+                    "idle": _stat(4, 0.001),
+                    "compute": _stat(4, 0.05, 0.001),
+                    "teardown": _stat(1, 0.02),
+                    "exits": {"clean": 1},
+                    "by_id": [
+                        {
+                            "worker_id": 0,
+                            "startup": 0.1,
+                            "blocks_ok": 4,
+                            "idle": _stat(4, 0.001),
+                            "compute": _stat(4, 0.05),
+                            "teardown": 0.02,
+                            "exit": "clean",
+                        }
+                    ],
+                },
+            }
+        )
+    )
+    assert "plain   4 blocks, 1 worker" in out
+    assert "blocks   round trip 50.0 ms ± 1.0 ms" in out
+    assert "workers  startup 100.0 ms   idle 1.0 ms" in out
+    assert "cpu" not in out and "peak RSS" not in out and "io read" not in out
 
 
 def _is_worker_row(line):
@@ -254,6 +294,7 @@ def test_renderer_prints_measured_figures():
                     "has_stats": True,
                     "count": 12,
                     "failures": 2,
+                    "round_trip": _stat(12, 1.003, 0.2),
                     "wall": _stat(12, 1.0, 0.2),
                     "cpu": _stat(12, 0.9, 0.1),
                     "peak_rss": _stat(12, 1024 * 1024 * 1024, 20 * 1024 * 1024),
@@ -295,6 +336,7 @@ def test_renderer_prints_measured_figures():
     )
     assert "Resource Utilization" in out
     assert "seg   12 blocks, 2 workers, 4.10 s wall" in out
+    assert "blocks   round trip 1.00 s ± 0.20 s" in out
     assert "wall 1.00 s ± 0.20 s" in out
     assert "cpu 900.0 ms ± 100.0 ms" in out
     assert "peak RSS 1.0 GB ± 20.0 MB" in out

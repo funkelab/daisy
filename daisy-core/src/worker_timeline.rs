@@ -240,6 +240,10 @@ pub struct WorkerReport {
 
 #[derive(Debug, Default)]
 struct TaskSide {
+    /// Server round trip per successfully returned block, managed and
+    /// unmanaged clients alike — the block-level time figure that needs
+    /// no tracking store.
+    round_trip: Welford,
     /// Round trip minus the worker's own `wall_seconds`, per measured block.
     overhead: Welford,
     unmanaged: HashSet<SocketAddr>,
@@ -331,12 +335,12 @@ impl RunTimeline {
             Some(w) => w.block_returned(now, sent_at, ok),
             None => now.duration_since(sent_at).as_secs_f64(),
         };
+        let side = self.tasks.entry(task_id.to_string()).or_default();
+        if ok {
+            side.round_trip.push(elapsed);
+        }
         if let Some(wall) = wall_seconds {
-            self.tasks
-                .entry(task_id.to_string())
-                .or_default()
-                .overhead
-                .push((elapsed - wall).max(0.0));
+            side.overhead.push((elapsed - wall).max(0.0));
         }
         now
     }
@@ -375,6 +379,13 @@ impl RunTimeline {
                 w.exited(now, kind);
             }
         }
+    }
+
+    pub fn round_trip(&self, task_id: &str) -> Welford {
+        self.tasks
+            .get(task_id)
+            .map(|t| t.round_trip.clone())
+            .unwrap_or_default()
     }
 
     pub fn overhead(&self, task_id: &str) -> Welford {
@@ -527,6 +538,8 @@ mod tests {
         assert_eq!((a.exits.clean, a.exits.error), (1, 1));
         assert_eq!(a.by_id.len(), 2);
         assert_eq!(t.overhead("a").n(), 1);
+        assert_eq!(t.round_trip("a").n(), 2);
+        assert!(t.round_trip("b").is_empty());
 
         let b = t.report_for("b");
         assert_eq!(b.count, 1);

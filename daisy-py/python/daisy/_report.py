@@ -132,13 +132,18 @@ class Stat:
 
 @dataclass(frozen=True)
 class BlockSummary:
-    """Per-block figures for one task over this run. The ``Stat`` fields
-    are empty unless the task set ``resource_tracking=True``; ``overhead``
-    (server round trip minus the block's own wall time) likewise."""
+    """Per-block figures for one task over this run.
+
+    ``round_trip`` (dispatch → return, measured by the scheduler) needs no
+    tracking store and is there for every distributed task. The remaining
+    ``Stat`` fields are measured inside the worker and are empty unless the
+    task set ``resource_tracking=True``; ``overhead`` is the round trip
+    minus the block's own wall time."""
 
     count: int = 0
     failures: int = 0
     has_stats: bool = False
+    round_trip: Stat = field(default_factory=Stat)
     wall: Stat = field(default_factory=Stat)
     cpu: Stat = field(default_factory=Stat)
     peak_rss: Stat = field(default_factory=Stat)
@@ -154,6 +159,7 @@ class BlockSummary:
             count=int(d.get("count", 0)),
             failures=int(d.get("failures", 0)),
             has_stats=bool(d.get("has_stats", False)),
+            round_trip=Stat.from_dict(d.get("round_trip")),
             wall=Stat.from_dict(d.get("wall")),
             cpu=Stat.from_dict(d.get("cpu")),
             peak_rss=Stat.from_dict(d.get("peak_rss")),
@@ -168,6 +174,7 @@ class BlockSummary:
             "count": self.count,
             "failures": self.failures,
             "has_stats": self.has_stats,
+            "round_trip": self.round_trip.to_dict(),
             "wall": self.wall.to_dict(),
             "cpu": self.cpu.to_dict(),
             "peak_rss": self.peak_rss.to_dict(),
@@ -396,9 +403,15 @@ class TaskReport:
         if self.elapsed > 0:
             head += f", {_format_secs(self.elapsed)} wall"
         lines.append(head)
+        # Always available: the scheduler's own per-block round trip.
+        label = "    blocks  "
+        if b.round_trip:
+            lines.append(f"{label} round trip {b.round_trip.format()}")
+            label = "            "
+        # Measured inside the worker: only with resource_tracking=True.
         if b.has_stats:
             lines.append(
-                f"    blocks   wall {b.wall.format()}   cpu {b.cpu.format()}"
+                f"{label} wall {b.wall.format()}   cpu {b.cpu.format()}"
                 f"   peak RSS {b.peak_rss.format('B')}"
             )
             second = (
@@ -409,8 +422,8 @@ class TaskReport:
                 second += f"   overhead {b.overhead.format()}"
             second += f"   trend ∠ {b.trend_slope_ms:+.4f} ms/block"
             lines.append(second)
-            if b.failures:
-                lines.append(f"             {b.failures} failed attempt(s)")
+        if b.failures:
+            lines.append(f"             {b.failures} failed attempt(s)")
         if w.count:
             lines.append(
                 f"    workers  startup {w.startup.format()}   idle {w.idle.format()}"
@@ -500,6 +513,17 @@ class RunReport:
         """The tasks that measured their blocks (``resource_tracking=True``)."""
         return {tid: t for tid, t in self.tasks.items() if t.blocks.has_stats}
 
+    @property
+    def timed(self) -> dict:
+        """The tasks with anything to show: a worker timeline, a per-block
+        round trip, or resource measurements. A serial task without
+        resource tracking has none of these."""
+        return {
+            tid: t
+            for tid, t in self.tasks.items()
+            if t.workers.count or t.blocks.round_trip or t.blocks.has_stats
+        }
+
     def _attach(self, tasks) -> None:
         """Give each task report the `daisy.Task` it came from, for
         `TaskReport.block`."""
@@ -509,10 +533,14 @@ class RunReport:
                 self.tasks[tid]._task = task
 
     def render(self, task_order=None, max_workers: int = 10) -> str:
-        """The Resource Utilization panel: one section per task that
-        measured its blocks, in ``task_order``. Empty when no task did —
-        a table of zeros is worse than no table."""
-        measured = self.measured
+        """The Resource Utilization panel, one section per task in
+        ``task_order``. What needs no tracking store — the per-block round
+        trip and the per-worker startup / idle / compute / teardown — is
+        always shown; the in-worker measurements (wall, CPU, RSS, IO,
+        overhead, trend) only for tasks with ``resource_tracking=True``.
+        Empty when there is nothing at all to show (a serial run without
+        resource tracking) — a table of zeros is worse than no table."""
+        measured = self.timed
         if not measured:
             return ""
         if task_order is None:

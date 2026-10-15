@@ -236,23 +236,40 @@ def test_serial_mode_has_no_workers(tmp_path):
     assert t.tracked and t.blocks.has_stats and t.blocks.count == 8
     assert t.workers.count == 0
     assert t.workers.by_id == {}
+    assert not t.blocks.round_trip  # nothing was dispatched over TCP
     assert not t.blocks.overhead  # no round trip to subtract from
-    assert "workers" not in t.render()
+    assert "workers" not in t.render() and "round trip" not in t.render()
+    assert "wall" in t.render()
+
+    plain = _task("serial_plain", tmp_path, tracked=False, max_workers=1)
+    daisy.run_blockwise([plain], multiprocessing=False, progress=False)
+    assert daisy.last_report().render() == ""
 
 
-def test_panel_prints_worker_timing_only_with_resource_tracking(tmp_path, capfd):
-    daisy.run_blockwise([_task("shown", tmp_path)], progress=False)
+def test_panel_always_prints_store_free_figures(tmp_path, capfd):
+    """Round trip and worker timing need no tracking store, so every
+    summary shows them; the in-worker measurements (wall, CPU, RSS, IO,
+    overhead, trend) appear only with resource_tracking=True."""
+    daisy.run_blockwise([_task("measured", tmp_path)], progress=False)
     out = capfd.readouterr().out
     assert "Resource Utilization" in out
+    assert "blocks   round trip" in out
+    assert "wall" in out and "cpu" in out and "peak RSS" in out
     assert "workers  startup" in out
     assert "  exit" in out and "clean" in out
 
-    daisy.run_blockwise([_task("hidden", tmp_path, tracked=False)], progress=False)
+    daisy.run_blockwise([_task("plain", tmp_path, tracked=False)], progress=False)
     out = capfd.readouterr().out
     assert "Execution Summary" in out
-    assert "Resource Utilization" not in out
-    # Collected regardless: the figures are on the report.
-    assert daisy.last_report()["hidden"].workers.count >= 1
+    assert "Resource Utilization" in out
+    assert "blocks   round trip" in out
+    assert "workers  startup" in out and "clean" in out
+    for needs_store in ("cpu", "peak RSS", "io read", "overhead", "trend"):
+        assert needs_store not in out, needs_store
+    t = daisy.last_report()["plain"]
+    assert t.blocks.round_trip.n == 8
+    assert 0.045 < t.blocks.round_trip.mean < 0.5
+    assert not t.blocks.wall
 
 
 def test_last_report_is_set_by_every_entry_point(tmp_path):

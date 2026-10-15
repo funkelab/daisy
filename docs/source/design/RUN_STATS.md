@@ -108,7 +108,8 @@ Resource Utilization
 --------------------
 
   seg   12 blocks, 3 workers, 292.1 ms wall
-    blocks   wall 50.2 ms ± 0.0 ms   cpu 60.1 µs ± 13.6 µs   peak RSS 25.5 MB ± 0.0 B
+    blocks   round trip 50.5 ms ± 0.1 ms
+             wall 50.2 ms ± 0.0 ms   cpu 60.1 µs ± 13.6 µs   peak RSS 25.5 MB ± 0.0 B
              io read 1.1 KB  write 0.0 B   overhead 372.1 µs ± 43.3 µs   trend ∠ +0.0027 ms/block
     workers  startup 60.8 ms ± 0.1 ms   idle 25.9 µs ± 33.9 µs   teardown 26.4 ms ± 3.7 ms
              exits 3 clean
@@ -128,10 +129,18 @@ Every `x ± y` is a mean and sample standard deviation over a `Welford`
 accumulator (`run_stats.rs`), so the report costs O(1) memory per metric.
 `trend` is the least-squares slope of per-block wall time in completion
 order (`run_stats::Trend`, the running form of `linear_trend`): positive
-means blocks got slower as the run progressed. The panel is **omitted
-entirely** when no task opted into resource tracking — a table of zeros is
-worse than no table — and the per-worker table stops at ten rows, then
-points at the full table on the report object.
+means blocks got slower as the run progressed.
+
+What prints is decided by what it costs. The figures that need **no tracking
+store** — the per-block `round trip` the scheduler times itself, and the
+per-worker startup / idle / compute / teardown — are printed for every
+distributed task, always. The figures measured **inside the worker** and
+persisted to the store (`wall`, `cpu`, `peak RSS`, IO, `overhead`, `trend`)
+appear only for tasks with `resource_tracking=True`. The panel is omitted
+only when there is nothing at all to show (a serial run without resource
+tracking) — a table of zeros is worse than no table — and the per-worker
+table stops at ten rows, then points at the full table on the report
+object.
 
 Programmatic access: `daisy.last_report()` (also `Server.last_report`, and
 `daisy_run_report` on the `KeyboardInterrupt` / abandonment error) is a
@@ -139,7 +148,8 @@ Programmatic access: `daisy.last_report()` (also `Server.last_report`, and
 
 ```python
 t = daisy.last_report()["seg"]
-t.blocks.wall            # Stat(n, mean, std, min, max, total), seconds
+t.blocks.round_trip      # Stat(n, mean, std, min, max, total), seconds; always there
+t.blocks.wall            # the worker's own measurement; resource_tracking only
 t.blocks.peak_rss        # bytes
 t.blocks.overhead        # round trip − wall, per block
 t.workers.startup        # Stat over workers
