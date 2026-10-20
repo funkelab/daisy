@@ -548,17 +548,36 @@ impl PyTask {
         let Some(rec) = tracking.record_of(&block.inner) else {
             return Ok(None);
         };
-        let d = PyDict::new(py);
-        d.set_item("done", rec.done)?;
-        d.set_item("failures", rec.failures)?;
-        d.set_item(
-            "stats",
-            rec.stats.map(|inner| crate::py_block::PyBlockStats { inner }),
-        )?;
-        d.set_item("worker_id", rec.dispatch.and_then(|x| x.worker_id))?;
-        d.set_item("sent_at", rec.dispatch.map(|x| x.sent_at))?;
-        d.set_item("returned_at", rec.dispatch.map(|x| x.returned_at))?;
+        let d = Self::record_dict(py, &rec)?;
+        d.set_item("spatial_id", block.inner.block_id.spatial_id)?;
         Ok(Some(d))
+    }
+
+    /// Every block the tracking store has recorded — done, or with a
+    /// failure count — as the dicts `block_record` returns, each with its
+    /// `spatial_id`. Opens the store once and walks the whole block grid,
+    /// so it is O(blocks); for very large grids read the zarr arrays
+    /// directly instead. Empty when no store is configured or none exists.
+    fn block_records<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let Some((tracking, task)) = self.open_tracking(py)? else {
+            return Ok(Vec::new());
+        };
+        let graph = daisy_core::dependency_graph::BlockwiseDependencyGraph::from_task(&task);
+        let mut out = Vec::new();
+        for level in 0..graph.num_levels() {
+            for block in graph.level_blocks(level) {
+                let Some(rec) = tracking.record_of(&block) else {
+                    continue;
+                };
+                if !rec.done && rec.failures == 0 {
+                    continue;
+                }
+                let d = Self::record_dict(py, &rec)?;
+                d.set_item("spatial_id", block.block_id.spatial_id)?;
+                out.push(d);
+            }
+        }
+        Ok(out)
     }
 
     /// The directory this task's tracking store resolves to — an explicit
@@ -701,6 +720,23 @@ impl PyTask {
 /// Store access shared by the read-only diagnostics above (not exposed
 /// to Python).
 impl PyTask {
+    fn record_dict<'py>(
+        py: Python<'py>,
+        rec: &daisy_core::block_tracking::BlockRecord,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("done", rec.done)?;
+        d.set_item("failures", rec.failures)?;
+        d.set_item(
+            "stats",
+            rec.stats.map(|inner| crate::py_block::PyBlockStats { inner }),
+        )?;
+        d.set_item("worker_id", rec.dispatch.and_then(|x| x.worker_id))?;
+        d.set_item("sent_at", rec.dispatch.map(|x| x.sent_at))?;
+        d.set_item("returned_at", rec.dispatch.map(|x| x.returned_at))?;
+        Ok(d)
+    }
+
     /// Open this task's tracking store for reading, if one is configured
     /// and exists. Maps the stat arrays only when the store already has
     /// them, so a read never adds arrays to a store.

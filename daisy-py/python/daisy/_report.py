@@ -173,6 +173,9 @@ class BlockSummary:
     minus the block's own wall time."""
 
     count: int = 0
+    #: blocks this run skipped via done markers or a skip mask; they are
+    #: included in ``count`` but contributed no timing samples
+    skipped: int = 0
     failures: int = 0
     has_stats: bool = False
     round_trip: Stat = field(default_factory=Stat)
@@ -189,6 +192,7 @@ class BlockSummary:
         d = d or {}
         return cls(
             count=int(d.get("count", 0)),
+            skipped=int(d.get("skipped", 0)),
             failures=int(d.get("failures", 0)),
             has_stats=bool(d.get("has_stats", False)),
             round_trip=Stat.from_dict(d.get("round_trip")),
@@ -204,6 +208,7 @@ class BlockSummary:
     def to_dict(self) -> dict:
         return {
             "count": self.count,
+            "skipped": self.skipped,
             "failures": self.failures,
             "has_stats": self.has_stats,
             "round_trip": self.round_trip.to_dict(),
@@ -333,6 +338,25 @@ class BlockRecord:
     def peak_rss_bytes(self) -> int | None:
         return None if self.stats is None else self.stats.peak_rss_bytes
 
+    @property
+    def round_trip(self) -> float | None:
+        """Dispatch to return in seconds, from the scheduler's stamps."""
+        if self.sent_at is None or self.returned_at is None:
+            return None
+        return self.returned_at - self.sent_at
+
+    @classmethod
+    def _from_dict(cls, task_id, d) -> BlockRecord:
+        return cls(
+            block_id=(task_id, d["spatial_id"]),
+            done=d["done"],
+            failures=d["failures"],
+            stats=d["stats"],
+            worker_id=d["worker_id"],
+            sent_at=d["sent_at"],
+            returned_at=d["returned_at"],
+        )
+
 
 class TaskReport:
     """One task's report. ``blocks`` and ``workers`` are the summaries;
@@ -407,15 +431,28 @@ class TaskReport:
         rec = task.block_record(native)
         if rec is None:
             return None
-        return BlockRecord(
-            block_id=(task.task_id, native.block_id[1]),
-            done=rec["done"],
-            failures=rec["failures"],
-            stats=rec["stats"],
-            worker_id=rec["worker_id"],
-            sent_at=rec["sent_at"],
-            returned_at=rec["returned_at"],
-        )
+        return BlockRecord._from_dict(task.task_id, rec)
+
+    def block_records(self) -> list:
+        """Every block the tracking store has recorded (done, or with a
+        failure count) as `BlockRecord`s sorted by spatial id: the
+        per-block counterpart of ``workers.by_id``. Per-block timing
+        (``round_trip``, ``worker_id``, ``sent_at``, ``returned_at``) and
+        resource figures need ``resource_tracking=True``; a plain done-marker
+        store yields ``done`` and ``failures`` only. Walks the whole grid,
+        so it is O(blocks); for very large grids read the zarr arrays in
+        the store directly. Empty without a store; needs the task attached,
+        like `block`.
+        """
+        task = self._task
+        if task is None:
+            raise RuntimeError(
+                f"TaskReport({self.task_id!r}).block_records(): no task attached; "
+                "per-block lookup reads the tracking store through the Task"
+            )
+        rows = [BlockRecord._from_dict(task.task_id, d) for d in task.block_records()]
+        rows.sort(key=lambda r: r.block_id[1])
+        return rows
 
     def __repr__(self) -> str:
         return (
@@ -430,6 +467,8 @@ class TaskReport:
         b, w = self.blocks, self.workers
         lines = []
         head = f"  {self.task_id}   {b.count} blocks"
+        if b.skipped:
+            head += f" ({b.skipped} skipped)"
         if w.count:
             head += f", {w.count} worker{'s' if w.count != 1 else ''}"
         if self.elapsed > 0:

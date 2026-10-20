@@ -161,7 +161,14 @@ t.workers.startup        # Stat over workers
 t.workers.idle           # Stat over per-block gaps, pooled across workers
 t.worker(1)              # WorkerRecord: startup, idle, compute, teardown, exit
 t.block((1, 2))          # BlockRecord from the store: stats, worker_id, sent_at, returned_at
+t.block_records()        # every recorded block, in grid order — the per-block table
 ```
+
+Before a task has ever run, `task.report()` is None. After a resumed run
+that skipped every block via done markers, the new report line says so
+(`blocks.skipped`, no timing samples), while `block(...)` and
+`block_records()` keep returning the stamps of the run that actually did the
+work: the per-block arrays are only written when a block executes.
 
 ## The worker timeline
 

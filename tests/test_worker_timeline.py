@@ -157,6 +157,18 @@ def test_worker_id_on_disk_matches_who_ran_each_block(tmp_path, monkeypatch):
         counted[int((out / f"block-{i}").read_text())] += 1
     assert {wid: r.blocks_ok for wid, r in t.workers.by_id.items()} == counted
 
+    # The per-block table: one record per block, in grid order, with the
+    # same stamps as the single lookups and timings consistent with them.
+    rows = t.block_records()
+    assert [r.block_id for r in rows] == [("who", i) for i in range(8)]
+    for i, r in enumerate(rows):
+        assert r.done and r.failures == 0
+        assert r.worker_id == int((out / f"block-{i}").read_text())
+        assert r.round_trip is not None and r.round_trip >= r.wall_seconds >= 0.009
+        assert r.sent_at == t.block((i,)).sent_at
+    assert t.blocks.round_trip.n == len(rows)
+    assert abs(sum(r.round_trip for r in rows) - t.blocks.round_trip.total) < 1e-6
+
     # The arrays are plain zarr v3, readable without daisy.
     zarr = pytest.importorskip("zarr")
     if int(zarr.__version__.split(".")[0]) >= 3:
@@ -205,6 +217,7 @@ def test_block_lookup_forms_agree_and_degrade_honestly(tmp_path):
 
     _, plain = _run(_task("plain", tmp_path, tracked=False, max_workers=1))
     assert plain.block((0,)) is None
+    assert plain.block_records() == []
 
     rebuilt = daisy.TaskReport.from_dict(plain.to_dict())
     with pytest.raises(RuntimeError, match="no task attached"):
@@ -226,6 +239,18 @@ def test_runs_jsonl_gets_one_line_per_run_and_round_trips(tmp_path):
     # task.report() is the last line, read from the file.
     assert task.report().to_dict() == second.to_dict()
     assert task.tracking_path == str(tmp_path / "tracking_history")
+    # The rerun executed nothing: count still folds the skipped blocks in
+    # (as the execution summary's `completed` does), `skipped` says so, and
+    # there are no timing samples for it; the per-block records keep the
+    # stamps of the run that actually did the work.
+    assert first.blocks.skipped == 0 and first.blocks.round_trip.n == 8
+    assert second.blocks.count == 8 and second.blocks.skipped == 8
+    assert second.blocks.round_trip.n == 0 and second.blocks.wall.n == 0
+    assert "8 blocks (8 skipped)" in second.render()
+    assert second.block((3,)).sent_at == first.block((3,)).sent_at
+    assert [r.block_id for r in second.block_records()] == [
+        ("history", i) for i in range(8)
+    ]
 
 
 def test_serial_mode_has_no_workers(tmp_path):
@@ -245,7 +270,11 @@ def test_serial_mode_has_no_workers(tmp_path):
     daisy.run_blockwise([plain], multiprocessing=False, progress=False)
     section = plain.report().render()
     assert section.strip().startswith("serial_plain   8 blocks")
-    assert "workers" not in section and "round trip" not in section and "wall " not in section
+    assert (
+        "workers" not in section
+        and "round trip" not in section
+        and "wall " not in section
+    )
 
 
 def test_panel_always_prints_store_free_figures(tmp_path, capfd):

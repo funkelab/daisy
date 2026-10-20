@@ -19,8 +19,12 @@ use crate::worker_timeline::{RunTimeline, WorkerReport};
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct BlockReport {
     /// Blocks completed this run (from the tracking layer when the task
-    /// has a store, else the scheduler's completed count).
+    /// has a store, else the scheduler's completed count). Includes the
+    /// blocks a resumed run skipped via done markers — see `skipped`.
     pub count: u64,
+    /// Blocks skipped this run because a done marker (or skip mask) said
+    /// so; they were not executed, so they contribute no timing samples.
+    pub skipped: u64,
     /// Failed attempts this run.
     pub failures: u64,
     /// True once any block carried resource measurements.
@@ -42,9 +46,15 @@ pub struct BlockReport {
 }
 
 impl BlockReport {
-    fn from_summary(s: &TaskSummary, round_trip: Welford, overhead: Welford) -> Self {
+    fn from_summary(
+        s: &TaskSummary,
+        skipped: u64,
+        round_trip: Welford,
+        overhead: Welford,
+    ) -> Self {
         Self {
             count: s.blocks_recorded,
+            skipped,
             failures: s.failures_recorded,
             has_stats: s.has_stats,
             round_trip,
@@ -93,12 +103,14 @@ pub fn build_reports(
         .map(|(task_id, c)| {
             let round_trip = timeline.round_trip(task_id);
             let overhead = timeline.overhead(task_id);
+            let skipped = c.skipped_count.max(0) as u64;
             let (tracked, blocks) = match summaries.get(task_id) {
-                Some(s) => (true, BlockReport::from_summary(s, round_trip, overhead)),
+                Some(s) => (true, BlockReport::from_summary(s, skipped, round_trip, overhead)),
                 None => (
                     false,
                     BlockReport {
                         count: c.completed_count.max(0) as u64,
+                        skipped,
                         round_trip,
                         overhead,
                         ..BlockReport::default()
@@ -135,6 +147,7 @@ mod tests {
             "t".to_string(),
             TaskCounters {
                 completed_count: 7,
+                skipped_count: 3,
                 ..TaskCounters::default()
             },
         );
@@ -143,6 +156,7 @@ mod tests {
         let r = &reports["t"];
         assert!(!r.tracked);
         assert_eq!(r.blocks.count, 7);
+        assert_eq!(r.blocks.skipped, 3);
         assert!(!r.blocks.has_stats);
         assert_eq!(r.workers.count, 0);
         let json: serde_json::Value = serde_json::from_str(&r.to_json()).unwrap();

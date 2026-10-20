@@ -73,8 +73,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   trip minus the worker's own wall time — and the wall-time trend) and
   `workers` (count, `startup`, `idle`, `compute`, `teardown` as
   distributions, exit kinds, and a row per worker under `by_id`).
-  `TaskReport.worker(id)` and `TaskReport.block(block | grid coord | id)`
-  drill down; the latter reads the tracking store (`Task.block_record`).
+  `TaskReport.worker(id)`, `TaskReport.block(block | grid coord | id)` and
+  `TaskReport.block_records()` drill down; the latter two read the tracking
+  store (`Task.block_record`, `Task.block_records`). `blocks.skipped`
+  separates a resumed run's skipped blocks from executed ones.
   `Task.run_blockwise(**kwargs)` runs a task on its own and `Task.report()`
   returns its section of its most recent run's report, read from the
   persisted `runs.jsonl`, so it works in a later process and after an
