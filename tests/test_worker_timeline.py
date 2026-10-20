@@ -282,3 +282,30 @@ def test_last_report_is_set_by_every_entry_point(tmp_path):
     )
     assert "c" in daisy.last_report()
     assert daisy.last_report()["c"].workers.count == 0
+
+
+def test_task_run_blockwise_and_report(tmp_path):
+    """The one-object form: build a task, run it, read its figures off it."""
+    task = _task("solo", tmp_path, tracked=False)
+    assert task.report() is None
+    assert task.run_blockwise(progress=False) is True
+    t = task.report()
+    assert t is not None and t.task_id == "solo"
+    assert t is daisy.last_report()["solo"]
+    assert t.blocks.count == 8 and t.blocks.round_trip.n == 8
+    assert t.workers.count >= 1 and t.workers.exits["clean"] == t.workers.count
+    assert t.worker(0).startup > 0
+
+    # Abandonment raises, but the partial report still lands on the task.
+    crashy = _task(
+        "crashy_solo",
+        tmp_path,
+        fn=_crash_on_connect,
+        tracked=False,
+        max_workers=1,
+        max_worker_restarts=0,
+    )
+    with pytest.raises(RuntimeError, match="abandoned"):
+        crashy.run_blockwise(progress=False)
+    assert crashy.report().workers.exits["error"] == 1
+    assert crashy.report().blocks.count == 0

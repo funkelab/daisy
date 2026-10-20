@@ -75,6 +75,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   distributions, exit kinds, and a row per worker under `by_id`).
   `TaskReport.worker(id)` and `TaskReport.block(block | grid coord | id)`
   drill down; the latter reads the tracking store (`Task.block_record`).
+  `Task.run_blockwise(**kwargs)` runs a task on its own and `Task.report()`
+  returns its section of the most recent run's report, also after an
+  interrupted or abandoned run.
   Worker timing is stamped by the server from the lifecycle events it
   already sees — spawn, first acquire, each dispatch and return, the
   shutdown reply, the spawn thread's exit — so it needs no protocol change,

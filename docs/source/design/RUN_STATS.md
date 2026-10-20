@@ -144,10 +144,13 @@ object.
 
 Programmatic access: `daisy.last_report()` (also `Server.last_report`, and
 `daisy_run_report` on the `KeyboardInterrupt` / abandonment error) is a
-`RunReport` of `TaskReport`s:
+`RunReport` of `TaskReport`s, and each task that took part carries its own
+section as `task.report()`:
 
 ```python
-t = daisy.last_report()["seg"]
+task = daisy.Task("seg", ...)
+task.run_blockwise()
+t = task.report()           # the same object as daisy.last_report()["seg"]
 t.blocks.round_trip      # Stat(n, mean, std, min, max, total), seconds; always there
 t.blocks.wall            # the worker's own measurement; resource_tracking only
 t.blocks.peak_rss        # bytes

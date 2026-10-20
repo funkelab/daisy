@@ -44,6 +44,16 @@ def _prepare(pipeline, distributed=True):
     return _rs.Pipeline(wrapped, new_edges)
 
 
+def _attach_report(report_or_exc, tasks):
+    """Wire the run's report to the tasks it covers — `TaskReport.block`
+    needs the task, `Task.report` needs the report. On the error paths
+    (KeyboardInterrupt, abandonment) the partial report rides on the
+    exception as ``daisy_run_report``."""
+    report = getattr(report_or_exc, "daisy_run_report", report_or_exc)
+    if report is not None and hasattr(report, "_attach"):
+        report._attach(tasks)
+
+
 class Server:
     """Coordinator. Thin shim over `_rs._run_distributed_server` that
     wraps process functions with per-worker logging context first.
@@ -91,9 +101,12 @@ class Server:
                     host=host,
                     block_tracking=block_tracking,
                 )
+            except BaseException as e:
+                _attach_report(e, original.tasks)
+                raise
             finally:
                 _worker_log.close_all_log_files()
-            report._attach(original.tasks)
+            _attach_report(report, original.tasks)
             self.last_report = report
             rec.set(states, report)
         return states
@@ -109,9 +122,12 @@ def _run_serial(pipeline, block_tracking=True, summary=True):
         rec.order = order
         try:
             states, report = _rs._run_serial(pipeline, block_tracking=block_tracking)
+        except BaseException as e:
+            _attach_report(e, original.tasks)
+            raise
         finally:
             _worker_log.close_all_log_files()
-        report._attach(original.tasks)
+        _attach_report(report, original.tasks)
         rec.set(states, report)
     return states
 
@@ -196,9 +212,12 @@ def run_blockwise(
                 block_tracking=block_tracking,
                 host=host,
             )
+        except BaseException as e:
+            _attach_report(e, original.tasks)
+            raise
         finally:
             _worker_log.close_all_log_files()
-        report._attach(original.tasks)
+        _attach_report(report, original.tasks)
         rec.set(states, report)
     if return_states:
         return states

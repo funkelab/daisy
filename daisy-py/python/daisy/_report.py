@@ -525,12 +525,18 @@ class RunReport:
         }
 
     def _attach(self, tasks) -> None:
-        """Give each task report the `daisy.Task` it came from, for
-        `TaskReport.block`."""
+        """Give each task report the `daisy.Task` it came from (for
+        `TaskReport.block`) and each task its report (for `Task.report`)."""
         for task in tasks:
             tid = getattr(task, "task_id", None)
-            if tid in self.tasks:
-                self.tasks[tid]._task = task
+            if tid not in self.tasks:
+                continue
+            self.tasks[tid]._task = task
+            try:
+                task._last_report = self.tasks[tid]
+            except AttributeError:
+                # a bare native task (no instance dict) cannot carry it
+                pass
 
     def render(self, task_order=None, max_workers: int = 10) -> str:
         """The Resource Utilization panel, one section per task in
