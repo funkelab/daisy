@@ -297,11 +297,25 @@ class Task(_rs.Task):
         return run_blockwise(self, **kwargs)
 
     def report(self):
-        """This task's `TaskReport` from the most recent run that included
-        it — per-block ``mean ± std`` and per-worker startup / idle /
-        compute / teardown — or None if it has not run in this process.
-        Set whether the run finished, was interrupted or was abandoned.
-        The same object is ``daisy.last_report()[task.task_id]``."""
+        """This task's `TaskReport` from its most recent run — per-block
+        ``mean ± std`` and per-worker startup / idle / compute / teardown —
+        or None if it has never run.
+
+        Read from the last line of the task's ``runs.jsonl`` (in its
+        tracking store, else next to its worker logs under the log basedir),
+        so it works in a later process too and reflects whichever run of
+        this task happened last, finished, interrupted or abandoned. Only
+        when nothing could be persisted (no store and file logging off) does
+        it fall back to the report kept in memory by a run in this process.
+        """
+        from daisy._report import read_last_run, runs_file_for
+
+        path = runs_file_for(self)
+        if path is not None:
+            report = read_last_run(path)
+            if report is not None:
+                report._task = self
+                return report
         return getattr(self, "_last_report", None)
 
 

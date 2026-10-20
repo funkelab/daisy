@@ -142,15 +142,17 @@ tracking) — a table of zeros is worse than no table — and the per-worker
 table stops at ten rows, then points at the full table on the report
 object.
 
-Programmatic access: `daisy.last_report()` (also `Server.last_report`, and
-`daisy_run_report` on the `KeyboardInterrupt` / abandonment error) is a
-`RunReport` of `TaskReport`s, and each task that took part carries its own
-section as `task.report()`:
+Programmatic access goes through the task, and through the file, so it does
+not depend on the state of an in-memory server: `task.report()` reads the
+last line of the task's `runs.jsonl` and works in a later process just the
+same. (`Server.last_report` is the whole pipeline's `RunReport` of that
+server's last run; the partial report of an interrupted or abandoned run
+also rides on the error as `daisy_run_report`.)
 
 ```python
 task = daisy.Task("seg", ...)
 task.run_blockwise()
-t = task.report()           # the same object as daisy.last_report()["seg"]
+t = task.report()           # TaskReport, from runs.jsonl
 t.blocks.round_trip      # Stat(n, mean, std, min, max, total), seconds; always there
 t.blocks.wall            # the worker's own measurement; resource_tracking only
 t.blocks.peak_rss        # bytes
@@ -217,12 +219,24 @@ Gantt-style timeline — who ran what, when, with what gaps — can be rebuilt
 from the store alone. Worker ids restart at 0 every run, so the value is
 "the worker, in the run that completed this block".
 
-The run report itself is appended as one JSON line per run to `runs.jsonl`
-in the same directory: append-only, human-readable, `jq`-able, keeps history
-across resumes, and ignored by zarr readers. It is the same JSON the Python
-`RunReport` is built from, so the object a run returns and the record left
-on disk cannot drift apart. Tasks without a store persist nothing; the
-report is still built in memory.
+The run report itself is appended as one JSON line per run to `runs.jsonl`:
+append-only, human-readable, `jq`-able, keeps history across resumes. It is
+the same JSON the Python `RunReport` is built from, so the object a run
+returns and the record left on disk cannot drift apart. Every task gets one,
+whether or not it opted into resource tracking:
+
+- a task with a tracking store (an explicit `tracking_path`, or one resolved
+  from `set_tracking_basedir`) gets it inside that store — the Rust side
+  appends it as the run ends, on the normal, interrupted and abandoned paths
+  alike. zarr-python warns about the unrecognised entry when *listing* the
+  group's members; indexing arrays is silent;
+- a task without one gets it under `<log basedir>/<task_id>/runs.jsonl`,
+  next to its worker logs, written by the Python layer when file logging is
+  on (the same condition under which worker logs are written).
+
+`task.report()` reads the last line from whichever applies; only when
+neither exists (no store, file logging off) does it fall back to the copy a
+run in this process kept in memory.
 
 ## Narrowing what gets measured
 

@@ -206,9 +206,9 @@ def test_block_lookup_forms_agree_and_degrade_honestly(tmp_path):
     _, plain = _run(_task("plain", tmp_path, tracked=False, max_workers=1))
     assert plain.block((0,)) is None
 
-    rebuilt = daisy.RunReport.from_json(daisy.last_report().to_json())
+    rebuilt = daisy.TaskReport.from_dict(plain.to_dict())
     with pytest.raises(RuntimeError, match="no task attached"):
-        rebuilt["plain"].block((0,))
+        rebuilt.block((0,))
 
 
 def test_runs_jsonl_gets_one_line_per_run_and_round_trips(tmp_path):
@@ -223,16 +223,16 @@ def test_runs_jsonl_gets_one_line_per_run_and_round_trips(tmp_path):
     assert daisy.TaskReport.from_dict(rows[1]).to_dict() == second.to_dict()
     assert rows[0]["workers"]["count"] == 1
     assert rows[1]["started_at"] >= rows[0]["finished_at"]
-    # The whole report also round-trips as JSON.
-    rt = daisy.RunReport.from_json(daisy.last_report().to_json())
-    assert rt.to_dict() == daisy.last_report().to_dict()
+    # task.report() is the last line, read from the file.
+    assert task.report().to_dict() == second.to_dict()
+    assert task.tracking_path == str(tmp_path / "tracking_history")
 
 
 def test_serial_mode_has_no_workers(tmp_path):
     task = _task("serial", tmp_path, max_workers=1)
     ok = daisy.run_blockwise([task], multiprocessing=False, progress=False)
     assert ok
-    t = daisy.last_report()["serial"]
+    t = task.report()
     assert t.tracked and t.blocks.has_stats and t.blocks.count == 8
     assert t.workers.count == 0
     assert t.workers.by_id == {}
@@ -243,7 +243,9 @@ def test_serial_mode_has_no_workers(tmp_path):
 
     plain = _task("serial_plain", tmp_path, tracked=False, max_workers=1)
     daisy.run_blockwise([plain], multiprocessing=False, progress=False)
-    assert daisy.last_report().render() == ""
+    section = plain.report().render()
+    assert section.strip().startswith("serial_plain   8 blocks")
+    assert "workers" not in section and "round trip" not in section and "wall " not in section
 
 
 def test_panel_always_prints_store_free_figures(tmp_path, capfd):
@@ -266,22 +268,68 @@ def test_panel_always_prints_store_free_figures(tmp_path, capfd):
     assert "workers  startup" in out and "clean" in out
     for needs_store in ("cpu", "peak RSS", "io read", "overhead", "trend"):
         assert needs_store not in out, needs_store
-    t = daisy.last_report()["plain"]
+    t = _last_run_task("plain", tmp_path).report()
     assert t.blocks.round_trip.n == 8
     assert 0.045 < t.blocks.round_trip.mean < 0.5
     assert not t.blocks.wall
 
 
-def test_last_report_is_set_by_every_entry_point(tmp_path):
+def _last_run_task(task_id, tmp_path):
+    """A fresh Task object for a task that already ran: what a later
+    process would build to call `report()` — no in-memory state at all."""
+    return _task(task_id, tmp_path, tracked=False)
+
+
+def test_report_is_persisted_for_every_entry_point_and_readable_later(tmp_path):
+    """Every entry point leaves runs.jsonl behind — in the tracking store
+    for tracked tasks, next to the worker logs otherwise — and a brand-new
+    Task object reads it back, as a later process would."""
+    import daisy.logging as dl
+
     daisy.run_blockwise([_task("a", tmp_path, tracked=False)], progress=False)
-    assert "a" in daisy.last_report()
     daisy.Server().run_blockwise([_task("b", tmp_path, tracked=False)], progress=False)
-    assert "b" in daisy.last_report()
     daisy.run_blockwise(
         [_task("c", tmp_path, tracked=False)], multiprocessing=False, progress=False
     )
-    assert "c" in daisy.last_report()
-    assert daisy.last_report()["c"].workers.count == 0
+    daisy.run_blockwise([_task("d", tmp_path)], progress=False)
+
+    for tid in "abc":
+        path = dl.get_log_basedir() / tid / "runs.jsonl"
+        assert path.is_file(), tid
+        fresh = _last_run_task(tid, tmp_path)
+        assert fresh.tracking_path is None
+        t = fresh.report()
+        assert t is not None and t.task_id == tid and t.blocks.count == 8
+    assert _last_run_task("c", tmp_path).report().workers.count == 0
+    assert _last_run_task("a", tmp_path).report().workers.count >= 1
+
+    # The tracked task's report is in its store, not under the logs.
+    assert not (dl.get_log_basedir() / "d" / "runs.jsonl").exists()
+    assert (tmp_path / "tracking_d" / "runs.jsonl").is_file()
+    fresh = _task("d", tmp_path)
+    t = fresh.report()
+    assert t.tracked and t.blocks.has_stats
+    assert t.block((0,)).done  # the store lookup works through the fresh task
+
+    # Two runs → two lines; report() is the latest.
+    daisy.run_blockwise([_task("a", tmp_path, tracked=False)], progress=False)
+    lines = (dl.get_log_basedir() / "a" / "runs.jsonl").read_text().splitlines()
+    assert len(lines) == 2
+    assert (
+        _last_run_task("a", tmp_path).report().started_at
+        == json.loads(lines[1])["started_at"]
+    )
+
+    # Nothing to persist (no store, file logging off): None from a fresh
+    # task, the in-memory copy from the task that ran.
+    dl.set_log_basedir(None)
+    try:
+        ran = _task("e", tmp_path, tracked=False)
+        daisy.run_blockwise([ran], progress=False)
+        assert _last_run_task("e", tmp_path).report() is None
+        assert ran.report() is not None and ran.report().blocks.count == 8
+    finally:
+        dl.set_log_basedir(tmp_path / "daisy_logs")
 
 
 def test_task_run_blockwise_and_report(tmp_path):
@@ -291,7 +339,6 @@ def test_task_run_blockwise_and_report(tmp_path):
     assert task.run_blockwise(progress=False) is True
     t = task.report()
     assert t is not None and t.task_id == "solo"
-    assert t is daisy.last_report()["solo"]
     assert t.blocks.count == 8 and t.blocks.round_trip.n == 8
     assert t.workers.count >= 1 and t.workers.exits["clean"] == t.workers.count
     assert t.worker(0).startup > 0

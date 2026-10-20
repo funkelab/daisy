@@ -45,10 +45,10 @@ def _prepare(pipeline, distributed=True):
 
 
 def _attach_report(report_or_exc, tasks):
-    """Wire the run's report to the tasks it covers — `TaskReport.block`
-    needs the task, `Task.report` needs the report. On the error paths
-    (KeyboardInterrupt, abandonment) the partial report rides on the
-    exception as ``daisy_run_report``."""
+    """Wire the run's report to the tasks it covers (`TaskReport.block`
+    needs the task) and persist it for the tasks without a tracking store.
+    On the error paths (KeyboardInterrupt, abandonment) the partial report
+    rides on the exception as ``daisy_run_report``."""
     report = getattr(report_or_exc, "daisy_run_report", report_or_exc)
     if report is not None and hasattr(report, "_attach"):
         report._attach(tasks)
@@ -58,10 +58,10 @@ class Server:
     """Coordinator. Thin shim over `_rs._run_distributed_server` that
     wraps process functions with per-worker logging context first.
 
-    Most users go through `daisy.run_blockwise(...)`. Instantiate this
-    class directly when you want access to `last_report` or
-    `last_task_order` after the run (`daisy.last_report()` returns the
-    same report for whichever entry point ran last)."""
+    Most users go through `daisy.run_blockwise(...)` and read a task's
+    figures back with `Task.report()`. Instantiate this class directly when
+    you want the whole pipeline's `last_report` or `last_task_order` after
+    the run."""
 
     def __init__(self, stop_event=None):
         self._stop_event = stop_event
@@ -182,9 +182,9 @@ def run_blockwise(
     raises ``RuntimeError`` either way.
 
     ``summary=False`` silences the execution summary that is otherwise
-    printed on return, on KeyboardInterrupt and on abandonment. The run's
-    `daisy.RunReport` (per-block and per-worker timing) is available
-    afterwards from ``daisy.last_report()`` either way.
+    printed on return, on KeyboardInterrupt and on abandonment. Each task's
+    figures (per-block and per-worker timing) are persisted and available
+    afterwards from ``task.report()`` either way.
 
     ``host`` is the address workers are told to connect to. Leave it
     unset and daisy detects one — this host's resolved name, else the

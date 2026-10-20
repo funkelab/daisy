@@ -57,10 +57,12 @@ def test_summary_shape(tmp_path):
         assert stat.n == 4, stat
         assert stat.min <= stat.mean <= stat.max
         assert stat.std >= 0
-    report = daisy.last_report()
+    report = daisy.Server()
+    report.run_blockwise([_tracked_task("shape2", tmp_path, _busy)], progress=False)
+    report = report.last_report
     again = daisy.RunReport.from_json(report.to_json())
-    assert again["shape"].blocks == s
-    assert again["shape"].workers.by_id.keys() == report["shape"].workers.by_id.keys()
+    assert again["shape2"].blocks == report["shape2"].blocks
+    assert again["shape2"].workers.by_id.keys() == report["shape2"].workers.by_id.keys()
 
 
 def _busy_worker():

@@ -64,8 +64,6 @@ as in 1.x. Every daisy entry point accepts them (or anything with integer
 ## Run report
 
 ```{eval-rst}
-.. autofunction:: daisy.last_report
-
 .. autoclass:: daisy.RunReport
    :members:
 

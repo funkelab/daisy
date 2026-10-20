@@ -1,42 +1,74 @@
 """The run report: per-block and per-worker figures for every task of a run.
 
 Built from the JSON the Rust side emits (`daisy_core::run_report`) — the
-same line it appends to each tracked task's ``runs.jsonl`` — so the object
-you get back from a run and the record left on disk are one and the same
-shape.
+same line that is appended, once per run, to the task's ``runs.jsonl`` —
+so the object a run returns and the record left on disk are one and the
+same shape. ``runs.jsonl`` lives in the task's tracking store when it has
+one, else under ``<log basedir>/<task_id>/`` next to the worker logs.
 
-Primary interface::
+Primary interface, in the process that ran or any later one::
 
-    report = daisy.last_report()          # or daisy.Server().last_report
-    t = report.tasks["segment"]
-    t.blocks.wall                          # Stat: n, mean, std, min, max, total
+    t = task.report()                      # TaskReport, read from runs.jsonl
+    t.blocks.round_trip                    # Stat: n, mean, std, min, max, total
     t.workers.startup                      # Stat over workers
     t.workers.idle                         # Stat over per-block gaps, all workers
-    print(report)                          # the panel the run prints
+    print(t.render())                      # the task's section of the panel
 
 Drill-downs::
 
     t.worker(1)                            # WorkerRecord
     t.block(block)                         # BlockRecord from the tracking store
     t.block((1, 2))                        # ...by grid coordinate
+
+`Server.last_report` is the whole-pipeline `RunReport` of a server's last
+run.
 """
 
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
-_last: list = [None]
-
-
-def last_report():
-    """The `RunReport` of the most recent run in this process (any entry
-    point), or None before the first run finishes."""
-    return _last[0]
+RUNS_FILE = "runs.jsonl"
 
 
-def _set_last(report) -> None:
-    _last[0] = report
+def runs_file_for(task) -> Path | None:
+    """Where a task's run reports are appended: ``runs.jsonl`` in its
+    tracking store, else under the log basedir next to its worker logs,
+    else None (no store and file logging off)."""
+    store = task.tracking_path
+    if store:
+        return Path(store) / RUNS_FILE
+    from daisy.logging import get_log_basedir, get_log_mode
+
+    base = get_log_basedir()
+    if base is None or get_log_mode() == "console":
+        return None
+    return Path(base) / task.task_id / RUNS_FILE
+
+
+def read_last_run(path) -> TaskReport | None:
+    """The last report line of a ``runs.jsonl``, or None if absent/empty."""
+    path = Path(path)
+    if not path.is_file():
+        return None
+    last = None
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            if line.strip():
+                last = line
+    if last is None:
+        return None
+    return TaskReport.from_dict(json.loads(last))
+
+
+def append_run(path, task_report) -> None:
+    """Append one report line, creating the directory as needed."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(json.dumps(task_report.to_dict()) + "\n")
 
 
 # -- formatting ---------------------------------------------------------------
@@ -526,17 +558,29 @@ class RunReport:
 
     def _attach(self, tasks) -> None:
         """Give each task report the `daisy.Task` it came from (for
-        `TaskReport.block`) and each task its report (for `Task.report`)."""
+        `TaskReport.block`), keep an in-memory copy on the task (the
+        fallback for `Task.report` when nothing could be persisted), and
+        persist the report of every task without a tracking store next to
+        its worker logs — the Rust side already appended it to the store
+        of every task that has one."""
         for task in tasks:
             tid = getattr(task, "task_id", None)
             if tid not in self.tasks:
                 continue
-            self.tasks[tid]._task = task
+            report = self.tasks[tid]
+            report._task = task
             try:
-                task._last_report = self.tasks[tid]
+                task._last_report = report
             except AttributeError:
                 # a bare native task (no instance dict) cannot carry it
                 pass
+            if not report.tracked:
+                path = runs_file_for(task)
+                if path is not None:
+                    try:
+                        append_run(path, report)
+                    except OSError:
+                        pass  # the report is still returned; never fail a run over it
 
     def render(self, task_order=None, max_workers: int = 10) -> str:
         """The Resource Utilization panel, one section per task in

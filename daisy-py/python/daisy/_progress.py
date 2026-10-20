@@ -177,7 +177,6 @@ class _SummaryRecorder:
         self.states = states
         if report is not None:
             self.report = report
-            _report._set_last(report)
         if order is not None:
             self.order = order
 
@@ -215,8 +214,6 @@ class execution_summary:
             states = getattr(exc, "daisy_states", None)
             order = getattr(exc, "daisy_task_order", None) or order
             report = getattr(exc, "daisy_run_report", None)
-            if report is not None:
-                _report._set_last(report)
             if states is None:
                 return False
             if isinstance(exc, KeyboardInterrupt):

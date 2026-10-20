@@ -561,6 +561,15 @@ impl PyTask {
         Ok(Some(d))
     }
 
+    /// The directory this task's tracking store resolves to — an explicit
+    /// `tracking_path`, or `<tracking basedir>/<task_id>` when a basedir is
+    /// set — or None when the task has no persistent store (tracking off,
+    /// or the run-scoped store `resource_tracking=True` falls back to).
+    #[getter]
+    fn tracking_path(&self, py: Python<'_>) -> Option<String> {
+        self.done_marker_path.resolve(py, &self.task_id)
+    }
+
     /// Property: return the user-facing 3-state value (None / False /
     /// str), matching what was passed at construction.
     #[getter(done_marker_path)]
