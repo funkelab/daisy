@@ -1,9 +1,8 @@
 """Tracking-store fixes from the 1.x vs 2.0 evaluation review."""
 
-import pytest
-
 import daisy
 import daisy.logging as dl
+import pytest
 
 
 def _task(fn, name="t", n=100, **kw):
@@ -48,7 +47,9 @@ def test_resource_tracking_without_any_basedir_still_errors(tmp_path):
 
 def test_failed_blocks_come_back_from_the_store(tmp_path):
     store = tmp_path / "track"
-    task = _task(_fail_on_two, tracking_path=str(store), max_retries=0, max_worker_restarts=20)
+    task = _task(
+        _fail_on_two, tracking_path=str(store), max_retries=0, max_worker_restarts=20
+    )
     assert daisy.run_blockwise([task], progress=False) is False
     failed = sorted(b.block_id[1] for b in task.failed_blocks())
     assert failed == [3, 7]

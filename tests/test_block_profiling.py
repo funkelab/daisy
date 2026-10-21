@@ -12,9 +12,8 @@ import subprocess
 import sys
 import textwrap
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _require_zarr_v3():

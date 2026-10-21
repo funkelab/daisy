@@ -19,9 +19,8 @@ import subprocess
 import sys
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _task(fn, **kw):

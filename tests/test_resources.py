@@ -19,10 +19,9 @@ importing daisy) or workers would drain the blocks in sequence and the
 cap.
 """
 
+import daisy
 import pytest
 from observe import interval_recorder, peak_concurrency
-
-import daisy
 
 HOLD_S = 0.05
 

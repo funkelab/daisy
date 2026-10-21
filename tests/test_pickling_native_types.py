@@ -40,8 +40,12 @@ def test_block_using_fn_survives_cloudpickle():
     import funlib.geometry as fg
 
     def fn(block):
-        return daisy.Block(block.read_roi, block.read_roi, block.write_roi, task_id=block.task_id)
+        return daisy.Block(
+            block.read_roi, block.read_roi, block.write_roi, task_id=block.task_id
+        )
 
     restored = cloudpickle.loads(cloudpickle.dumps(fn))
-    b = daisy.Block(fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), task_id="t")
+    b = daisy.Block(
+        fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), task_id="t"
+    )
     assert restored(b) == b

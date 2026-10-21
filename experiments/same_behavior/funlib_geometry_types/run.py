@@ -26,7 +26,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -41,9 +43,13 @@ def run(tasks, **kw):
     try:
         r = daisy.run_blockwise(list(tasks), **kw)
     except BaseException as e:  # noqa: BLE001 - KeyboardInterrupt is a result here
-        print(f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)")
+        print(
+            f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)"
+        )
         return None
-    shown = r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    shown = (
+        r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    )
     print(f"\nRETURNED {shown}  ({time.monotonic() - t0:.1f} s)")
     return r
 
@@ -111,30 +117,57 @@ def check(label, ok):
 def body(block):
     note_attempt(block)
     end = block.write_roi.offset + block.write_roi.shape  # funlib Coordinate arithmetic
-    assert isinstance(block.read_roi, Roi) and isinstance(end, Coordinate), type(block.read_roi)
+    assert isinstance(block.read_roi, Roi) and isinstance(end, Coordinate), type(
+        block.read_roi
+    )
 
 
 def main():
     banner("funlib.geometry types everywhere")
     total, read, write = Roi((0,), (N * 10,)), Roi((0,), (10,)), Roi((0,), (10,))
     check("daisy.Roi is funlib.geometry.Roi", daisy.Roi is Roi)
-    check("daisy.Coordinate is funlib.geometry.Coordinate", daisy.Coordinate is Coordinate)
+    check(
+        "daisy.Coordinate is funlib.geometry.Coordinate", daisy.Coordinate is Coordinate
+    )
     try:
-        pos = daisy.Task("pos", total, read, write, body, read_write_conflict=False, **WORKERS)
-        check("Task(id, total_roi, read_roi, write_roi, fn) with funlib ROIs (positional)", True)
+        pos = daisy.Task(
+            "pos", total, read, write, body, read_write_conflict=False, **WORKERS
+        )
+        check(
+            "Task(id, total_roi, read_roi, write_roi, fn) with funlib ROIs (positional)",
+            True,
+        )
     except TypeError as e:
         pos = None
         check(f"Task(...) with funlib ROIs (positional): {e}", False)
-    kw = daisy.Task("kw", total_roi=total, read_roi=read, write_roi=write, process_function=body,
-                    read_write_conflict=False, **WORKERS)
-    check("Task(total_roi=..., read_roi=..., write_roi=...) with funlib ROIs (keywords)", True)
+    kw = daisy.Task(
+        "kw",
+        total_roi=total,
+        read_roi=read,
+        write_roi=write,
+        process_function=body,
+        read_write_conflict=False,
+        **WORKERS,
+    )
+    check(
+        "Task(total_roi=..., read_roi=..., write_roi=...) with funlib ROIs (keywords)",
+        True,
+    )
     check("task.total_roi is a funlib Roi", isinstance(kw.total_roi, Roi))
-    check("task.total_roi.intersect(funlib Roi) works", kw.total_roi.intersect(Roi((70,), (20,))) == Roi((70,), (10,)))
+    check(
+        "task.total_roi.intersect(funlib Roi) works",
+        kw.total_roi.intersect(Roi((70,), (20,))) == Roi((70,), (10,)),
+    )
     b = daisy.Block(total, read, write)
-    check("daisy.Block(funlib ROIs).read_roi is a funlib Roi", isinstance(b.read_roi, Roi))
+    check(
+        "daisy.Block(funlib ROIs).read_roi is a funlib Roi", isinstance(b.read_roi, Roi)
+    )
     run(pos if pos is not None else kw)
     report_attempts(N)
-    check("process function received funlib ROIs and did funlib arithmetic (no assertion failures)", True)
+    check(
+        "process function received funlib ROIs and did funlib arithmetic (no assertion failures)",
+        True,
+    )
 
 
 if __name__ == "__main__":

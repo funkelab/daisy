@@ -29,7 +29,14 @@ def run_one(python, script, timeout):
     env.pop("DAISY_CONTEXT", None)
     env["PYTHONUNBUFFERED"] = "1"
     t0 = time.monotonic()
-    proc = subprocess.Popen([python, "-u", script], cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    proc = subprocess.Popen(
+        [python, "-u", script],
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
     try:
         out, err = proc.communicate(timeout=timeout)
         status = f"exit {proc.returncode}"
@@ -42,7 +49,11 @@ def run_one(python, script, timeout):
 
 
 def version_of(python):
-    return subprocess.run([python, "-c", "import importlib.metadata as m; print(m.version('daisy'))"], capture_output=True, text=True).stdout.strip()
+    return subprocess.run(
+        [python, "-c", "import importlib.metadata as m; print(m.version('daisy'))"],
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
 
 
 SCRUB = [
@@ -74,7 +85,9 @@ def clean(text, keep=60):
     if len(lines) <= keep:
         return "\n".join(lines), 0
     head, tail = lines[: keep // 2], lines[-keep // 2 :]
-    return "\n".join(head + [f"... ({len(lines) - keep} lines omitted) ..."] + tail), len(lines) - keep
+    return "\n".join(
+        head + [f"... ({len(lines) - keep} lines omitted) ..."] + tail
+    ), len(lines) - keep
 
 
 def stderr_summary(text):
@@ -91,11 +104,30 @@ def stderr_summary(text):
 
 
 def readme(group, name, claim, doc, runs):
-    md = [f"# {name.replace('_', ' ')}", "", f"**Claim.** {claim}", "", f"**Table.** {group.replace('_', ' ')}", ""]
-    md += ["**Run it** (works with daisy 1.x or 2.0 installed):", "", "```", f"python experiments/{group}/{name}/run.py", "```", ""]
+    md = [
+        f"# {name.replace('_', ' ')}",
+        "",
+        f"**Claim.** {claim}",
+        "",
+        f"**Table.** {group.replace('_', ' ')}",
+        "",
+    ]
+    md += [
+        "**Run it** (works with daisy 1.x or 2.0 installed):",
+        "",
+        "```",
+        f"python experiments/{group}/{name}/run.py",
+        "```",
+        "",
+    ]
     md += ["## What the script does", "", doc.strip(), ""]
     for version, label, (out, err, status, secs, _cwd) in runs:
-        md += [f"## Output on daisy {label} ({version})", "", f"Status: {status}, {secs:.1f} s.", ""]
+        md += [
+            f"## Output on daisy {label} ({version})",
+            "",
+            f"Status: {status}, {secs:.1f} s.",
+            "",
+        ]
         body, omitted = clean(out)
         md += ["```text", body or "(no stdout)", "```", ""]
         summary, tail = stderr_summary(err)
@@ -119,10 +151,15 @@ def main():
         with open(script) as f:
             doc = f.read().split('"""')[1]
         runs = []
-        for python, label, version in ((a.v1, "1.x", v1_version), (a.v2, "2.0", v2_version)):
+        for python, label, version in (
+            (a.v1, "1.x", v1_version),
+            (a.v2, "2.0", v2_version),
+        ):
             res = run_one(python, script, timeout)
             runs.append((version, label, res))
-            print(f"[{group}/{name}] daisy {label}: {res[2]} ({res[3]:.1f} s)", flush=True)
+            print(
+                f"[{group}/{name}] daisy {label}: {res[2]} ({res[3]:.1f} s)", flush=True
+            )
         with open(os.path.join(ROOT, group, name, "README.md"), "w") as f:
             f.write(readme(group, name, claim, doc, runs))
 

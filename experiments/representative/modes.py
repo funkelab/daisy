@@ -29,7 +29,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -72,9 +74,13 @@ def run(tasks, **kw):
     try:
         r = daisy.run_blockwise(list(tasks), **kw)
     except BaseException as e:  # noqa: BLE001 - KeyboardInterrupt is a result here
-        print(f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)")
+        print(
+            f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)"
+        )
         return None
-    shown = r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    shown = (
+        r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    )
     print(f"\nRETURNED {shown}  ({time.monotonic() - t0:.1f} s)")
     return r
 
@@ -125,7 +131,9 @@ def tail(path, n=12):
     except OSError:
         print(f"[{path}: not present]")
         return
-    print(f"--- {path} ({len(lines)} lines{', last ' + str(n) if len(lines) > n else ''}) ---")
+    print(
+        f"--- {path} ({len(lines)} lines{', last ' + str(n) if len(lines) > n else ''}) ---"
+    )
     for line in lines[-n:]:
         print(line)
 
@@ -159,7 +167,10 @@ N = 8
 
 def process_block(block):
     time.sleep(0.01)
-    print(f"block {block.block_id[1]} write roi {block.write_roi} done by pid {os.getpid()}", flush=True)
+    print(
+        f"block {block.block_id[1]} write roi {block.write_roi} done by pid {os.getpid()}",
+        flush=True,
+    )
     note_attempt(block)
 
 
@@ -182,11 +193,27 @@ def main():
         worker_loop()
         return
     mode = next((a for a in sys.argv[1:] if a in "ABCS"), "A")
-    workers = int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 4
+    workers = (
+        int(sys.argv[sys.argv.index("--workers") + 1]) if "--workers" in sys.argv else 4
+    )
     banner(f"3-D sleep task, mode {mode}, {workers} workers")
     total, read, write = grid_3d(N)
-    fn = {"A": process_block, "B": worker_loop, "C": launch_external_worker, "S": process_block}[mode]
-    t = task("sleep3d", total, read, write, fn, workers=workers, read_write_conflict=True, timeout=60)
+    fn = {
+        "A": process_block,
+        "B": worker_loop,
+        "C": launch_external_worker,
+        "S": process_block,
+    }[mode]
+    t = task(
+        "sleep3d",
+        total,
+        read,
+        write,
+        fn,
+        workers=workers,
+        read_write_conflict=True,
+        timeout=60,
+    )
     run(t, multiprocessing=(mode != "S"))
     report_attempts(N**3)
     logs = worker_logs("sleep3d")

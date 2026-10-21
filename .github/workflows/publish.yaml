@@ -9,8 +9,6 @@ on:
   push:
     branches:
       - main
-      - master
-      - v2.0
     tags:
       - "*"
   pull_request:
@@ -94,7 +92,8 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner: macos-13
+          # macos-13 is retired; macos-15-intel is the remaining x86_64 image
+          - runner: macos-15-intel
             target: x86_64
           - runner: macos-14
             target: aarch64
@@ -145,20 +144,23 @@ jobs:
           python-version: "3.11"
       - name: Install wheel and run smoke test
         run: |
-          pip install --no-index --find-links dist daisy
+          # daisy from the built wheel (never PyPI's copy of the same
+          # version), then its dependencies from PyPI
+          pip install --no-index --no-deps --find-links dist daisy
+          pip install --find-links dist daisy
           python - <<'EOF'
           import daisy
-          done = []
           task = daisy.Task(
               "smoke",
-              total_roi=daisy.v2.Roi((0,), (40,)),
-              read_roi=daisy.v2.Roi((0,), (10,)),
-              write_roi=daisy.v2.Roi((0,), (10,)),
+              total_roi=daisy.Roi((0,), (40,)),
+              read_roi=daisy.Roi((0,), (10,)),
+              write_roi=daisy.Roi((0,), (10,)),
               process_function=lambda b: None,
-              num_workers=2,
-              worker_processes=False,
+              read_write_conflict=False,
+              max_workers=2,
           )
-          assert daisy.run_blockwise([task], progress=False)
+          states = daisy.run_blockwise([task], progress=False, return_states=True)
+          assert states["smoke"].completed_count == 4, states
           print("wheel smoke test OK")
           EOF
 

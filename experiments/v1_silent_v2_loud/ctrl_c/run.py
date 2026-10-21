@@ -23,7 +23,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -62,9 +64,13 @@ def run(tasks, **kw):
     try:
         r = daisy.run_blockwise(list(tasks), **kw)
     except BaseException as e:  # noqa: BLE001 - KeyboardInterrupt is a result here
-        print(f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)")
+        print(
+            f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)"
+        )
         return None
-    shown = r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    shown = (
+        r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    )
     print(f"\nRETURNED {shown}  ({time.monotonic() - t0:.1f} s)")
     return r
 
@@ -130,8 +136,12 @@ def body(block):
 def main():
     banner("Ctrl-C mid-run")
     total, read, write = grid_1d(N)
-    t = task("t", total, read, write, body, workers=8, read_write_conflict=False, timeout=30)
-    threading.Thread(target=lambda: (time.sleep(2), os.kill(os.getpid(), signal.SIGINT)), daemon=True).start()
+    t = task(
+        "t", total, read, write, body, workers=8, read_write_conflict=False, timeout=30
+    )
+    threading.Thread(
+        target=lambda: (time.sleep(2), os.kill(os.getpid(), signal.SIGINT)), daemon=True
+    ).start()
     run(t, progress=False) if V2 else run(t)
     report_attempts(N)
 

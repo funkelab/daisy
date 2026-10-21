@@ -2,9 +2,8 @@
 never finish (its outer blocks have nothing to wait on); daisy must refuse
 it up front instead of waiting forever."""
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _noop(block):

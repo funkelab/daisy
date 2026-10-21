@@ -5,10 +5,9 @@ import threading
 import time
 from pathlib import Path
 
-import pytest
-
 import daisy
 import daisy.logging as dl
+import pytest
 
 
 def _task(fn, name="t", n=40, **kw):

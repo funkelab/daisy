@@ -1,8 +1,7 @@
 import multiprocessing as mp
 
-import pytest
-
 import daisy
+import pytest
 
 # `daisy.messages` and `daisy.tcp` were daisy 1.x's internal protocol modules
 # (pickle-over-tornado). daisy v2's wire protocol is bincode over tokio TCP,

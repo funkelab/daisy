@@ -2,9 +2,9 @@ name: docs
 
 on:
   push:
-    branches: [main, v2.0]
+    branches: [main]
   pull_request:
-    branches: [main, v2.0]
+    branches: [main]
   workflow_dispatch:
 
 # Allow only one concurrent deploy at a time per ref.

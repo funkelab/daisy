@@ -12,9 +12,8 @@ import socket
 import subprocess
 import sys
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _dead_port() -> int:

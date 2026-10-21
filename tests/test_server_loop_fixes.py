@@ -38,10 +38,14 @@ class _Recorder:
         pass
 
     def on_progress(self, states):
-        self.progress.append({k: (v.completed_count, v.skipped_count) for k, v in states.items()})
+        self.progress.append(
+            {k: (v.completed_count, v.skipped_count) for k, v in states.items()}
+        )
 
     def on_finish(self, states):
-        self.finish = {k: (v.completed_count, v.skipped_count) for k, v in states.items()}
+        self.finish = {
+            k: (v.completed_count, v.skipped_count) for k, v in states.items()
+        }
 
 
 def test_progress_observer_sees_skipped_blocks(tmp_path):
@@ -70,7 +74,14 @@ def _fire_and_forget(*, context=None):
     # returns at once; the external worker connects after this returned
     env = dict(os.environ)
     env["DAISY_CONTEXT"] = context.to_env()
-    subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0.3); import daisy\nc = daisy.Client()\nwhile True:\n    with c.acquire_block() as b:\n        if b is None: break"], env=env)
+    subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(0.3); import daisy\nc = daisy.Client()\nwhile True:\n    with c.acquire_block() as b:\n        if b is None: break",
+        ],
+        env=env,
+    )
 
 
 @pytest.mark.timeout(60)
@@ -82,5 +93,9 @@ def test_fire_and_forget_error_leaves_no_worker_processes(tmp_path):
     with pytest.raises(RuntimeError, match="connected after its spawn function"):
         daisy.run_blockwise([task], progress=False)
     time.sleep(1.0)
-    after = {c.pid for c in me.children(recursive=True) if c.is_running() and c.status() != psutil.STATUS_ZOMBIE} - before
+    after = {
+        c.pid
+        for c in me.children(recursive=True)
+        if c.is_running() and c.status() != psutil.STATUS_ZOMBIE
+    } - before
     assert not after, f"worker processes left behind: {after}"

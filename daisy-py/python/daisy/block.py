@@ -104,7 +104,13 @@ class Block:
     def __reduce__(self):
         return (
             _rebuild,
-            (self.read_roi, self.write_roi, self.task_id, self.block_id[1], self.status),
+            (
+                self.read_roi,
+                self.write_roi,
+                self.task_id,
+                self.block_id[1],
+                self.status,
+            ),
         )
 
 

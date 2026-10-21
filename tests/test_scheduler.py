@@ -5,7 +5,6 @@ generalized Cantor pairing function.
 """
 
 import pytest
-
 from daisy import Block, BlockStatus, Roi, Scheduler, Task
 
 
