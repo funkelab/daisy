@@ -138,6 +138,13 @@ fn hostname_ip() -> Option<IpAddr> {
         .map(|addr| addr.ip())
 }
 
+#[cfg(not(unix))]
+fn hostname() -> Option<String> {
+    // libc has no gethostname on Windows; the environment carries the name.
+    std::env::var("COMPUTERNAME").ok().filter(|s| !s.is_empty())
+}
+
+#[cfg(unix)]
 fn hostname() -> Option<String> {
     // SAFETY: gethostname writes at most `len` bytes into the buffer, which
     // we own; we then read only up to the first NUL.
