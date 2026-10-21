@@ -1,7 +1,6 @@
 """Port of daisy's test_dependency_graph.py — 3 tests (6 parameterized variants)."""
 
 import pytest
-
 from daisy import Block, BlockwiseDependencyGraph, Roi, Task
 
 total_roi = Roi([0], [12])

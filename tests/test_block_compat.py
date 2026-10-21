@@ -51,14 +51,25 @@ def test_one_block_class_on_every_surface():
 def test_block_roundtrips_through_rust():
     """A Block carries a private Rust block; the Rust-backed APIs take the
     Python Block and hand Python Blocks back."""
-    b = daisy.Block(fg.Roi((0,), (40,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), task_id="g")
+    b = daisy.Block(
+        fg.Roi((0,), (40,)), fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), task_id="g"
+    )
     assert isinstance(b._native, daisy._daisy.Block)
     graph = daisy.BlockwiseDependencyGraph(
-        "g", fg.Roi((0,), (10,)), fg.Roi((0,), (10,)), True, "valid", total_read_roi=fg.Roi((0,), (40,))
+        "g",
+        fg.Roi((0,), (10,)),
+        fg.Roi((0,), (10,)),
+        True,
+        "valid",
+        total_read_roi=fg.Roi((0,), (40,)),
     )
     for neighbour in graph.upstream(b) + graph.downstream(b):
-        assert isinstance(neighbour, daisy.Block) and isinstance(neighbour.read_roi, fg.Roi)
-    assert graph.num_blocks == 4 and all(isinstance(r, daisy.Block) for r in graph.root_gen())
+        assert isinstance(neighbour, daisy.Block) and isinstance(
+            neighbour.read_roi, fg.Roi
+        )
+    assert graph.num_blocks == 4 and all(
+        isinstance(r, daisy.Block) for r in graph.root_gen()
+    )
 
 
 def test_acquired_and_manual_blocks_are_the_same_class():

@@ -117,5 +117,7 @@ while not completed:
     completed = all(s.completed_count == s.total_block_count for s in states.values())
     done = sum(s.completed_count for s in states.values())
     total = sum(s.total_block_count for s in states.values())
-    print(f"\nrun finished: {done}/{total} blocks done, completed={completed}, elapsed = {elapsed:.2f} s")
+    print(
+        f"\nrun finished: {done}/{total} blocks done, completed={completed}, elapsed = {elapsed:.2f} s"
+    )
 print(f"\nlogs and any failure tracebacks: {_TMP / 'logs'}")

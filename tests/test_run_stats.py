@@ -14,9 +14,8 @@ level is that the trend is fed real per-block wall times.
 
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _tracked_task(task_id, tmp_path, process_function, **kw):
@@ -193,9 +192,8 @@ def _render(summary):
     """
     import io
 
-    from daisy._progress import _print_resource_utilization
-
     from daisy import logging as _worker_log
+    from daisy._progress import _print_resource_utilization
 
     buf = io.StringIO()
     previous = _worker_log._saved_stdout

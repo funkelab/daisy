@@ -20,7 +20,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -84,6 +86,7 @@ def main_guard(fn):
 
 # ---- the experiment ----
 
+
 def body(block):
     return None
 
@@ -96,7 +99,9 @@ def main():
         ("1d-100k", grid_1d(100000), False),
         ("3d-8000-conflicts", grid_3d(20), True),
     ):
-        t = task("t", total, read, write, body, read_write_conflict=conflict, timeout=60)
+        t = task(
+            "t", total, read, write, body, read_write_conflict=conflict, timeout=60
+        )
         sched = daisy.Scheduler([t])
         n = 0
         t0 = time.monotonic()

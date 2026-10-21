@@ -2,9 +2,8 @@
 
 import warnings
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _mk(**kw):

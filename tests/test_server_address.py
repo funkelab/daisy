@@ -9,9 +9,8 @@ about keeping those two roles distinct.
 
 import socket
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _task(task_id, fn, n_blocks=2):
