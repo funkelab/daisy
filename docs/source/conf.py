@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from importlib.metadata import version as _version
 from pathlib import Path
@@ -133,5 +134,22 @@ def _link_examples(app):
         link.symlink_to(os.path.relpath(py, dst))
 
 
+_GITHUB_BLOB = "https://github.com/funkelab/daisy/blob/main/"
+
+
+def _write_migration(app):
+    """Render the repo-root `MIGRATION.md` as `migration.md`. Its links are
+    relative to the repo root: pages under `docs/source/` become docs links,
+    and `experiments/` (not part of the site) points at GitHub. Regenerated
+    each build and gitignored."""
+    text = (_REPO / "MIGRATION.md").read_text()
+    text = re.sub(r"\]\(docs/source/([^)]*)\)", r"](\1)", text)
+    text = re.sub(r"\]\((experiments/[^)]*)\)", rf"]({_GITHUB_BLOB}\1)", text)
+    out = _HERE / "migration.md"
+    if not out.exists() or out.read_text() != text:
+        out.write_text(text)
+
+
 def setup(app):
     app.connect("builder-inited", _link_examples)
+    app.connect("builder-inited", _write_migration)
