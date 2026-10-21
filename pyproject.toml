@@ -105,6 +105,10 @@ docs = [
     "jupytext>=1.16",
     "jupyter-cache>=1.0",
     "linkify-it-py>=2.0",
+    # tqdm.auto draws notebook widget bars when this is importable; without
+    # it, multi-task progress falls back to terminal bars whose cursor
+    # movement renders as dozens of partial lines in the executed tutorials.
+    "ipywidgets>=8",
 ]
 
 [tool.ruff.lint]
