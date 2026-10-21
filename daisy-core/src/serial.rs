@@ -38,20 +38,11 @@ impl SerialRunner {
             pipeline.tasks.iter().map(|t| t.task_id.clone()).collect();
 
         loop {
-            let ready_tasks = scheduler.get_ready_tasks();
             if finished_tasks == all_tasks {
                 break;
             }
 
-            let mut acquired_block = None;
-            for ready_task in &ready_tasks {
-                if let Some(block) = scheduler.acquire_block(&ready_task.task_id) {
-                    acquired_block = Some((ready_task.task_id.clone(), block));
-                    break;
-                }
-            }
-
-            let Some((task_id, mut block)) = acquired_block else {
+            let Some((task_id, mut block)) = Self::next_block(&mut scheduler) else {
                 break;
             };
 
@@ -127,6 +118,29 @@ impl SerialRunner {
             .collect();
         Ok((counters, summaries))
     }
+
+    /// The next block to process, or `None` when no task has ready work.
+    ///
+    /// `acquire_block` releases skipped blocks (done marker, check function,
+    /// skip mask) inside the call, and those releases can make blocks of a
+    /// task outside the current snapshot ready. A pass over the snapshot
+    /// that hands out nothing is therefore not the end of the run: re-read
+    /// the ready tasks and stop only when there are none. Each such pass
+    /// drains the queues it visits, and new readiness only comes from
+    /// releasing a finite set of blocks, so this terminates.
+    fn next_block(scheduler: &mut Scheduler) -> Option<(String, crate::block::Block)> {
+        loop {
+            let ready_tasks = scheduler.get_ready_tasks();
+            if ready_tasks.is_empty() {
+                return None;
+            }
+            for ready_task in &ready_tasks {
+                if let Some(block) = scheduler.acquire_block(&ready_task.task_id) {
+                    return Some((ready_task.task_id.clone(), block));
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -158,6 +172,56 @@ mod tests {
         let pipeline = crate::pipeline::Pipeline::from_task(task);
         let err = SerialRunner::run(&pipeline, true).unwrap_err();
         assert!(matches!(err, DaisyError::InvalidConfig(_)), "{err:?}");
+    }
+
+    /// Check function that reports every block as done.
+    struct AllDone;
+
+    impl crate::task::CheckBlock for AllDone {
+        fn check(&self, _block: &Block) -> bool {
+            true
+        }
+    }
+
+    /// Process function that counts the blocks it runs.
+    struct Count(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl crate::task::ProcessBlock for Count {
+        fn process(&self, _block: &mut Block) -> Result<(), DaisyError> {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    /// Issue #83: blocks of a downstream task released by skipped upstream
+    /// blocks were never handed out, because the serial loop broke as soon
+    /// as the tasks in its snapshot had nothing to give.
+    #[test]
+    fn test_serial_runs_downstream_released_by_skipped_blocks() {
+        let task = |id: &str| {
+            Task::builder(id)
+                .total_roi(Roi::from_slices(&[0], &[40]))
+                .read_roi(Roi::from_slices(&[0], &[10]))
+                .write_roi(Roi::from_slices(&[0], &[10]))
+                .read_write_conflict(false)
+        };
+        let ran = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let t1 = Arc::new(
+            task("t1")
+                .process_function(Noop)
+                .check_function(AllDone)
+                .build(),
+        );
+        let t2 = Arc::new(task("t2").process_function(Count(ran.clone())).build());
+        let pipeline =
+            crate::pipeline::Pipeline::new(vec![t1, t2], vec![("t1".into(), "t2".into())]).unwrap();
+
+        let (states, _) = SerialRunner::run(&pipeline, false).unwrap();
+        assert_eq!(states["t1"].skipped_count, 4);
+        let t2 = &states["t2"];
+        assert_eq!(t2.completed_count, 4);
+        assert!(t2.balanced());
+        assert_eq!(ran.load(std::sync::atomic::Ordering::SeqCst), 4);
     }
 
     #[test]
