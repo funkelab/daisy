@@ -107,34 +107,143 @@ worker or reclaimed by the timeout. A block with a high failure count and
 Resource Utilization
 --------------------
 
-  Totals (summed over measured blocks):
-    blocks measured : 12
-    CPU time        : 0.09 s
-    in-block time   : 0.34 s
-    CPU per block-s : 0.27   (≈1.0 CPU-bound, «1.0 IO-bound)
-    peak RSS        : 27.0 MB   (largest single worker)
-    IO read         : 198.3 KB
-    IO write        : 937.5 KB
-
-  Per-task:
-    task            blocks  fails    mean ms ∠ slope           cpu s   peak RSS
-    ─────────────────────────────    ──────────────────────────────────────────
-    segment             12      0     28.27 ∠ -0.1883          0.09s    27.0 MB
+  seg   12 blocks, 3 workers, 292.1 ms wall
+    blocks   round trip 50.5 ms ± 0.1 ms
+             wall 50.2 ms ± 0.0 ms   cpu 60.1 µs ± 13.6 µs   peak RSS 25.5 MB ± 0.0 B
+             io read 1.1 KB  write 0.0 B   overhead 372.1 µs ± 43.3 µs   trend ∠ +0.0027 ms/block
+    workers  startup 60.8 ms ± 0.1 ms   idle 25.9 µs ± 33.9 µs   teardown 26.4 ms ± 3.7 ms
+             exits 3 clean
+        id    startup  blocks       idle         idle / block    compute      compute / block   teardown  exit
+         0    60.6 ms       4   193.9 µs    48.5 µs ± 54.2 µs   202.2 ms     50.6 ms ± 0.0 ms    23.1 ms  clean
+         1    60.8 ms       4    75.3 µs    18.8 µs ± 12.7 µs   202.1 ms     50.5 ms ± 0.0 ms    23.8 ms  clean
+         2    60.9 ms       4    41.6 µs    10.4 µs ± 7.1 µs    202.0 ms     50.5 ms ± 0.1 ms    29.0 ms  clean
 ```
 
-That run's blocks each slept 20 ms and then burned a little CPU, which is
-why `CPU per block-s` reads 0.27 rather than ≈1.0. `blocks measured : 12`
-agreeing with the execution summary's `completed 12` is the property this
-redesign exists to guarantee — in subprocess mode (the default here) the old
-code printed `blocks 0`.
+That run's blocks each slept 50 ms, so `wall` is 50 ms with no spread, the
+CPU figure is the few microseconds of Python around the sleep, and the three
+workers each took four blocks. `12 blocks` agreeing with the execution
+summary's `completed 12` is the property this design exists to guarantee —
+the old code printed `blocks 0` in subprocess mode.
 
-`mean ms ∠ slope` is a least-squares fit over per-block wall times in
-completion order (`run_stats::linear_trend`): a positive slope means blocks
-got slower as the run progressed. The panel is **omitted entirely** when no
-task opted into resource tracking — a table of zeros is worse than no table.
+Every `x ± y` is a mean and sample standard deviation over a `Welford`
+accumulator (`run_stats.rs`), so the report costs O(1) memory per metric.
+`trend` is the least-squares slope of per-block wall time in completion
+order (`run_stats::Trend`, the running form of `linear_trend`): positive
+means blocks got slower as the run progressed.
 
-Programmatic access: `daisy.Server().last_tracking_summary`, keyed
-`{"per_task": {task_id: {...}}}`.
+What prints is decided by what it costs. The figures that need **no tracking
+store** — the per-block `round trip` the scheduler times itself, and the
+per-worker startup / idle / compute / teardown — are printed for every
+distributed task, always. The figures measured **inside the worker** and
+persisted to the store (`wall`, `cpu`, `peak RSS`, IO, `overhead`, `trend`)
+appear only for tasks with `resource_tracking=True`. The panel is omitted
+only when there is nothing at all to show (a serial run without resource
+tracking) — a table of zeros is worse than no table — and the per-worker
+table stops at ten rows, then points at the full table on the report
+object.
+
+Programmatic access goes through the task, and through the file, so it does
+not depend on the state of an in-memory server: `task.report()` reads the
+last line of the task's `runs.jsonl` and works in a later process just the
+same. (`Server.last_report` is the whole pipeline's `RunReport` of that
+server's last run; the partial report of an interrupted or abandoned run
+also rides on the error as `daisy_run_report`.)
+
+```python
+task = daisy.Task("seg", ...)
+task.run_blockwise()
+t = task.report()           # TaskReport, from runs.jsonl
+t.blocks.round_trip      # Stat(n, mean, std, min, max, total), seconds; always there
+t.blocks.wall            # the worker's own measurement; resource_tracking only
+t.blocks.peak_rss        # bytes
+t.blocks.overhead        # round trip − wall, per block
+t.workers.startup        # Stat over workers
+t.workers.idle           # Stat over per-block gaps, pooled across workers
+t.worker(1)              # WorkerRecord: startup, idle, compute, teardown, exit
+t.block((1, 2))          # BlockRecord from the store: stats, worker_id, sent_at, returned_at
+t.block_records()        # every recorded block, in grid order — the per-block table
+```
+
+Before a task has ever run, `task.report()` is None. After a resumed run
+that skipped every block via done markers, the new report line says so
+(`blocks.skipped`, no timing samples), while `block(...)` and
+`block_records()` keep returning the stamps of the run that actually did the
+work: the per-block arrays are only written when a block executes.
+
+## The worker timeline
+
+Per-block figures say what the blocks cost; they say nothing about the time
+a run spends *around* them — bringing workers up, waiting for the scheduler,
+tearing down. The server stamps those from events it already handles, with
+the server-assigned `worker_id` that every message carries:
+
+| phase | from | to | where stamped |
+|---|---|---|---|
+| **startup** | spawn call | first `AcquireBlock` | `rebalance_workers`, `handle_acquire` |
+| **idle** | previous return (or first acquire) | `SendBlock` | `handle_acquire` |
+| **compute** | `SendBlock` | `ReleaseBlock` / `BlockFailed` | `handle_acquire`, `handle_message` |
+| **final wait** | last return | `RequestShutdown` | `handle_acquire` |
+| **teardown** | `RequestShutdown` (or run shutdown) | spawn call returned | spawn thread's exit notifier, `check_thread_health` |
+
+`worker_timeline.rs` holds one `WorkerTimeline` per worker (a few
+`Instant`s and two `Welford`s) and folds them per task into the report's
+`workers` section; collection is always on and needs no wire change. The
+server is also the only vantage point that *can* see startup and teardown:
+a worker cannot report the time before its interpreter started or after its
+process exited, and for a cluster spawn function (`sbatch --wait`, `srun`)
+startup honestly includes the queue wait.
+
+What this vantage point costs, stated plainly:
+
+- **compute is the server round trip**, including transport and the
+  worker's per-block wrapper, while the block's `wall_seconds` is the
+  worker's narrower measurement of the user function. The difference is
+  reported as `overhead` per block — daisy's own cost — and is usually a
+  few hundred microseconds.
+- **idle includes one network hop**; on a LAN that is noise, on a slow
+  interconnect it is real idle time.
+- a worker whose last acquire reaches the server after the run has ended
+  never gets a reply (it sees the socket close); its teardown is counted
+  from the moment the server began shutting down.
+- the final wait before shutdown is not an "idle before a block": it is
+  kept per worker (`final_wait`) and excluded from the idle aggregate.
+- a failed block's round trip counts in its worker's `compute` and
+  `blocks_failed`; it stays out of the block-level trend.
+- a worker whose block times out is closed as `exit="timeout"` when its
+  slot is retired; a crash is `"error"`; a worker alive at an abort is
+  `"interrupted"`. Only clean exits have a teardown.
+- clients that connect without a server-assigned id (hand-rolled workers
+  outside daisy's management) are counted as `unmanaged_clients`, not timed.
+- serial mode has no workers: `workers.count == 0`.
+
+### What is persisted
+
+With `resource_tracking=True` the tracking group gains three more arrays,
+indexed like every other (see `DONE_MARKERS.md`): `worker_id` (uint32,
+`2**32-1` = no managed worker), `sent_at` and `returned_at` (float64
+seconds since the UNIX epoch on the scheduler's clock). From those a full
+Gantt-style timeline — who ran what, when, with what gaps — can be rebuilt
+from the store alone. Worker ids restart at 0 every run, so the value is
+"the worker, in the run that completed this block".
+
+The run report itself is appended as one JSON line per run to `runs.jsonl`:
+append-only, human-readable, `jq`-able, keeps history across resumes. It is
+the same JSON the Python `RunReport` is built from, so the object a run
+returns and the record left on disk cannot drift apart. Every task gets one,
+whether or not it opted into resource tracking:
+
+- a task with a tracking store (an explicit `tracking_path`, or one resolved
+  from `set_tracking_basedir`) gets it inside that store — the Rust side
+  appends it as the run ends, on the normal, interrupted and abandoned paths
+  alike. zarr-python warns about the unrecognised entry when *listing* the
+  group's members; indexing arrays is silent;
+- a task without one gets it under `<log basedir>/<task_id>/runs.jsonl`,
+  next to its worker logs, written by the Python layer when file logging is
+  on (the same condition under which worker logs are written).
+
+`task.report()` reads the last line from whichever applies; only when
+neither exists (no store, file logging off) does it fall back to the copy a
+run in this process kept in memory.
 
 ## Narrowing what gets measured
 
@@ -181,5 +290,10 @@ Deleted along the way: `WorkerStats`, `TaskStats`, `ProcessStats`,
 - `daisy-core/src/block_tracking.rs` — the zarr group, per-block writes, aggregates
 - `daisy-py/src/py_profile.rs` — `daisy.profile_block`
 - `daisy-py/python/daisy/_task.py` — the `Client.acquire_block` seam
+- `daisy-core/src/run_stats.rs` — `Welford`, `Trend`
+- `daisy-core/src/worker_timeline.rs` — per-worker lifecycle stamps and the workers section
+- `daisy-core/src/run_report.rs` — `TaskReport`, the JSON handed to Python and appended to `runs.jsonl`
+- `daisy-py/python/daisy/_report.py` — `RunReport`, `TaskReport`, `Stat`, the panel renderer
 - `daisy-py/python/daisy/_progress.py` — `_print_resource_utilization`
 - `tests/test_block_profiling.py` — cross-mode equivalence, persistence, enforcement
+- `tests/test_worker_timeline.py` — lifecycle phases, `worker_id` on disk, `runs.jsonl`, block lookup

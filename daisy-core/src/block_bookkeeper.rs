@@ -43,6 +43,7 @@ impl BlockBookkeeper {
         client_addr: SocketAddr,
         timeout: Option<Duration>,
         worker_id: Option<u64>,
+        sent_at: Instant,
     ) {
         debug!(block_id = %block.block_id, %client_addr, "block sent to client");
         self.sent_blocks.insert(
@@ -50,26 +51,26 @@ impl BlockBookkeeper {
             BlockLog {
                 block,
                 client_addr,
-                time_sent: Instant::now(),
+                time_sent: sent_at,
                 timeout,
                 worker_id,
             },
         );
     }
 
-    /// Record that a block was returned by a client. Returns the time
-    /// the block spent in the worker (`Instant::now() - time_sent`)
-    /// when the return is valid, otherwise `None`.
+    /// Record that a block was returned by a client. Returns the instant
+    /// the block was sent and the id of the worker that held it when the
+    /// return is valid, otherwise `None`.
     pub fn notify_block_returned(
         &mut self,
         block: &Block,
         client_addr: SocketAddr,
-    ) -> Option<std::time::Duration> {
+    ) -> Option<(Instant, Option<u64>)> {
         if let Some(log) = self.sent_blocks.get(&block.block_id) {
             if log.client_addr == client_addr {
-                let elapsed = log.time_sent.elapsed();
+                let sent = (log.time_sent, log.worker_id);
                 self.sent_blocks.remove(&block.block_id);
-                return Some(elapsed);
+                return Some(sent);
             }
             debug!(
                 block_id = %block.block_id,

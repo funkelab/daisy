@@ -2,16 +2,19 @@ use crate::block::BlockStatus;
 use crate::block_bookkeeper::BlockBookkeeper;
 use crate::protocol::{read_message, write_message, Message};
 use crate::resource_allocator::{ResourceAllocator, ResourceBudget};
-use crate::block_tracking::TaskSummary;
+use crate::block_tracking::BlockDispatch;
+use crate::run_report::{build_reports, TaskReport};
 use crate::scheduler::Scheduler;
 use crate::task::Task;
 use crate::task_state::{AbandonReason, TaskCounters, TaskState};
 use crate::worker_context::encode_value;
 use crate::worker_pool::WorkerPool;
+use crate::worker_timeline::{RunTimeline, WorkerExitKind};
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::thread::JoinHandle;
+use std::time::Instant;
 use tokio::net::tcp::OwnedWriteHalf;
 use tokio::net::TcpListener;
 use tokio::sync::mpsc;
@@ -60,9 +63,12 @@ struct ClientMessage {
 #[derive(Debug, Default)]
 struct WorkerExit {
     task_id: String,
-    #[allow(dead_code)]
     worker_id: u64,
     last_error: Option<String>,
+    /// Stamped by the spawn thread as it returns, so the worker timeline's
+    /// teardown does not include however long the main loop took to
+    /// notice.
+    exited_at: Option<Instant>,
 }
 
 pub struct Server {
@@ -71,11 +77,11 @@ pub struct Server {
 }
 
 /// Payload of the `Interrupted` error `run_blockwise` returns when the run
-/// was aborted (SIGINT): the task counters and tracking summaries at the
-/// moment of shutdown, so a partial summary can still be printed.
+/// was aborted (SIGINT): the task counters and run reports at the moment
+/// of shutdown, so a partial summary can still be printed.
 pub struct AbortedRun {
     pub states: HashMap<String, TaskCounters>,
-    pub summaries: HashMap<String, TaskSummary>,
+    pub reports: HashMap<String, TaskReport>,
 }
 
 impl std::fmt::Debug for AbortedRun {
@@ -191,7 +197,7 @@ impl Server {
         progress: Option<Arc<dyn ProgressObserver>>,
         abort_check: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
         block_tracking: bool,
-    ) -> std::io::Result<(HashMap<String, TaskCounters>, HashMap<String, TaskSummary>)> {
+    ) -> std::io::Result<(HashMap<String, TaskCounters>, HashMap<String, TaskReport>)> {
         if let Err(e) = crate::scheduler::validate_pipeline(pipeline) {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string()));
         }
@@ -282,6 +288,9 @@ impl Server {
         }
         let mut workers: Vec<WorkerEntry> = Vec::new();
         let mut registry = WorkerRegistry::default();
+        // Per-worker lifecycle stamps (startup / idle / compute / teardown)
+        // and per-block dispatch stamps, all taken here in the main loop.
+        let mut timeline = RunTimeline::new();
         let mut next_worker_id: u64 = 0;
         // Channel each worker thread signals on just before it exits, so
         // the main loop can rebalance immediately rather than waiting for
@@ -308,6 +317,7 @@ impl Server {
             &mut workers,
             &mut next_worker_id,
             &worker_exit_tx,
+            &mut timeline,
         );
 
         self.recruit_workers(&scheduler, worker_pools)?;
@@ -340,7 +350,7 @@ impl Server {
                 Some(cm) = msg_rx.recv() => {
                     let updated = match self.handle_message(
                         cm, &mut scheduler, &mut bookkeeper, &mut registry,
-                        &mut pending, worker_pools,
+                        &mut pending, worker_pools, &mut timeline,
                     ) {
                         Ok(updated) => updated,
                         Err(e) => {
@@ -374,11 +384,15 @@ impl Server {
                             &mut workers,
                             &mut next_worker_id,
                             &worker_exit_tx,
+                            &mut timeline,
                         );
                     }
                 }
 
                 Some(exit) = worker_exit_rx.recv() => {
+                    if let Some(at) = exit.exited_at {
+                        timeline.note_exit_time(exit.worker_id, at);
+                    }
                     // A worker thread just signalled it's exiting. Attach
                     // its error (if any) to the task state so abandonment
                     // can report the cause, then reap the thread (frees
@@ -393,7 +407,7 @@ impl Server {
                         }
                     }
                     Self::check_thread_health(
-                        &mut workers, &mut scheduler, &mut allocator, &mut registry,
+                        &mut workers, &mut scheduler, &mut allocator, &mut registry, &mut timeline,
                     );
                     Self::rebalance_workers(
                         &self.host,
@@ -404,6 +418,7 @@ impl Server {
                         &mut workers,
                         &mut next_worker_id,
                         &worker_exit_tx,
+                        &mut timeline,
                     );
                     Self::abandon_exhausted_tasks(tasks, &mut scheduler, &allocator);
                 }
@@ -439,7 +454,7 @@ impl Server {
                             // remote job system.
                             if let Some(wid) = holder {
                                 Self::retire_worker_slot(
-                                    &mut workers, &mut allocator, wid,
+                                    &mut workers, &mut allocator, &mut timeline, wid,
                                 );
                             }
                         }
@@ -461,7 +476,7 @@ impl Server {
                     // worker that died without sending a notification
                     // (e.g. a panic that didn't unwind through `Drop`).
                     Self::check_thread_health(
-                        &mut workers, &mut scheduler, &mut allocator, &mut registry,
+                        &mut workers, &mut scheduler, &mut allocator, &mut registry, &mut timeline,
                     );
                     Self::rebalance_workers(
                         &self.host,
@@ -472,6 +487,7 @@ impl Server {
                         &mut workers,
                         &mut next_worker_id,
                         &worker_exit_tx,
+                        &mut timeline,
                     );
                     Self::abandon_exhausted_tasks(tasks, &mut scheduler, &allocator);
 
@@ -480,7 +496,7 @@ impl Server {
                     if !pending.is_empty() {
                         self.retry_pending(
                             &mut scheduler, &mut bookkeeper, &mut registry,
-                            &mut pending, worker_pools,
+                            &mut pending, worker_pools, &mut timeline,
                             )?;
                     }
                 }
@@ -505,14 +521,21 @@ impl Server {
         } else {
             info!("all tasks completed");
         }
+        timeline.shutdown_started();
 
         // Shutdown.
         for cm in pending.drain(..) {
+            if let Message::AcquireBlock { worker_id: Some(wid), .. } = &cm.message {
+                timeline.shutdown_sent(*wid);
+            }
             let _ = cm.reply_tx.try_send(Message::RequestShutdown);
         }
         msg_rx.close();
         while let Ok(cm) = msg_rx.try_recv() {
-            if let Message::AcquireBlock { .. } = &cm.message {
+            if let Message::AcquireBlock { worker_id, .. } = &cm.message {
+                if let Some(wid) = worker_id {
+                    timeline.shutdown_sent(*wid);
+                }
                 let _ = cm.reply_tx.try_send(Message::RequestShutdown);
             }
         }
@@ -528,7 +551,11 @@ impl Server {
             if let WorkerThread::Running(handle) =
                 std::mem::replace(&mut entry.thread, WorkerThread::Finished)
             {
-                let _ = handle.join();
+                let kind = match handle.join() {
+                    Ok(true) => WorkerExitKind::Clean,
+                    Ok(false) | Err(_) => WorkerExitKind::Error,
+                };
+                timeline.exited(entry.spec.worker_id, kind);
             }
         }
         // Drain any worker-exit notifications still in flight, so a
@@ -543,9 +570,15 @@ impl Server {
             }
         }
 
-        // The summary is an agglomeration of what the tracking layer
-        // actually wrote — no separate accumulator to disagree with it.
+        // Workers still open at this point were cut off by the abort.
+        timeline.close_remaining(WorkerExitKind::Interrupted);
+        // The report is an agglomeration of what the tracking layer
+        // actually wrote plus the lifecycle stamps taken above — no
+        // separate accumulator to disagree with either.
         let summaries = scheduler.tracking_summaries();
+        let counters = snapshot_counters(&scheduler.task_states);
+        let reports = build_reports(&counters, &summaries, &timeline);
+        scheduler.append_run_records(&reports);
         if let Some(ref obs) = progress {
             if progress_dirty {
                 obs.on_progress(&snapshot_counters(&scheduler.task_states));
@@ -561,12 +594,12 @@ impl Server {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Interrupted,
                 AbortedRun {
-                    states: snapshot_counters(&scheduler.task_states),
-                    summaries,
+                    states: counters,
+                    reports,
                 },
             ));
         }
-        Ok((snapshot_counters(&scheduler.task_states), summaries))
+        Ok((counters, reports))
     }
 
     /// Spawn a worker for a task. Every worker is a spawn function: the
@@ -603,6 +636,7 @@ impl Server {
             }
             impl Drop for ExitNotifier {
                 fn drop(&mut self) {
+                    self.exit.exited_at = Some(Instant::now());
                     let _ = self.tx.send(std::mem::take(&mut self.exit));
                 }
             }
@@ -613,6 +647,7 @@ impl Server {
                     task_id: task_id.clone(),
                     worker_id,
                     last_error: None,
+                    exited_at: None,
                 },
             };
 
@@ -672,6 +707,7 @@ impl Server {
         scheduler: &mut Scheduler,
         allocator: &mut ResourceAllocator,
         registry: &mut WorkerRegistry,
+        timeline: &mut RunTimeline,
     ) {
         for entry in workers.iter_mut() {
             let spec = &entry.spec;
@@ -683,6 +719,7 @@ impl Server {
                         registry.exited.insert(spec.worker_id);
                         match handle.join() {
                             Ok(true) => {
+                                timeline.exited(spec.worker_id, WorkerExitKind::Clean);
                                 debug!(
                                     worker_id = spec.worker_id,
                                     task_id = %spec.task_id,
@@ -720,6 +757,7 @@ impl Server {
                                 }
                             }
                             Ok(false) | Err(_) => {
+                                timeline.exited(spec.worker_id, WorkerExitKind::Error);
                                 warn!(
                                     worker_id = spec.worker_id,
                                     task_id = %spec.task_id,
@@ -759,6 +797,7 @@ impl Server {
     fn retire_worker_slot(
         workers: &mut [WorkerEntry],
         allocator: &mut ResourceAllocator,
+        timeline: &mut RunTimeline,
         worker_id: u64,
     ) {
         for entry in workers.iter_mut() {
@@ -777,6 +816,7 @@ impl Server {
             );
             allocator.release(&entry.spec.task);
             entry.slot_retired = true;
+            timeline.exited(worker_id, WorkerExitKind::Timeout);
             return;
         }
     }
@@ -903,6 +943,7 @@ impl Server {
         workers: &mut Vec<WorkerEntry>,
         next_id: &mut u64,
         exit_tx: &mpsc::UnboundedSender<WorkerExit>,
+        timeline: &mut RunTimeline,
     ) {
         // Round-robin grow: at each pass, give *one* more worker to
         // every eligible task. Repeat until no task can grow. This
@@ -984,6 +1025,7 @@ impl Server {
                     port,
                 };
                 let handle = Self::spawn_worker(&spec, exit_tx.clone());
+                timeline.spawned(spec.worker_id, &spec.task_id);
                 workers.push(WorkerEntry {
                     spec,
                     thread: WorkerThread::Running(handle),
@@ -1013,12 +1055,13 @@ impl Server {
         registry: &mut WorkerRegistry,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
+        timeline: &mut RunTimeline,
     ) -> std::io::Result<()> {
         let count = pending.len();
         for _ in 0..count {
             if let Some(cm) = pending.pop_front() {
                 let _ = self.handle_message(
-                    cm, scheduler, bookkeeper, registry, pending, worker_pools,
+                    cm, scheduler, bookkeeper, registry, pending, worker_pools, timeline,
                 )?;
             }
         }
@@ -1039,11 +1082,12 @@ impl Server {
         registry: &mut WorkerRegistry,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
+        timeline: &mut RunTimeline,
     ) -> std::io::Result<Vec<String>> {
         let mut updated: Vec<String> = Vec::new();
         match cm.message {
             Message::AcquireBlock { .. } => {
-                self.handle_acquire(cm, scheduler, bookkeeper, registry, pending, worker_pools)?;
+                self.handle_acquire(cm, scheduler, bookkeeper, registry, pending, worker_pools, timeline)?;
             }
             Message::ReleaseBlock { block } => {
                 if bookkeeper.is_valid_return(&block, cm.addr) {
@@ -1051,7 +1095,22 @@ impl Server {
                     // deadline; per-block *durations* now come from the
                     // worker's own measurement on `block.stats`, which is
                     // the same number in every execution mode.
-                    let _ = bookkeeper.notify_block_returned(&block, cm.addr);
+                    let dispatch = bookkeeper
+                        .notify_block_returned(&block, cm.addr)
+                        .map(|(sent_at, wid)| {
+                            let returned_at = timeline.block_returned(
+                                wid,
+                                block.task_id(),
+                                sent_at,
+                                true,
+                                block.stats.map(|st| st.wall_seconds),
+                            );
+                            BlockDispatch {
+                                worker_id: wid,
+                                sent_at: timeline.epoch_seconds(sent_at),
+                                returned_at: timeline.epoch_seconds(returned_at),
+                            }
+                        });
                     if scheduler.expects_block_stats(block.task_id()) && block.stats.is_none() {
                         return Err(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
@@ -1067,11 +1126,11 @@ impl Server {
                             ),
                         ));
                     }
-                    updated = scheduler.release_block(block);
+                    updated = scheduler.release_block_with(block, dispatch);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
-                            scheduler, bookkeeper, registry, pending, worker_pools,
+                            scheduler, bookkeeper, registry, pending, worker_pools, timeline,
                                 )?;
                     }
                 } else {
@@ -1089,13 +1148,17 @@ impl Server {
                     // A failed block's measurement is not folded into the
                     // trend (noisy outlier), but the failure itself is
                     // counted by the scheduler's release path.
-                    let _ = bookkeeper.notify_block_returned(&block, cm.addr);
+                    if let Some((sent_at, wid)) =
+                        bookkeeper.notify_block_returned(&block, cm.addr)
+                    {
+                        timeline.block_returned(wid, block.task_id(), sent_at, false, None);
+                    }
                     block.status = BlockStatus::Failed;
                     updated = scheduler.release_block(block);
                     self.recruit_workers(scheduler, worker_pools)?;
                     if !pending.is_empty() {
                         self.retry_pending(
-                            scheduler, bookkeeper, registry, pending, worker_pools,
+                            scheduler, bookkeeper, registry, pending, worker_pools, timeline,
                                 )?;
                     }
                 }
@@ -1119,6 +1182,7 @@ impl Server {
         registry: &mut WorkerRegistry,
         pending: &mut VecDeque<ClientMessage>,
         worker_pools: &mut HashMap<String, WorkerPool>,
+        timeline: &mut RunTimeline,
     ) -> std::io::Result<()> {
         let (task_id, worker_id) = match &cm.message {
             Message::AcquireBlock { task_id, worker_id } => (task_id.clone(), *worker_id),
@@ -1152,6 +1216,7 @@ impl Server {
                 ));
             }
             registry.connected.insert(wid);
+            timeline.acquired(wid);
         }
 
         match scheduler.acquire_block(&task_id) {
@@ -1161,7 +1226,8 @@ impl Server {
                     .task_map
                     .get(&task_id)
                     .and_then(|t| t.timeout);
-                bookkeeper.notify_block_sent(block.clone(), cm.addr, timeout, worker_id);
+                let sent_at = timeline.block_sent(worker_id, &task_id, cm.addr);
+                bookkeeper.notify_block_sent(block.clone(), cm.addr, timeout, worker_id, sent_at);
                 let _ = cm.reply_tx.try_send(Message::SendBlock {
                     block,
                     timeout_secs: timeout.map(|d| d.as_secs_f64()),
@@ -1183,6 +1249,9 @@ impl Server {
                 let terminal = !scheduler.task_states[&task_id].is_running();
                 if terminal || counters.pending_count() <= 0 {
                     debug!(task_id = %task_id, "no more blocks");
+                    if let Some(wid) = worker_id {
+                        timeline.shutdown_sent(wid);
+                    }
                     let _ = cm.reply_tx.try_send(Message::RequestShutdown);
                     self.recruit_workers(scheduler, worker_pools)?;
                 } else {

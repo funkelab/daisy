@@ -1,6 +1,7 @@
 use crate::block::{Block, BlockStatus};
 use crate::dependency_graph::DependencyGraph;
-use crate::block_tracking::{TaskSummary, TaskTracking};
+use crate::block_tracking::{BlockDispatch, TaskSummary, TaskTracking};
+use crate::run_report::TaskReport;
 use crate::error::DaisyError;
 use crate::processing_queue::ProcessingQueue;
 use crate::ready_surface::ReadySurface;
@@ -210,6 +211,25 @@ impl Scheduler {
             .collect()
     }
 
+    /// Append each tracked task's report to its store's `runs.jsonl`.
+    /// Tasks without a store are skipped; a write failure is logged, not
+    /// raised — the report itself is still returned to the caller.
+    pub fn append_run_records(&self, reports: &HashMap<String, TaskReport>) {
+        for (task_id, tracking) in &self.task_tracking {
+            let Some(report) = reports.get(task_id) else {
+                continue;
+            };
+            if let Err(e) = tracking.append_run_record(&report.to_json()) {
+                warn!(
+                    task_id = %task_id,
+                    path = %tracking.path().display(),
+                    error = %e,
+                    "could not append the run report to runs.jsonl",
+                );
+            }
+        }
+    }
+
     /// Whether any task expects blocks to come back carrying resource
     /// stats — used to police workers that return unmeasured blocks.
     pub fn expects_block_stats(&self, task_id: &str) -> bool {
@@ -285,7 +305,7 @@ impl Scheduler {
                 // be recorded as done: the mask is an input to this run,
                 // not persisted state. Done-marker and check-function
                 // skips are recorded as before.
-                self.release_block_impl(block, skip == Precheck::SkipDone);
+                self.release_block_impl(block, skip == Precheck::SkipDone, None);
                 continue;
             }
 
@@ -304,12 +324,28 @@ impl Scheduler {
     /// run loop uses for opportunistic rebalancing. The caller still
     /// inspects `task_states` directly when it needs more.
     pub fn release_block(&mut self, block: Block) -> Vec<String> {
-        self.release_block_impl(block, true)
+        self.release_block_impl(block, true, None)
+    }
+
+    /// `release_block` carrying the server's dispatch stamp (who ran the
+    /// block, when it was sent and returned), persisted next to the
+    /// block's resource stats.
+    pub fn release_block_with(
+        &mut self,
+        block: Block,
+        dispatch: Option<BlockDispatch>,
+    ) -> Vec<String> {
+        self.release_block_impl(block, true, dispatch)
     }
 
     /// `release_block` with control over whether a successful block is
     /// recorded in the tracking store (`false` only for skip-mask skips).
-    fn release_block_impl(&mut self, block: Block, record_done: bool) -> Vec<String> {
+    fn release_block_impl(
+        &mut self,
+        block: Block,
+        record_done: bool,
+        dispatch: Option<BlockDispatch>,
+    ) -> Vec<String> {
         let task_id = block.task_id().to_string();
 
         // Strip from in-flight tracking unconditionally — even for
@@ -340,7 +376,7 @@ impl Scheduler {
                     if let Some(tracking) = self.task_tracking.get_mut(&task_id) {
                         // Records done + any resource stats the block carried,
                         // and folds both into this run's aggregates.
-                        tracking.record(&block);
+                        tracking.record(&block, dispatch.as_ref());
                     }
                 }
                 let newly_ready = self.update_ready_queue(new_blocks);

@@ -27,8 +27,16 @@ element-per-block grid index, so they line up element-for-element:
 | `io_write_bytes` | uint64 | `resource_tracking` | bytes written via syscalls |
 | `gpu_util_pct` | float32 | `resource_tracking` | reserved (NaN) |
 | `gpu_mem_bytes` | uint64 | `resource_tracking` | reserved (0) |
+| `worker_id` | uint32 | `resource_tracking` | worker that completed the block (`2**32-1` = none) |
+| `sent_at` | float64 | `resource_tracking` | dispatch time, seconds since the UNIX epoch (scheduler clock) |
+| `returned_at` | float64 | `resource_tracking` | return time, seconds since the UNIX epoch (scheduler clock) |
 
-See `RUN_STATS.md` for what the resource figures mean and their caveats.
+Next to the arrays, `runs.jsonl` holds one JSON line per run: the task's
+run report (block aggregates and the per-worker timeline). It is
+append-only and ignored by zarr readers.
+
+See `RUN_STATS.md` for what the resource figures mean and their caveats,
+and for the worker timeline the last three arrays and `runs.jsonl` feed.
 
 The index is the **C-order grid coordinate**: `(block.write_roi.offset -
 total_roi.offset) / write_roi.shape`, flattened row-major. Boundary blocks
@@ -46,7 +54,8 @@ are simply not addressable and are skipped.
 ├── failures/
 │   ├── zarr.json          ← array metadata (uint32)
 │   └── c/0/0/.../0
-└── … one directory per stat array, same shape
+├── … one directory per stat array, same shape
+└── runs.jsonl             ← one line per run (resource_tracking only)
 ```
 
 Chunk paths follow Zarr v3 conventions: `c/<idx>/<idx>/...`, all-zero

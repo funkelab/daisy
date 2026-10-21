@@ -50,7 +50,7 @@ def _task(task_id, tmp_path, **kw):
 
 
 def _summary(server, task_id):
-    return server.last_tracking_summary["per_task"][task_id]
+    return server.last_report[task_id].blocks
 
 
 def test_profile_block_attaches_measurements():
@@ -105,10 +105,10 @@ def test_blocks_are_counted_and_measured(tmp_path):
     s = _summary(server, task.task_id)
 
     assert states[task.task_id].completed_count == 4
-    assert int(s["blocks"]) == 4, "block count must match what the scheduler completed"
-    assert s["has_stats"]
-    assert s["total_cpu_secs"] > 0
-    assert s["mean_block_ms"] > 0
+    assert s.count == 4, "block count must match what the scheduler completed"
+    assert s.has_stats
+    assert s.cpu.total > 0
+    assert s.wall.mean > 0
 
 
 def test_external_worker_is_measured_without_extra_code(tmp_path):
@@ -139,8 +139,8 @@ def test_external_worker_is_measured_without_extra_code(tmp_path):
     s = _summary(server, "external")
 
     assert states["external"].completed_count == 4
-    assert int(s["blocks"]) == 4
-    assert s["has_stats"], "external workers must be measured too"
+    assert s.count == 4
+    assert s.has_stats, "external workers must be measured too"
 
 
 def test_stats_are_readable_from_the_tracking_group(tmp_path):
@@ -240,8 +240,8 @@ def test_tracking_without_resource_tracking_omits_stat_arrays(tmp_path):
     assert not (root / "cpu_seconds").exists()
 
     s = _summary(server, "plain")
-    assert int(s["blocks"]) == 4, "blocks are counted even without resource stats"
-    assert not s["has_stats"]
+    assert s.count == 4, "blocks are counted even without resource stats"
+    assert not s.has_stats
 
 
 def test_worker_context_advertises_resource_tracking(tmp_path):
@@ -276,7 +276,7 @@ def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
         )
         server = daisy.Server()
         server.run_blockwise([task], progress=False)
-        per = server.last_tracking_summary["per_task"][task_id]
+        per = server.last_report[task_id].blocks
         arrays = sorted(
             p.name for p in (tmp_path / "tr" / task_id).iterdir() if p.is_dir()
         )
@@ -286,10 +286,10 @@ def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
     off, off_arrays = run(False, "unmeasured")
 
     # both ran the same work
-    assert on["blocks"] == off["blocks"] == 4
+    assert on.count == off.count == 4
     # ...but only the opted-in task measured anything
-    assert on["has_stats"] and set(on_arrays) > {"done", "failures"}
-    assert not off["has_stats"]
+    assert on.has_stats and set(on_arrays) > {"done", "failures"}
+    assert not off.has_stats
     assert off_arrays == ["done", "failures"]
-    assert off["total_cpu_secs"] == 0
-    assert off["io_read_bytes"] == 0
+    assert off.cpu.total == 0
+    assert off.io_read.total == 0

@@ -517,33 +517,9 @@ impl PyTask {
     /// store: every block with a failure count above zero whose done flag
     /// is still unset. Empty when no store is configured or none exists.
     fn failed_blocks(&self, py: Python<'_>) -> PyResult<Vec<crate::py_block::PyBlock>> {
-        let Some(p) = self.done_marker_path.resolve(py, &self.task_id) else {
+        let Some((tracking, task)) = self.open_tracking(py)? else {
             return Ok(Vec::new());
         };
-        let path = Path::new(&p);
-        if !path.join("zarr.json").exists() {
-            return Ok(Vec::new());
-        }
-        let task = Task::builder(&self.task_id)
-            .total_roi(self.total_roi.inner.clone())
-            .read_roi(self.read_roi.inner.clone())
-            .write_roi(self.write_roi.inner.clone())
-            .read_write_conflict(self.read_write_conflict)
-            .fit(Fit::from_str(&self.fit))
-            .build();
-        let tracking = TaskTracking::open_or_create(
-            path,
-            &task.total_roi,
-            &task.read_roi,
-            &task.write_roi,
-            &task.fit,
-            false,
-        )
-        .map_err(|e| {
-            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
-                "cannot open block tracking at {p}: {e}"
-            ))
-        })?;
         let graph = daisy_core::dependency_graph::BlockwiseDependencyGraph::from_task(&task);
         let mut out = Vec::new();
         for level in 0..graph.num_levels() {
@@ -554,6 +530,63 @@ impl PyTask {
             }
         }
         Ok(out)
+    }
+
+    /// What the tracking store holds for one block, as a dict: `done`,
+    /// `failures`, `stats` (a `BlockStats` or None), `worker_id`,
+    /// `sent_at`, `returned_at` (None without a recorded dispatch). None
+    /// when no store is configured, none exists, or the block is not
+    /// addressable in it (a boundary block under overhang / shrink).
+    fn block_record<'py>(
+        &self,
+        py: Python<'py>,
+        block: &crate::py_block::PyBlock,
+    ) -> PyResult<Option<Bound<'py, PyDict>>> {
+        let Some((tracking, _task)) = self.open_tracking(py)? else {
+            return Ok(None);
+        };
+        let Some(rec) = tracking.record_of(&block.inner) else {
+            return Ok(None);
+        };
+        let d = Self::record_dict(py, &rec)?;
+        d.set_item("spatial_id", block.inner.block_id.spatial_id)?;
+        Ok(Some(d))
+    }
+
+    /// Every block the tracking store has recorded — done, or with a
+    /// failure count — as the dicts `block_record` returns, each with its
+    /// `spatial_id`. Opens the store once and walks the whole block grid,
+    /// so it is O(blocks); for very large grids read the zarr arrays
+    /// directly instead. Empty when no store is configured or none exists.
+    fn block_records<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
+        let Some((tracking, task)) = self.open_tracking(py)? else {
+            return Ok(Vec::new());
+        };
+        let graph = daisy_core::dependency_graph::BlockwiseDependencyGraph::from_task(&task);
+        let mut out = Vec::new();
+        for level in 0..graph.num_levels() {
+            for block in graph.level_blocks(level) {
+                let Some(rec) = tracking.record_of(&block) else {
+                    continue;
+                };
+                if !rec.done && rec.failures == 0 {
+                    continue;
+                }
+                let d = Self::record_dict(py, &rec)?;
+                d.set_item("spatial_id", block.block_id.spatial_id)?;
+                out.push(d);
+            }
+        }
+        Ok(out)
+    }
+
+    /// The directory this task's tracking store resolves to — an explicit
+    /// `tracking_path`, or `<tracking basedir>/<task_id>` when a basedir is
+    /// set — or None when the task has no persistent store (tracking off,
+    /// or the run-scoped store `resource_tracking=True` falls back to).
+    #[getter]
+    fn tracking_path(&self, py: Python<'_>) -> Option<String> {
+        self.done_marker_path.resolve(py, &self.task_id)
     }
 
     /// Property: return the user-facing 3-state value (None / False /
@@ -681,5 +714,64 @@ impl PyTask {
         let arc = Arc::new(builder.build());
         cache.insert(task_id, arc.clone());
         Ok(arc)
+    }
+}
+
+/// Store access shared by the read-only diagnostics above (not exposed
+/// to Python).
+impl PyTask {
+    fn record_dict<'py>(
+        py: Python<'py>,
+        rec: &daisy_core::block_tracking::BlockRecord,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let d = PyDict::new(py);
+        d.set_item("done", rec.done)?;
+        d.set_item("failures", rec.failures)?;
+        d.set_item(
+            "stats",
+            rec.stats.map(|inner| crate::py_block::PyBlockStats { inner }),
+        )?;
+        d.set_item("worker_id", rec.dispatch.and_then(|x| x.worker_id))?;
+        d.set_item("sent_at", rec.dispatch.map(|x| x.sent_at))?;
+        d.set_item("returned_at", rec.dispatch.map(|x| x.returned_at))?;
+        Ok(d)
+    }
+
+    /// Open this task's tracking store for reading, if one is configured
+    /// and exists. Maps the stat arrays only when the store already has
+    /// them, so a read never adds arrays to a store.
+    fn open_tracking(&self, py: Python<'_>) -> PyResult<Option<(TaskTracking, Task)>> {
+        let Some(p) = self.done_marker_path.resolve(py, &self.task_id) else {
+            return Ok(None);
+        };
+        let path = Path::new(&p);
+        if !path.join("zarr.json").exists() {
+            return Ok(None);
+        }
+        let task = Task::builder(&self.task_id)
+            .total_roi(self.total_roi.inner.clone())
+            .read_roi(self.read_roi.inner.clone())
+            .write_roi(self.write_roi.inner.clone())
+            .read_write_conflict(self.read_write_conflict)
+            .fit(Fit::from_str(&self.fit))
+            .build();
+        let with_stats = path
+            .join(daisy_core::block_tracking::ARRAY_WALL_SECONDS)
+            .join("zarr.json")
+            .exists();
+        let tracking = TaskTracking::open_or_create(
+            path,
+            &task.total_roi,
+            &task.read_roi,
+            &task.write_roi,
+            &task.fit,
+            with_stats,
+        )
+        .map_err(|e| {
+            PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+                "cannot open block tracking at {p}: {e}"
+            ))
+        })?;
+        Ok(Some((tracking, task)))
     }
 }
