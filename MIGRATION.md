@@ -17,9 +17,9 @@ Three import options:
 | --------------------------------- | ------------------------------------------------------------- |
 | `import daisy`                    | v1.x compat (default — same as `daisy.v1_compat`)             |
 | `import daisy.v1_compat as daisy` | v1.x compat (explicit)                                        |
-| `import daisy.v2 as daisy`        | v2 native — Rust types exposed directly, no compat aliases    |
+| `import daisy.v2 as daisy`        | v2 native — no compat aliases                                 |
 
-The v2 surface drops `Task(num_workers=…)`, `SerialServer`, and a handful of other 1.x-only names. In return you get cleaner kwargs (`max_workers`), no deprecation warnings, and `Roi`/`Coordinate`/`Block`/etc. resolved to the underlying Rust classes (`daisy._daisy.*`) without an extra Python wrapper layer.
+The v2 surface drops `Task(num_workers=…)`, `SerialServer`, and a handful of other 1.x-only names. In return you get cleaner kwargs (`max_workers`), no deprecation warnings, and the same types as 1.x: `daisy.Roi` and `daisy.Coordinate` are `funlib.geometry`'s classes, and `daisy.Block` is a picklable Python class with funlib ROIs, on both surfaces.
 
 If you're starting a fresh project, **use `import daisy.v2 as daisy`**. If you're maintaining a daisy 1.x codebase and want gradual migration, leave bare `import daisy` and address the deprecation warnings file by file.
 

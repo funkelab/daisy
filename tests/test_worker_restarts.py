@@ -13,9 +13,8 @@ crash a worker thread (raising from the 0-arg callable causes
 
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _always_crashing_worker():

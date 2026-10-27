@@ -15,7 +15,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 FIELDS = {
-    "throughput.csv": ["version", "mode", "workers", "blocks", "seconds", "blocks_per_second"],
+    "throughput.csv": [
+        "version",
+        "mode",
+        "workers",
+        "blocks",
+        "seconds",
+        "blocks_per_second",
+    ],
     "scheduler.csv": ["version", "grid", "blocks", "seconds", "blocks_per_second"],
     "resume.csv": ["version", "strategy", "phase", "blocks", "seconds"],
 }
@@ -39,12 +46,34 @@ def read(name):
 def throughput():
     rows = read("throughput.csv")
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), sharey=True)
-    for ax, mode, title in zip(axes, "ABC", ("A: block function", "B: worker function", "C: external worker")):
-        for version, style, color in (("1.x", "o--", "#999999"), ("2.0", "s-", "#2f6fdb")):
-            pts = sorted((int(r["workers"]), float(r["blocks_per_second"])) for r in rows if r["mode"] == mode and r["version"] == version)
+    for ax, mode, title in zip(
+        axes, "ABC", ("A: block function", "B: worker function", "C: external worker")
+    ):
+        for version, style, color in (
+            ("1.x", "o--", "#999999"),
+            ("2.0", "s-", "#2f6fdb"),
+        ):
+            pts = sorted(
+                (int(r["workers"]), float(r["blocks_per_second"]))
+                for r in rows
+                if r["mode"] == mode and r["version"] == version
+            )
             if pts:
-                ax.plot([p[0] for p in pts], [p[1] for p in pts], style, color=color, label=f"daisy {version}")
-                ax.annotate(f"{pts[-1][1]:,.0f}", pts[-1], textcoords="offset points", xytext=(4, 4), fontsize=8, color=color)
+                ax.plot(
+                    [p[0] for p in pts],
+                    [p[1] for p in pts],
+                    style,
+                    color=color,
+                    label=f"daisy {version}",
+                )
+                ax.annotate(
+                    f"{pts[-1][1]:,.0f}",
+                    pts[-1],
+                    textcoords="offset points",
+                    xytext=(4, 4),
+                    fontsize=8,
+                    color=color,
+                )
         ax.set_xscale("log", base=2)
         ax.set_yscale("log")
         ax.set_xlabel("workers")
@@ -63,12 +92,16 @@ def resume():
     labels, vals = [], []
     for r in rows:
         if r["phase"] == "resume":
-            strategy = r["strategy"].replace(" + ", "\n+ ").replace("built-in ", "built-in\n")
+            strategy = (
+                r["strategy"].replace(" + ", "\n+ ").replace("built-in ", "built-in\n")
+            )
             labels.append(f"{strategy}\ndaisy {r['version']}")
             vals.append(float(r["seconds"]))
     bars = ax.bar(labels, vals, color=["#999999", "#999999", "#2f6fdb"][: len(vals)])
     for b, v in zip(bars, vals):
-        ax.text(b.get_x() + b.get_width() / 2, v, f"{v:.2f} s", ha="center", va="bottom")
+        ax.text(
+            b.get_x() + b.get_width() / 2, v, f"{v:.2f} s", ha="center", va="bottom"
+        )
     ax.set_ylabel("seconds to resume (all blocks already done)")
     ax.set_title(f"Resume cost for {int(rows[0]['blocks']):,} already-done blocks")
     fig.tight_layout()
@@ -81,11 +114,28 @@ def scheduler():
     grids = sorted({r["grid"] for r in rows})
     width = 0.38
     for i, (version, color) in enumerate((("1.x", "#999999"), ("2.0", "#2f6fdb"))):
-        vals = [next((float(r["blocks_per_second"]) for r in rows if r["grid"] == g and r["version"] == version), 0) for g in grids]
+        vals = [
+            next(
+                (
+                    float(r["blocks_per_second"])
+                    for r in rows
+                    if r["grid"] == g and r["version"] == version
+                ),
+                0,
+            )
+            for g in grids
+        ]
         xs = [j + (i - 0.5) * width for j in range(len(grids))]
         bars = ax.bar(xs, vals, width, label=f"daisy {version}", color=color)
         for b, v in zip(bars, vals):
-            ax.text(b.get_x() + b.get_width() / 2, v, f"{v:,.0f}", ha="center", va="bottom", fontsize=8)
+            ax.text(
+                b.get_x() + b.get_width() / 2,
+                v,
+                f"{v:,.0f}",
+                ha="center",
+                va="bottom",
+                fontsize=8,
+            )
     ax.set_xticks(range(len(grids)))
     ax.set_xticklabels(grids)
     ax.set_yscale("log")

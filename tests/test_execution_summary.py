@@ -7,9 +7,8 @@ import signal
 import threading
 import time
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _noop(block):

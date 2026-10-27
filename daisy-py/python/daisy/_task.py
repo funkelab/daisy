@@ -98,8 +98,9 @@ def get_done_marker_basedir() -> Path | None:
 # operators, copy.copy support, attribute setters for process_function
 # / upstream_tasks so `_wrap_for_worker_logging` and Pipeline
 # materialize work).
-from funlib.geometry import Coordinate as Coordinate  # noqa: E402 — re-exported: the Coordinate daisy uses
-from funlib.geometry import Roi as Roi  # noqa: E402 — re-exported: the Roi daisy uses
+# Coordinate and Roi are re-exported: they are the types daisy uses.
+from funlib.geometry import Coordinate as Coordinate  # noqa: E402
+from funlib.geometry import Roi as Roi  # noqa: E402
 
 from daisy.block import Block, BlockStatus  # noqa: E402
 

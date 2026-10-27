@@ -25,7 +25,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -80,6 +82,7 @@ def main_guard(fn):
 
 # ---- the experiment ----
 
+
 def body(block):
     return None
 
@@ -115,7 +118,16 @@ def main():
     print("version,mode,workers,blocks,seconds,blocks_per_second")
     for mode in a.modes.split(","):
         for w in (int(x) for x in a.workers.split(",")):
-            t = task(f"bench_{mode}{w}", total, read, write, fns[mode], workers=w, read_write_conflict=False, timeout=600)
+            t = task(
+                f"bench_{mode}{w}",
+                total,
+                read,
+                write,
+                fns[mode],
+                workers=w,
+                read_write_conflict=False,
+                timeout=600,
+            )
             t0 = time.monotonic()
             if V2:
                 daisy.run_blockwise([t], progress=False, summary=False)

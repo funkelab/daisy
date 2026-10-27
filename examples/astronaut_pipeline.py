@@ -70,7 +70,9 @@ ARRAY_PATH = str(_TMP / "arrays.zarr")
 _arrays = zarr.open_group(ARRAY_PATH, mode="w")
 _arrays.create_array("edges", shape=(H, W), chunks=(BLOCK, BLOCK), dtype=np.uint8)
 _arrays.create_array("labels", shape=(H, W), chunks=(BLOCK, BLOCK), dtype=np.uint32)
-_arrays.create_array("output", shape=(H, W, 3), chunks=(BLOCK, BLOCK, 3), dtype=np.uint8)
+_arrays.create_array(
+    "output", shape=(H, W, 3), chunks=(BLOCK, BLOCK, 3), dtype=np.uint8
+)
 
 # Per-task concurrency tracking, so we can plot how the dispatcher
 # distributes workers across the pipeline. Workers append one line per
@@ -135,14 +137,18 @@ def step_segment(block):
         rs, cs = shape[0], shape[1]
 
         arrays = zarr.open_group(ARRAY_PATH, mode="r+")
-        edges_tile = arrays["edges"][r0 : r0 + rs, c0 : c0 + cs].astype(np.float32) / 255.0
+        edges_tile = (
+            arrays["edges"][r0 : r0 + rs, c0 : c0 + cs].astype(np.float32) / 255.0
+        )
         # Markers: where the edge response is low (object interiors).
         markers, _ = scipy_label(edges_tile < 0.04)
         seg = watershed(edges_tile, markers=markers).astype(np.uint32)
 
         # Make labels globally unique by offsetting per block.
         block_offset = block.block_id[1] * BLOCK * BLOCK
-        arrays["labels"][r0 : r0 + rs, c0 : c0 + cs] = np.where(seg > 0, seg + block_offset, 0)
+        arrays["labels"][r0 : r0 + rs, c0 : c0 + cs] = np.where(
+            seg > 0, seg + block_offset, 0
+        )
     finally:
         _record("segment", "exit")
 
@@ -300,7 +306,9 @@ with open(EVENTS) as f:
     for line in sorted(f):
         t, task_id, kind = line.split()
         _alive[task_id] += 1 if kind == "enter" else -1
-        _timeline.append({"t": float(t), "task": task_id, "kind": kind, "alive": dict(_alive)})
+        _timeline.append(
+            {"t": float(t), "task": task_id, "kind": kind, "alive": dict(_alive)}
+        )
 
 t0 = _timeline[0]["t"]
 times = [(e["t"] - t0) * 1e3 for e in _timeline]

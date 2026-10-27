@@ -1,7 +1,6 @@
 import logging
 
 import pytest
-
 from daisy import Block, BlockStatus, Roi, Scheduler, Task
 
 logger = logging.getLogger(__name__)

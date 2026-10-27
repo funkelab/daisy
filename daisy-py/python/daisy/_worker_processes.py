@@ -88,6 +88,17 @@ from daisy._daisy import EXIT_BLOCK_TIMEOUT as EXIT_BLOCK_TIMEOUT  # noqa: E402
 _LEN = struct.Struct("<Q")
 
 
+class _WorkerExitError(RuntimeError):
+    """A worker subprocess exited abnormally. `daisy_short_message` is the
+    message without the child's stderr tail, for the parent's own logging."""
+
+    daisy_worker_exit = True
+
+    def __init__(self, message: str, short_message: str | None = None):
+        super().__init__(message)
+        self.daisy_short_message = short_message or message
+
+
 def _pack_frames(*frames: bytes) -> bytes:
     return b"".join(_LEN.pack(len(f)) + f for f in frames)
 
@@ -245,7 +256,9 @@ def make_spawn_function(process_function, arity, timeout=None):
         # where the server records it as the task's last_worker_error.
         from daisy import logging as _log
 
-        slot_files = _log.current_slot_files() if _log.get_log_mode() == "file" else None
+        slot_files = (
+            _log.current_slot_files() if _log.get_log_mode() == "file" else None
+        )
         if slot_files is not None:
             # File logging: hand the worker's log files straight to the
             # child so its output is on disk as it is written (tail -f
@@ -309,10 +322,9 @@ def make_spawn_function(process_function, arity, timeout=None):
             # task's last_worker_error; the parent's own logging uses the
             # short form, because the tail is already in the worker's .err
             # file and repeating it there wrote every traceback three times.
-            exc = RuntimeError(short + (f"\nworker stderr tail:\n{tail}" if tail else ""))
-            exc.daisy_worker_exit = True
-            exc.daisy_short_message = short
-            raise exc
+            raise _WorkerExitError(
+                short + (f"\nworker stderr tail:\n{tail}" if tail else ""), short
+            )
 
     _spawn_worker_process.__name__ = "spawn_" + getattr(
         process_function, "__name__", "process_function"

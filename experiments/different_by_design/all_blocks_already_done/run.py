@@ -21,7 +21,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -60,9 +62,13 @@ def run(tasks, **kw):
     try:
         r = daisy.run_blockwise(list(tasks), **kw)
     except BaseException as e:  # noqa: BLE001 - KeyboardInterrupt is a result here
-        print(f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)")
+        print(
+            f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)"
+        )
         return None
-    shown = r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    shown = (
+        r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    )
     print(f"\nRETURNED {shown}  ({time.monotonic() - t0:.1f} s)")
     return r
 
@@ -135,7 +141,16 @@ def main():
     total, read, write = grid_1d(N)
     for i in (1, 2):
         print(f"\n### run {i}")
-        t = task("t", total, read, write, body, check_function=is_done, read_write_conflict=False, timeout=30)
+        t = task(
+            "t",
+            total,
+            read,
+            write,
+            body,
+            check_function=is_done,
+            read_write_conflict=False,
+            timeout=30,
+        )
         run(t, multiprocessing=False)
     report_attempts(N)
 

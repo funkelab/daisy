@@ -10,9 +10,8 @@ import os
 import subprocess
 import sys
 
-from daisy.logging import set_log_basedir
-
 import daisy
+from daisy.logging import set_log_basedir
 
 logging.basicConfig(level=logging.DEBUG)
 

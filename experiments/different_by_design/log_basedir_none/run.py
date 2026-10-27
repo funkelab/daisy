@@ -27,7 +27,9 @@ VERSION = importlib.metadata.version("daisy")
 def banner(title):
     line = "=" * len(title)
     print(f"{line}\n{title}\n{line}")
-    print(f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n")
+    print(
+        f"daisy {VERSION} ({'2.0' if V2 else '1.x'}), python {sys.version.split()[0]}\n"
+    )
     # create the evidence file now, so every worker daisy starts inherits
     # its path through the environment
     evidence_file()
@@ -66,9 +68,13 @@ def run(tasks, **kw):
     try:
         r = daisy.run_blockwise(list(tasks), **kw)
     except BaseException as e:  # noqa: BLE001 - KeyboardInterrupt is a result here
-        print(f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)")
+        print(
+            f"\nRAISED {type(e).__name__}: {str(e).splitlines()[0][:160]}  ({time.monotonic() - t0:.1f} s)"
+        )
         return None
-    shown = r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    shown = (
+        r if isinstance(r, bool) else f"{type(r).__name__} with {len(r)} task state(s)"
+    )
     print(f"\nRETURNED {shown}  ({time.monotonic() - t0:.1f} s)")
     return r
 
@@ -144,7 +150,9 @@ def external_worker():
     # The 1.x idiom for a hand-written worker that wants per-worker log
     # files; 2.0 keeps get_worker_log_basename but not the redirect helper.
     basename = daisy.get_worker_log_basename(client.worker_id, client.task_id)
-    redirect = getattr(daisy, "redirect_stdouterr", None) or getattr(daisy.logging, "redirect_stdouterr", None)
+    redirect = getattr(daisy, "redirect_stdouterr", None) or getattr(
+        daisy.logging, "redirect_stdouterr", None
+    )
     if redirect is not None and basename is not None:
         redirect(basename)
     while True:
@@ -164,8 +172,14 @@ def main():
     t = task("t", total, read, write, launcher, read_write_conflict=False, timeout=30)
     run(t, progress=False) if V2 else run(t)
     report_attempts(N)
-    print("DAISY_CONTEXT seen by the worker:", open(evidence_file() + ".context").read().strip())
-    print("get_log_basedir() inside the worker:", open(evidence_file() + ".basedir").read().strip())
+    print(
+        "DAISY_CONTEXT seen by the worker:",
+        open(evidence_file() + ".context").read().strip(),
+    )
+    print(
+        "get_log_basedir() inside the worker:",
+        open(evidence_file() + ".basedir").read().strip(),
+    )
     stray = [os.path.join(d, f) for d, _, fs in os.walk("None") for f in fs]
     if stray:
         print("directory named 'None' created in the cwd:", ", ".join(sorted(stray)))

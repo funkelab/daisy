@@ -4,7 +4,32 @@ Blockwise task scheduler for processing large volumetric data.
 
 Daisy v2 is a Rust rewrite of the original [daisy](https://pypi.org/project/daisy/1.2.2/), with a focus on faster scheduling, deterministic block dependencies, and resumable runs via on-disk done markers. The Python API is built on a Rust core (`daisy-core`) exposed through PyO3 (`daisy._daisy`).
 
-> **Upgrading from daisy 1.x?** v2 is a deliberate breaking release. Several 1.x APIs have moved or been removed (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`). See [`CHANGELOG.md`](CHANGELOG.md) for the full list. If you depend on the 1.x surface, pin `daisy<2`.
+> **Upgrading from daisy 1.x?** v2 is a deliberate breaking release. Several 1.x APIs have moved or been removed (`daisy.persistence`, `daisy.Array`, `daisy.open_ds`, `daisy.prepare_ds`). See [`MIGRATION.md`](MIGRATION.md) for what changed and how to move over, and [`CHANGELOG.md`](CHANGELOG.md) for the full list. If you depend on the 1.x surface, pin `daisy<2`.
+
+## Branches were renamed for 2.0
+
+With the 2.0.0 release (2026-10-21) the branches changed:
+
+| Before   | Now    | Contents                         |
+| -------- | ------ | -------------------------------- |
+| `master` | `v1`   | daisy 1.x (last release: 1.2.3)  |
+| `v2.0`   | `main` | daisy 2.x, the default branch    |
+
+**If you install from PyPI, nothing changes.** `pip install daisy` gets 2.x; pin `daisy<2` to stay on 1.x.
+
+**If you install from git**, references to the old branch names no longer resolve. Replace them:
+
+- `git+https://github.com/funkelab/daisy@master` → `daisy<2` from PyPI, or `@v1`
+- `git+https://github.com/funkelab/daisy@v2.0` → `daisy>=2` from PyPI, or `@main`
+
+**If you have a local clone**, rename your branch and point it at the new remote branch:
+
+```bash
+git fetch origin --prune
+git branch -m master v1  && git branch -u origin/v1 v1      # if you had master
+git branch -m v2.0 main  && git branch -u origin/main main  # if you had v2.0
+git remote set-head origin -a
+```
 
 ## Install
 

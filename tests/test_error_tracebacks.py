@@ -11,9 +11,8 @@ not name the user's line.
 
 import io
 
-import pytest
-
 import daisy
+import pytest
 
 
 def _inner_helper(block):

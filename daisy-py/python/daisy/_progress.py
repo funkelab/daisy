@@ -218,11 +218,12 @@ class execution_summary:
                 return False
             if isinstance(exc, KeyboardInterrupt):
                 out = _worker_log._saved_stdout or sys.stdout or sys.__stdout__
-                try:
-                    out.write("\nRun interrupted; counts at shutdown:\n")
-                    out.flush()
-                except Exception:
-                    pass
+                if out is not None:
+                    try:
+                        out.write("\nRun interrupted; counts at shutdown:\n")
+                        out.flush()
+                    except Exception:
+                        pass
         if states is None:
             return False
         _print_execution_summary(states, order)

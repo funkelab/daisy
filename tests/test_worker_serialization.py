@@ -18,13 +18,12 @@ import pytest
 
 cloudpickle = pytest.importorskip("cloudpickle")
 
+import daisy  # noqa: E402
 from daisy._worker_processes import (  # noqa: E402
     _serialize,
     make_spawn_function,
     read_payload,
 )
-
-import daisy  # noqa: E402
 
 
 def _write_project_package(tmp_path):
