@@ -29,6 +29,10 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from daisy._daisy import BlockStats
 
 RUNS_FILE = "runs.jsonl"
 
@@ -323,7 +327,7 @@ class BlockRecord:
     done: bool
     failures: int
     #: ``daisy.BlockStats`` or None (no resource tracking, or never ran)
-    stats: object | None
+    stats: BlockStats | None
     #: worker that completed it, or None (unmanaged client / never ran)
     worker_id: int | None
     #: seconds since the UNIX epoch on the scheduler's clock, or None

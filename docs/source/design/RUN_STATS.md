@@ -169,16 +169,16 @@ also rides on the error as `daisy_run_report`.)
 ```python
 task = daisy.Task("seg", ...)
 task.run_blockwise()
-t = task.report()           # TaskReport, from runs.jsonl
-t.blocks.round_trip      # Stat(n, mean, std, min, max, total), seconds; always there
-t.blocks.wall            # the worker's own measurement; resource_tracking only
-t.blocks.peak_rss        # bytes
-t.blocks.overhead        # round trip − wall, per block
-t.workers.startup        # Stat over workers
-t.workers.idle           # Stat over per-block gaps, pooled across workers
-t.worker(1)              # WorkerRecord: startup, idle, compute, teardown, exit
-t.block((1, 2))          # BlockRecord from the store: stats, worker_id, sent_at, returned_at
-t.block_records()        # every recorded block, in grid order — the per-block table
+t = task.report()  # TaskReport, from runs.jsonl
+t.blocks.round_trip  # Stat(n, mean, std, min, max, total), seconds; always there
+t.blocks.wall  # the worker's own measurement; resource_tracking only
+t.blocks.peak_rss  # bytes
+t.blocks.overhead  # round trip − wall, per block
+t.workers.startup  # Stat over workers
+t.workers.idle  # Stat over per-block gaps, pooled across workers
+t.worker(1)  # WorkerRecord: startup, idle, compute, teardown, exit
+t.block((1, 2))  # BlockRecord from the store: stats, worker_id, sent_at, returned_at
+t.block_records()  # every recorded block, in grid order — the per-block table
 ```
 
 Before a task has ever run, `task.report()` is None. After a resumed run
