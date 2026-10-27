@@ -1,4 +1,4 @@
-"""daisy v2.0.0 — blockwise task scheduler for large volumetric data.
+"""daisy v2.0.1 — blockwise task scheduler for large volumetric data.
 
 The top-level namespace re-exports `daisy.v1_compat` so existing
 daisy 1.x scripts run unchanged wherever the v2 API didn't break
