@@ -384,6 +384,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Block measurements cover the whole worker process.** `cpu_seconds` and
+  `io_*_bytes` were counted per thread (`RUSAGE_THREAD`,
+  `/proc/self/task/<tid>/io`), so work a block handed to other threads was
+  missed. zarr's IO threads are one example: a 32 MB zarr write was recorded
+  as 0 bytes. They now come from `RUSAGE_SELF` and `/proc/self/io`.
+- **`peak_rss_bytes` is the peak while the block ran.** It was read from
+  `ru_maxrss`, which survives fork+exec, so every spawned worker reported
+  its driver's peak (6.1 GB for every task of a run whose driver held the
+  volume). On Linux the high-water mark is now reset at block start and
+  `VmHWM` is read at the end. Elsewhere it falls back to `ru_maxrss`.
 - **The bundled benchmarks no longer compare daisy against itself.** The
   `gerbera -> daisy` rename left both arms of every comparison pointing at
   the same package: each script defined `bench_daisy` twice (the second

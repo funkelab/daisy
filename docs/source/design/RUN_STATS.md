@@ -48,23 +48,40 @@ worker (any mode)                          server
 | field | source | meaning |
 |---|---|---|
 | `wall_seconds` | `Instant` around the call | elapsed time in the block |
-| `cpu_seconds` | `getrusage(RUSAGE_THREAD)` / mach `thread_info` | user+system CPU, **per thread** so concurrent workers don't contaminate each other |
-| `io_read_bytes`, `io_write_bytes` | `/proc/self/task/<tid>/io` (`rchar`/`wchar`), falling back to `/proc/self/io` | bytes through the syscall layer, including page-cache hits |
-| `peak_rss_bytes` | `ru_maxrss` | see the caveat below |
+| `cpu_seconds` | `getrusage(RUSAGE_SELF)` | user+system CPU of the whole process, every thread included |
+| `io_read_bytes`, `io_write_bytes` | `/proc/self/io` (`rchar`/`wchar`) | bytes through the syscall layer, every thread included, page-cache hits included |
+| `peak_rss_bytes` | `VmHWM`, reset at block start (Linux); `ru_maxrss` elsewhere | peak RSS of the process while the block ran; see below |
 | `gpu_util_pct`, `gpu_mem_bytes` | — | **reserved**; written NaN / 0 |
 
 Unsupported platforms report zero rather than failing.
 
-### Caveat: peak RSS is process-wide
+### Why every figure is process-wide
 
-`ru_maxrss` is a monotonic high-water mark for the whole process, so
-`peak_rss_bytes` reads as "how large had this process grown by the time this
-block finished" — not "what this block allocated". Every distributed worker
-is its own process handling one block at a time, which makes it a useful
-per-worker figure; this is one of the things that got simpler when
-in-process workers went away, since concurrent blocks sharing a process all
-reported the same number. A true per-block figure would still need allocator
-interposition.
+Every distributed worker is its own process handling one block at a time,
+so the process is the block's natural accounting unit. Only process-wide
+counters see the work a block hands to other threads. zarr does its IO and
+codec work on its own threads, and blocks use thread pools. Per-thread
+counters (`RUSAGE_THREAD`, `/proc/self/task/<tid>/io`, the previous
+implementation) reported a zarr write of 32 MB as 0 bytes, and CPU burned on
+a helper thread as nothing. In serial mode the process is the driver, so its
+own background threads are counted too.
+
+### Peak RSS is per block on Linux
+
+When a block starts, the profiler resets the kernel's high-water mark
+(writing `5` to `/proc/self/clear_refs`, Linux 4.0+). When the block ends,
+it reads `VmHWM`. The figure is therefore the process's peak while this
+block ran: the worker's resident baseline (interpreter, imports, caches)
+plus whatever the block allocated on top. It is not the block's
+allocations alone. That would need allocator interposition.
+
+It is deliberately not `ru_maxrss` on Linux. That value survives fork+exec,
+so every spawned worker would report its driver's peak: a driver holding a
+6 GB volume made every worker report 6 GB. The reset also lowers the
+process's `ru_maxrss`, so a tool like `/usr/bin/time` wrapped around a
+serial run reports the last block's peak rather than the driver's. Where the
+reset is unavailable (macOS, older kernels, a restricted `/proc`) the figure
+falls back to `ru_maxrss`, the process's peak so far.
 
 ### GPU is reserved, not faked
 
@@ -281,8 +298,9 @@ outright, leaving one measurement path.
 
 Deleted along the way: `WorkerStats`, `TaskStats`, `ProcessStats`,
 `RunStats`, `build_run_stats`, the 200 ms `sysinfo` process sampler (and the
-`sysinfo` dependency), and `Server.last_run_stats`. `thread_cpu_time` and
-`linear_trend` survive in `run_stats.rs` because both are still used.
+`sysinfo` dependency), and `Server.last_run_stats`. `linear_trend`
+survives in `run_stats.rs`, alongside `process_cpu_time` (which replaced
+the per-thread `thread_cpu_time`).
 
 ## Implementation pointers
 

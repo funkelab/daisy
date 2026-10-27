@@ -3,10 +3,12 @@
 //! Statistics themselves live with the blocks: `block_profile` measures a
 //! block inside the worker, the payload rides home on `Block::stats`, and
 //! `block_tracking` persists and aggregates it. This module holds only the
-//! two pieces that are useful on their own:
+//! pieces that are useful on their own:
 //!
-//! - `thread_cpu_time` — per-OS-thread CPU accounting, so concurrent
-//!   thread workers don't contaminate each other's numbers.
+//! - `process_cpu_time` — the whole process's CPU time, so work a block
+//!   hands to other threads (zarr's IO and codec threads, thread pools) is
+//!   counted. Every worker is its own process running one block at a time,
+//!   so the process is the block's natural accounting unit.
 //! - `Welford` / `Trend` — the O(1)-memory accumulators behind every
 //!   `x ± y` figure and the per-block wall-time slope in the run report.
 //! - `linear_trend` — the least-squares fit behind "blocks started at 2 ms
@@ -19,14 +21,15 @@
 
 use std::time::Duration;
 
-/// Read this thread's user+system CPU time. Returns None on platforms
-/// without a per-thread accessor (e.g. some BSDs / Windows MSYS).
-pub fn thread_cpu_time() -> Option<Duration> {
-    #[cfg(target_os = "linux")]
+/// Read this process's user+system CPU time, summed over all its threads.
+/// Returns None on platforms without `getrusage` (e.g. Windows).
+pub fn process_cpu_time() -> Option<Duration> {
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
+        // SAFETY: getrusage only writes into the rusage we hand it.
         unsafe {
             let mut ru: libc::rusage = std::mem::zeroed();
-            if libc::getrusage(libc::RUSAGE_THREAD, &mut ru) != 0 {
+            if libc::getrusage(libc::RUSAGE_SELF, &mut ru) != 0 {
                 return None;
             }
             let user = duration_from_timeval(&ru.ru_utime);
@@ -34,92 +37,17 @@ pub fn thread_cpu_time() -> Option<Duration> {
             Some(user + sys)
         }
     }
-    #[cfg(target_os = "macos")]
-    {
-        // mach_thread_self → thread_info(thread, THREAD_BASIC_INFO, ...)
-        // We only need user_time + system_time from thread_basic_info.
-        macos_thread_cpu_time()
-    }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         None
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn duration_from_timeval(tv: &libc::timeval) -> Duration {
     let secs = tv.tv_sec as u64;
     let micros = tv.tv_usec as u32;
     Duration::new(secs, micros * 1000)
-}
-
-#[cfg(target_os = "macos")]
-fn macos_thread_cpu_time() -> Option<Duration> {
-    // libc on macOS exposes mach_thread_self() and the thread_info()
-    // syscall via the `mach2` crate, but bringing that in just for this
-    // is overkill. Inline what we need: the Mach syscall numbers and
-    // the thread_basic_info layout. The whole thing is two ints +
-    // four time_value_t fields.
-    use std::os::raw::{c_int, c_uint};
-
-    // thread_t is a mach_port_name_t which is an unsigned int.
-    type ThreadT = c_uint;
-    type KernReturnT = c_int;
-    type ThreadFlavorT = c_int;
-    type MachMsgTypeNumberT = c_uint;
-
-    const THREAD_BASIC_INFO: ThreadFlavorT = 3;
-    // The size of `thread_basic_info_data_t` in u32-sized words.
-    const THREAD_BASIC_INFO_COUNT: MachMsgTypeNumberT = 10;
-
-    #[repr(C)]
-    #[derive(Default)]
-    struct TimeValueT {
-        seconds: c_int,
-        microseconds: c_int,
-    }
-
-    #[repr(C)]
-    #[derive(Default)]
-    struct ThreadBasicInfo {
-        user_time: TimeValueT,
-        system_time: TimeValueT,
-        cpu_usage: c_int,
-        policy: c_int,
-        run_state: c_int,
-        flags: c_int,
-        suspend_count: c_int,
-        sleep_time: c_int,
-    }
-
-    unsafe extern "C" {
-        fn mach_thread_self() -> ThreadT;
-        fn mach_port_deallocate(task: ThreadT, port: ThreadT) -> KernReturnT;
-        fn mach_task_self() -> ThreadT;
-        fn thread_info(
-            target: ThreadT,
-            flavor: ThreadFlavorT,
-            info: *mut ThreadBasicInfo,
-            count: *mut MachMsgTypeNumberT,
-        ) -> KernReturnT;
-    }
-
-    unsafe {
-        let thread = mach_thread_self();
-        let mut info = ThreadBasicInfo::default();
-        let mut count = THREAD_BASIC_INFO_COUNT;
-        let kr = thread_info(thread, THREAD_BASIC_INFO, &mut info, &mut count);
-        // Always release the port reference we just took.
-        let _ = mach_port_deallocate(mach_task_self(), thread);
-        if kr != 0 {
-            return None;
-        }
-        let user_us = info.user_time.seconds as u64 * 1_000_000
-            + info.user_time.microseconds as u64;
-        let sys_us = info.system_time.seconds as u64 * 1_000_000
-            + info.system_time.microseconds as u64;
-        Some(Duration::from_micros(user_us + sys_us))
-    }
 }
 
 /// Least-squares fit of y = m*x + b, where x = 0, 1, ..., n-1.
@@ -173,16 +101,16 @@ mod tests {
     }
 
     #[test]
-    fn thread_cpu_time_returns_some_on_linux_and_macos() {
+    fn process_cpu_time_returns_some_on_linux_and_macos() {
         // Burn a tiny bit of CPU so the result isn't trivially zero.
         let mut s: u64 = 0;
         for i in 0..10_000 {
             s = s.wrapping_add(i);
         }
         std::hint::black_box(s);
-        let t = thread_cpu_time();
+        let t = process_cpu_time();
         if cfg!(any(target_os = "linux", target_os = "macos")) {
-            assert!(t.is_some(), "expected per-thread CPU on this platform");
+            assert!(t.is_some(), "expected process CPU on this platform");
         }
     }
 }

@@ -22,7 +22,7 @@ element-per-block grid index, so they line up element-for-element:
 | `failures` | uint32 | always | failed attempts for this block |
 | `wall_seconds` | float32 | `resource_tracking` | elapsed time in the block |
 | `cpu_seconds` | float32 | `resource_tracking` | user+system CPU |
-| `peak_rss_bytes` | uint64 | `resource_tracking` | process peak RSS at block end |
+| `peak_rss_bytes` | uint64 | `resource_tracking` | process peak RSS while the block ran |
 | `io_read_bytes` | uint64 | `resource_tracking` | bytes read via syscalls |
 | `io_write_bytes` | uint64 | `resource_tracking` | bytes written via syscalls |
 | `gpu_util_pct` | float32 | `resource_tracking` | reserved (NaN) |
