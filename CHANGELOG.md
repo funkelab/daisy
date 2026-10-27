@@ -65,6 +65,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Per-worker time tracking and the run report.** Every run now produces
+  a `daisy.RunReport` (`Server.last_report`, and `daisy_run_report` on the
+  `KeyboardInterrupt` / abandonment error) with one `TaskReport` per task,
+  read back per task with `task.report()`: `blocks` (count, failures, and `mean ± std`
+  for wall, CPU, peak RSS, IO, plus the per-block `overhead` — server round
+  trip minus the worker's own wall time — and the wall-time trend) and
+  `workers` (count, `startup`, `idle`, `compute`, `teardown` as
+  distributions, exit kinds, and a row per worker under `by_id`).
+  `TaskReport.worker(id)`, `TaskReport.block(block | grid coord | id)` and
+  `TaskReport.block_records()` drill down; the latter two read the tracking
+  store (`Task.block_record`, `Task.block_records`). `blocks.skipped`
+  separates a resumed run's skipped blocks from executed ones.
+  `Task.run_blockwise(**kwargs)` runs a task on its own and `Task.report()`
+  returns its section of its most recent run's report, read from the
+  persisted `runs.jsonl`, so it works in a later process and after an
+  interrupted or abandoned run. `Task.tracking_path` is the resolved store
+  directory (None without a persistent store).
+  Worker timing is stamped by the server from the lifecycle events it
+  already sees — spawn, first acquire, each dispatch and return, the
+  shutdown reply, the spawn thread's exit — so it needs no protocol change,
+  is always collected (O(workers) memory), and covers startup and teardown,
+  which a worker cannot report about itself. The "Resource Utilization"
+  panel prints what needs no tracking store for every distributed task —
+  the scheduler's per-block `round trip` and the worker line plus a
+  per-worker table (ten rows, then a pointer) — and the in-worker
+  measurements (`wall`, `cpu`, `peak RSS`, IO, `overhead`, `trend`) only
+  for tasks with `resource_tracking=True`.
+  Every task's report is appended once per run to a `runs.jsonl`: in its
+  tracking store when it has one, else under `<log basedir>/<task_id>/`
+  next to its worker logs. With `resource_tracking=True` the tracking store
+  also gains `worker_id`, `sent_at` and `returned_at` arrays (who ran each
+  block and when, scheduler clock).
+  **Removed**: `Server.last_tracking_summary` and the `{"per_task": {...}}`
+  dict it held; `daisy_run_stats` on the partial-run errors (now
+  `daisy_run_report`).
 - `Task(skip_mask=...)`: a caller-provided mask over the block grid (a
   uint8 or bool array at `Task.block_grid_shape`, nonzero = skip). Masked
   blocks are reported as skipped and release their downstream dependencies,
@@ -349,6 +384,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Block measurements cover the whole worker process.** `cpu_seconds` and
+  `io_*_bytes` were counted per thread (`RUSAGE_THREAD`,
+  `/proc/self/task/<tid>/io`), so work a block handed to other threads was
+  missed. zarr's IO threads are one example: a 32 MB zarr write was recorded
+  as 0 bytes. They now come from `RUSAGE_SELF` and `/proc/self/io`.
+- **`peak_rss_bytes` is the peak while the block ran.** It was read from
+  `ru_maxrss`, which survives fork+exec, so every spawned worker reported
+  its driver's peak (6.1 GB for every task of a run whose driver held the
+  volume). On Linux the high-water mark is now reset at block start and
+  `VmHWM` is read at the end. Elsewhere it falls back to `ru_maxrss`.
 - **The bundled benchmarks no longer compare daisy against itself.** The
   `gerbera -> daisy` rename left both arms of every comparison pointing at
   the same package: each script defined `bench_daisy` twice (the second

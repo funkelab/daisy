@@ -288,6 +288,37 @@ class Task(_rs.Task):
         store, as `Block`s."""
         return _blocks(super().failed_blocks())
 
+    def run_blockwise(self, **kwargs):
+        """Run this task on its own: ``daisy.run_blockwise(task, **kwargs)``.
+        Returns what `daisy.run_blockwise` returns (a bool, or the states
+        dict with ``return_states=True``); the run's figures are on
+        `Task.report` afterwards."""
+        from daisy._runner import run_blockwise
+
+        return run_blockwise(self, **kwargs)
+
+    def report(self):
+        """This task's `TaskReport` from its most recent run — per-block
+        ``mean ± std`` and per-worker startup / idle / compute / teardown —
+        or None if it has never run.
+
+        Read from the last line of the task's ``runs.jsonl`` (in its
+        tracking store, else next to its worker logs under the log basedir),
+        so it works in a later process too and reflects whichever run of
+        this task happened last, finished, interrupted or abandoned. Only
+        when nothing could be persisted (no store and file logging off) does
+        it fall back to the report kept in memory by a run in this process.
+        """
+        from daisy._report import read_last_run, runs_file_for
+
+        path = runs_file_for(self)
+        if path is not None:
+            report = read_last_run(path)
+            if report is not None:
+                report._task = self
+                return report
+        return getattr(self, "_last_report", None)
+
 
 def _block_fn_arity(fn):
     """Positional arity of a process function: 0 means a worker function

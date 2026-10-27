@@ -1,6 +1,6 @@
 [project]
 name = "daisy"
-version = "2.0.0"
+version = "2.0.1"
 description = "Blockwise task scheduler for processing large volumetric data"
 readme = "README.md"
 license = "MIT"

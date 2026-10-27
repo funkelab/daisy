@@ -15,20 +15,31 @@
 //!
 //! ## What the numbers mean, and their honest limits
 //!
+//! Every figure is **process-wide**. Each distributed worker is its own
+//! process running one block at a time, so the process is the block's
+//! natural accounting unit, and only process-wide counters see work the
+//! block hands to other threads (zarr's IO and codec threads, a thread
+//! pool, a helper thread). Per-thread counters reported zero IO for zarr
+//! writes. In serial mode the process is the driver, and its background
+//! threads are counted too.
+//!
 //! - `wall_seconds` — elapsed time around the block function. Always exact.
-//! - `cpu_seconds` — user+system CPU consumed. Per-*thread* where the OS
-//!   offers it (Linux `RUSAGE_THREAD`, macOS `thread_info`), so concurrent
-//!   thread workers don't contaminate each other.
-//! - `io_read_bytes` / `io_write_bytes` — bytes through the syscall layer,
-//!   from `/proc/self/task/<tid>/io` (per-thread on Linux) falling back to
-//!   `/proc/self/io`. Zero where the platform doesn't expose it.
-//! - `peak_rss_bytes` — the process's peak RSS observed at the end of the
-//!   block. **Process-wide, not per-block**: `ru_maxrss` is a monotonic
-//!   high-water mark, so this reads as "how big had we grown by the time
-//!   this block finished". In subprocess mode (the default) each worker is
-//!   its own process handling one block at a time, which is the meaningful
-//!   case; in thread mode every concurrent block reports the same
-//!   process-wide figure.
+//! - `cpu_seconds` — user+system CPU consumed by the process
+//!   (`getrusage(RUSAGE_SELF)`).
+//! - `io_read_bytes` / `io_write_bytes` — bytes through the syscall layer
+//!   (`rchar` / `wchar` from `/proc/self/io`). Zero where the platform
+//!   doesn't expose it.
+//! - `peak_rss_bytes` — the process's peak RSS **while this block ran**.
+//!   On Linux the profiler resets the kernel's high-water mark when the
+//!   block starts (writing `5` to `/proc/self/clear_refs`) and reads
+//!   `VmHWM` when it ends. That is the worker's resident baseline plus
+//!   whatever the block allocated on top. The reset lowers the process's
+//!   `ru_maxrss` too, so external tools such as `/usr/bin/time` see the
+//!   peak of the last block rather than of the whole process. Where the
+//!   reset is unavailable (macOS, kernels before 4.0) this falls back to
+//!   `ru_maxrss`, the process's peak so far. Never `ru_maxrss` on Linux
+//!   otherwise: it survives fork+exec, so a spawned worker would report
+//!   the driver's peak as its own.
 //! - `gpu_util_pct` / `gpu_mem_bytes` — reserved. Populating them needs
 //!   NVML and a sampling loop; the schema slots exist so adding it later
 //!   doesn't change the on-disk layout. Written as NaN / 0 for now.
@@ -38,7 +49,7 @@ use std::time::{Duration, Instant};
 use bincode::{Decode, Encode};
 use serde::{Deserialize, Serialize};
 
-use crate::run_stats::thread_cpu_time;
+use crate::run_stats::process_cpu_time;
 
 /// Resources consumed by one block, measured by whoever ran it.
 ///
@@ -72,8 +83,7 @@ impl Default for BlockStats {
     }
 }
 
-/// Bytes read/written through the syscall layer by this thread (or the
-/// process, where per-thread accounting is unavailable).
+/// Bytes read/written through the syscall layer by this process.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 struct IoCounters {
     read: u64,
@@ -81,8 +91,8 @@ struct IoCounters {
 }
 
 /// An in-flight measurement. `start()` snapshots the counters, `finish()`
-/// returns the deltas. Cheap enough to wrap every block: three small reads
-/// of `/proc` plus a `getrusage`.
+/// returns the deltas. Cheap enough to wrap every block: one small write
+/// and three small reads of `/proc` plus two `getrusage` calls.
 #[derive(Debug)]
 pub struct BlockProfiler {
     started: Instant,
@@ -92,9 +102,10 @@ pub struct BlockProfiler {
 
 impl BlockProfiler {
     pub fn start() -> Self {
+        reset_peak_rss();
         Self {
             started: Instant::now(),
-            cpu_at_start: thread_cpu_time(),
+            cpu_at_start: process_cpu_time(),
             io_at_start: read_io_counters(),
         }
     }
@@ -105,7 +116,7 @@ impl BlockProfiler {
     /// unreadable mid-block) saturate at zero rather than wrapping.
     pub fn finish(&self) -> BlockStats {
         let wall = self.started.elapsed();
-        let cpu = match (thread_cpu_time(), self.cpu_at_start) {
+        let cpu = match (process_cpu_time(), self.cpu_at_start) {
             (Some(now), Some(then)) => now.saturating_sub(then),
             _ => Duration::ZERO,
         };
@@ -127,11 +138,31 @@ impl BlockProfiler {
     }
 }
 
-/// Peak resident set size of this process, in bytes.
-///
-/// `ru_maxrss` is a high-water mark, so this is the process's peak so far,
-/// not this block's own footprint — see the module docs.
+/// Reset this process's peak-RSS high-water mark to its current RSS, so
+/// the next `peak_rss_bytes` reads the peak since now. Linux 4.0+ only; a
+/// failure (older kernel, restricted `/proc`) leaves the mark alone and
+/// `peak_rss_bytes` reads the process's peak so far.
+fn reset_peak_rss() {
+    #[cfg(target_os = "linux")]
+    {
+        let _ = std::fs::write("/proc/self/clear_refs", "5");
+    }
+}
+
+/// Peak resident set size of this process since the last `reset_peak_rss`,
+/// in bytes. See the module docs.
 fn peak_rss_bytes() -> Option<u64> {
+    #[cfg(target_os = "linux")]
+    {
+        // VmHWM is the high-water mark of this process image; ru_maxrss
+        // would carry over the parent's peak across fork+exec.
+        if let Some(hwm) = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|text| parse_vm_hwm(&text))
+        {
+            return Some(hwm);
+        }
+    }
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     {
         // SAFETY: getrusage only writes into the rusage we hand it.
@@ -155,18 +186,15 @@ fn peak_rss_bytes() -> Option<u64> {
     }
 }
 
-/// Per-thread IO byte counters, falling back to the process totals.
+/// The process's IO byte counters.
 ///
 /// Linux exposes `rchar`/`wchar` (bytes through read/write syscalls,
-/// including page-cache hits) per thread under `/proc/self/task/<tid>/io`.
-/// Elsewhere this returns `None` and the stats read zero.
+/// including page-cache hits) under `/proc/self/io`, summed over all
+/// threads. Elsewhere this returns `None` and the stats read zero.
 fn read_io_counters() -> Option<IoCounters> {
     #[cfg(target_os = "linux")]
     {
-        // SAFETY: gettid takes no arguments and cannot fail.
-        let tid = unsafe { libc::gettid() };
-        std::fs::read_to_string(format!("/proc/self/task/{tid}/io"))
-            .or_else(|_| std::fs::read_to_string("/proc/self/io"))
+        std::fs::read_to_string("/proc/self/io")
             .ok()
             .map(|text| parse_proc_io(&text))
     }
@@ -197,6 +225,14 @@ fn parse_proc_io(text: &str) -> IoCounters {
     io
 }
 
+/// Pull `VmHWM` (reported in kB) out of `/proc/self/status`, in bytes.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn parse_vm_hwm(text: &str) -> Option<u64> {
+    let line = text.lines().find(|line| line.starts_with("VmHWM:"))?;
+    let kb = line["VmHWM:".len()..].trim().strip_suffix("kB")?.trim();
+    kb.parse::<u64>().ok().map(|kb| kb.saturating_mul(1024))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,6 +247,10 @@ mod tests {
         std::hint::black_box(acc);
     }
 
+    // Every figure is process-wide and cargo runs tests as threads of one
+    // process, so other tests' work can only add to a measurement: these
+    // tests assert lower bounds, never upper ones.
+
     #[test]
     fn measures_wall_and_cpu_of_busy_work() {
         let p = BlockProfiler::start();
@@ -219,31 +259,26 @@ mod tests {
 
         assert!(s.wall_seconds >= 0.045, "wall too small: {s:?}");
         assert!(s.wall_seconds < 5.0, "wall implausible: {s:?}");
-        // A busy loop spends its wall time on-CPU; allow generous slack for
-        // a loaded machine, and accept 0 where the platform has no probe.
-        if thread_cpu_time().is_some() {
-            assert!(s.cpu_seconds > 0.0, "expected cpu time: {s:?}");
-            assert!(
-                s.cpu_seconds <= s.wall_seconds * 1.5 + 0.05,
-                "cpu exceeds wall: {s:?}"
-            );
+        if process_cpu_time().is_some() {
+            assert!(s.cpu_seconds >= 0.04, "expected cpu time: {s:?}");
         }
     }
 
     #[test]
-    fn sleeping_costs_wall_but_not_cpu() {
+    fn counts_cpu_burned_on_other_threads() {
+        // A block that hands its work to a helper thread (as zarr does with
+        // its codec and IO threads) still owns that CPU.
         let p = BlockProfiler::start();
-        std::thread::sleep(Duration::from_millis(30));
+        std::thread::spawn(|| busy(50)).join().unwrap();
         let s = p.finish();
 
-        assert!(s.wall_seconds >= 0.025, "wall too small: {s:?}");
-        if thread_cpu_time().is_some() {
-            assert!(s.cpu_seconds < 0.020, "sleep should not burn cpu: {s:?}");
+        if process_cpu_time().is_some() {
+            assert!(s.cpu_seconds >= 0.04, "helper-thread cpu missing: {s:?}");
         }
     }
 
     #[test]
-    fn counts_bytes_written() {
+    fn counts_bytes_written_on_other_threads() {
         let p = BlockProfiler::start();
         let path = std::env::temp_dir().join(format!(
             "daisy-profile-io-{}-{:?}.bin",
@@ -251,8 +286,15 @@ mod tests {
             std::thread::current().id()
         ));
         let payload = vec![7u8; 256 * 1024];
-        std::fs::write(&path, &payload).unwrap();
-        let read_back = std::fs::read(&path).unwrap();
+        let read_back = std::thread::spawn({
+            let (path, payload) = (path.clone(), payload.clone());
+            move || {
+                std::fs::write(&path, &payload).unwrap();
+                std::fs::read(&path).unwrap()
+            }
+        })
+        .join()
+        .unwrap();
         let s = p.finish();
         let _ = std::fs::remove_file(&path);
 
@@ -271,12 +313,51 @@ mod tests {
         }
     }
 
-    #[test]
-    fn peak_rss_is_reported_where_supported() {
-        let s = BlockProfiler::start().finish();
-        if cfg!(any(target_os = "linux", target_os = "macos")) {
-            assert!(s.peak_rss_bytes > 0, "expected a peak rss: {s:?}");
+    /// Allocate and touch `bytes`, so they are resident.
+    fn resident(bytes: usize) -> Vec<u8> {
+        let mut v = vec![0u8; bytes];
+        for i in (0..bytes).step_by(4096) {
+            v[i] = 1;
         }
+        std::hint::black_box(v)
+    }
+
+    #[test]
+    fn peak_rss_covers_what_the_block_allocated() {
+        let p = BlockProfiler::start();
+        let held = resident(64 << 20);
+        let s = p.finish(); // still holding it, so no concurrent reset can hide it
+        drop(held);
+
+        if cfg!(any(target_os = "linux", target_os = "macos")) {
+            assert!(s.peak_rss_bytes >= 64 << 20, "expected a peak rss: {s:?}");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn peak_rss_starts_over_with_each_block() {
+        if std::fs::write("/proc/self/clear_refs", "5").is_err() {
+            return; // kernel or sandbox without the reset: ru_maxrss fallback
+        }
+        let first = BlockProfiler::start();
+        let held = resident(512 << 20);
+        let big = first.finish();
+        drop(held);
+
+        let small = BlockProfiler::start().finish();
+        assert!(big.peak_rss_bytes >= 512 << 20, "first block: {big:?}");
+        assert!(
+            small.peak_rss_bytes + (256 << 20) < big.peak_rss_bytes,
+            "second block inherited the first one's peak: {small:?} vs {big:?}"
+        );
+    }
+
+    #[test]
+    fn parses_vm_hwm() {
+        let status = "Name:\tpython\nVmPeak:\t 999 kB\nVmHWM:\t   2048 kB\nVmRSS:\t 1 kB\n";
+        assert_eq!(parse_vm_hwm(status), Some(2048 * 1024));
+        assert_eq!(parse_vm_hwm("VmRSS: 1 kB\n"), None);
     }
 
     #[test]
@@ -291,7 +372,13 @@ mod tests {
         let io = parse_proc_io(
             "rchar: 1234\nwchar: 5678\nsyscr: 9\nnot-a-number: abc\nmalformed line\n",
         );
-        assert_eq!(io, IoCounters { read: 1234, write: 5678 });
+        assert_eq!(
+            io,
+            IoCounters {
+                read: 1234,
+                write: 5678
+            }
+        );
     }
 
     #[test]

@@ -61,6 +61,31 @@ as in 1.x. Every daisy entry point accepts them (or anything with integer
    :members:
 ```
 
+## Run report
+
+```{eval-rst}
+.. autoclass:: daisy.RunReport
+   :members:
+
+.. autoclass:: daisy.TaskReport
+   :members:
+
+.. autoclass:: daisy._report.BlockSummary
+   :members:
+
+.. autoclass:: daisy._report.WorkerSummary
+   :members:
+
+.. autoclass:: daisy._report.WorkerRecord
+   :members:
+
+.. autoclass:: daisy._report.BlockRecord
+   :members:
+
+.. autoclass:: daisy._report.Stat
+   :members:
+```
+
 ## Progress observers
 
 ```{eval-rst}

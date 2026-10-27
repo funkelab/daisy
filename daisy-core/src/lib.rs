@@ -14,6 +14,7 @@ pub mod protocol;
 pub mod ready_surface;
 pub mod resource_allocator;
 pub mod roi;
+pub mod run_report;
 pub mod run_stats;
 pub mod scheduler;
 pub mod serial;
@@ -23,6 +24,7 @@ pub mod task;
 pub mod task_state;
 pub mod worker_context;
 pub mod worker_pool;
+pub mod worker_timeline;
 
 pub use block::{Block, BlockStatus};
 pub use client::Client;

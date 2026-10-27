@@ -1,6 +1,7 @@
 use crate::block::BlockStatus;
 use crate::block_profile::BlockProfiler;
-use crate::block_tracking::TaskSummary;
+use crate::run_report::{build_reports, TaskReport};
+use crate::worker_timeline::RunTimeline;
 use crate::error::DaisyError;
 use crate::scheduler::Scheduler;
 use crate::task::Task;
@@ -25,7 +26,7 @@ impl SerialRunner {
     pub fn run(
         pipeline: &crate::pipeline::Pipeline,
         block_tracking: bool,
-    ) -> Result<(HashMap<String, TaskCounters>, HashMap<String, TaskSummary>), DaisyError> {
+    ) -> Result<(HashMap<String, TaskCounters>, HashMap<String, TaskReport>), DaisyError> {
         crate::scheduler::validate_pipeline(pipeline)?;
         let mut scheduler = Scheduler::new(pipeline, true);
         if block_tracking {
@@ -110,13 +111,17 @@ impl SerialRunner {
             }
         }
 
+        // Serial mode has no workers, so the report's worker section is
+        // empty; blocks are measured the same way as everywhere else.
         let summaries = scheduler.tracking_summaries();
-        let counters = scheduler
+        let counters: HashMap<String, TaskCounters> = scheduler
             .task_states
-            .into_iter()
-            .map(|(k, v)| (k, v.counters()))
+            .iter()
+            .map(|(k, v)| (k.clone(), v.counters()))
             .collect();
-        Ok((counters, summaries))
+        let reports = build_reports(&counters, &summaries, &RunTimeline::new());
+        scheduler.append_run_records(&reports);
+        Ok((counters, reports))
     }
 
     /// The next block to process, or `None` when no task has ready work.
@@ -237,9 +242,15 @@ mod tests {
         );
 
         let pipeline = crate::pipeline::Pipeline::from_task(task.clone());
-        let (states, summaries) = SerialRunner::run(&pipeline, true).unwrap();
-        // No tracking_path configured, so nothing to summarise.
-        assert!(summaries.is_empty());
+        let (states, reports) = SerialRunner::run(&pipeline, true).unwrap();
+        // No tracking_path configured: the report still exists (every task
+        // gets one), with the scheduler's count, no resource figures and
+        // no workers.
+        let report = &reports["test"];
+        assert!(!report.tracked);
+        assert!(!report.blocks.has_stats);
+        assert_eq!(report.blocks.count, 4);
+        assert_eq!(report.workers.count, 0);
         let state = &states["test"];
         assert!(state.balanced());
         assert_eq!(state.total_block_count, 4);
