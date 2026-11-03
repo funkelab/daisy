@@ -1,0 +1,25 @@
+name: tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    name: py${{ matrix.python-version }} ${{ matrix.resolution }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # requires-python floor and newest
+        python-version: ["3.11", "3.14"]
+        resolution: ["highest", "lowest-direct"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: uv sync --resolution ${{ matrix.resolution }}
+      - run: uv run pytest --cov=daisy --cov-report=term-missing --cov-report=xml

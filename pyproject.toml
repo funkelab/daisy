@@ -76,7 +76,9 @@ unresolved-import = "ignore"
 dev = [
     "cloudpickle>=3",  # lambda/closure support for worker processes
     "filelock>=3.29.0",
+    "numpy>=2",  # tests/test_skip_mask.py
     "pytest>=8",
+    "pytest-cov>=6",
     "pytest-timeout>=2",
 ]
 # lint group is intentionally project-free: CI runs `uv run --only-group lint`
@@ -110,6 +112,10 @@ docs = [
     # movement renders as dozens of partial lines in the executed tutorials.
     "ipywidgets>=8",
 ]
+
+[tool.pytest.ini_options]
+# bare `pytest` must not collect examples/ (stress_test.py runs a pipeline at import)
+testpaths = ["tests"]
 
 [tool.ruff.lint]
 # Deliberately pinned rule set (ruff's defaults drift across versions):
