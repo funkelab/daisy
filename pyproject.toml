@@ -117,12 +117,15 @@ docs = [
 # bare `pytest` must not collect examples/ (stress_test.py runs a pipeline at import)
 testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 88
+extend-exclude = ["docs/build"]
+
 [tool.ruff.lint]
-# Deliberately pinned rule set (ruff's defaults drift across versions):
-# pyflakes + pycodestyle errors + import sorting — matches the style pass
-# in PR #71. Opinionated rule families (S, BLE, SIM, ...) are opt-in later.
-select = ["E4", "E7", "E9", "F", "I"]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]  # the formatter owns line length
 
 [tool.ruff.lint.per-file-ignores]
-# jupytext-style cell scripts: config cells run before heavy imports
-"examples/*" = ["E402"]
+"tutorials/**/*.py" = ["E402"]  # jupytext cells import mid-file
+"examples/**/*.py" = ["E402"]
+"__init__.py" = ["F401"]  # re-exports

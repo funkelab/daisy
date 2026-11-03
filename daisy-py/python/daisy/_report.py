@@ -540,7 +540,7 @@ class TaskReport:
             ]
             out.append(
                 "      "
-                + "  ".join(f"{c:>{w}}" for c, (_, w) in zip(cells, cols))
+                + "  ".join(f"{c:>{w}}" for c, (_, w) in zip(cells, cols, strict=False))
                 + f"  {r.exit or 'running'}"
             )
         if len(rows) > max_workers:
@@ -677,7 +677,7 @@ def _resolve_block(task, block):
             )
         offset = tuple(
             int(o) + int(c) * int(s)
-            for o, c, s in zip(total.offset, block, write.shape)
+            for o, c, s in zip(total.offset, block, write.shape, strict=False)
         )
         write_roi = Roi(offset, tuple(int(s) for s in write.shape))
         return Block(total, write_roi, write_roi, task_id=task.task_id)._native

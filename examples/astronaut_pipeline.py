@@ -340,7 +340,7 @@ panels = [
     ),
 ]
 fig, axes = plt.subplots(3, 1, figsize=(11, 6.5), sharex=True)
-for ax, (label, data, colour, cap, subtitle) in zip(axes, panels):
+for ax, (label, data, colour, cap, subtitle) in zip(axes, panels, strict=False):
     ax.step(times, data, where="post", color=colour, linewidth=1.5)
     ax.fill_between(times, data, step="post", alpha=0.25, color=colour)
     ax.axhline(cap, color="black", linestyle=":", alpha=0.5, linewidth=0.9)

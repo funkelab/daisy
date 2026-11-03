@@ -6,9 +6,9 @@ pyright) read this `.pyi` instead of trying to introspect the
 compiled `.so`.
 """
 
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
-from typing import Any, Callable, Protocol, Self, TypeAlias
+from typing import Any, Protocol, Self, TypeAlias
 
 from funlib.geometry import Roi as FunlibRoi
 

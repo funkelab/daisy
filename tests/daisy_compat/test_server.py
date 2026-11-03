@@ -7,7 +7,7 @@ logging.basicConfig(level=logging.DEBUG)
 
 
 def process_block(block):
-    print("Processing block %s" % block)
+    print(f"Processing block {block}")
 
 
 # Originally xfailed because v2 dropped `SerialServer` and renamed

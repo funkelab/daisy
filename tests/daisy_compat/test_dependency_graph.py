@@ -39,7 +39,7 @@ tasks = [
         read_write_conflict=True,
         fit=fit,
     )
-    for name, write_roi, fit in zip(names, write_rois, fits)
+    for name, write_roi, fit in zip(names, write_rois, fits, strict=False)
 ]
 
 num_blocks = [
@@ -52,7 +52,7 @@ num_blocks = [
 ]
 
 
-@pytest.mark.parametrize("task_blocks", list(zip(tasks, num_blocks)))
+@pytest.mark.parametrize("task_blocks", list(zip(tasks, num_blocks, strict=False)))
 def test_downstream(task_blocks):
     task, num_blocks = task_blocks
     graph = BlockwiseDependencyGraph(

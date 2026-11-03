@@ -284,7 +284,7 @@ def test_chained_tasks(chained_task):
 
     # Level 1
     blocks = []
-    for b in (12, 23, 25, 40):
+    for _b in (12, 23, 25, 40):
         block = scheduler.acquire_block(first_task.task_id)
         block.status = BlockStatus.SUCCESS
         blocks.append(block)
@@ -294,7 +294,7 @@ def test_chained_tasks(chained_task):
 
     # Level 2
     blocks = []
-    for b in (8, 17, 19, 32):
+    for _b in (8, 17, 19, 32):
         block = scheduler.acquire_block(first_task.task_id)
         block.status = BlockStatus.SUCCESS
         blocks.append(block)
@@ -304,7 +304,7 @@ def test_chained_tasks(chained_task):
 
     # Level 3
     blocks = []
-    for b in (7, 16, 18, 31):
+    for _b in (7, 16, 18, 31):
         block = scheduler.acquire_block(first_task.task_id)
         block.status = BlockStatus.SUCCESS
         blocks.append(block)
@@ -314,7 +314,7 @@ def test_chained_tasks(chained_task):
 
     # Level 4
     blocks = []
-    for b in (4, 11, 13, 24):
+    for _b in (4, 11, 13, 24):
         block = scheduler.acquire_block(first_task.task_id)
         block.status = BlockStatus.SUCCESS
         blocks.append(block)
