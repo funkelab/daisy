@@ -39,6 +39,7 @@ worker-processes = []
 
 [project.urls]
 Homepage = "https://github.com/funkelab/daisy"
+Documentation = "https://funkelab.github.io/daisy"
 Repository = "https://github.com/funkelab/daisy"
 Issues = "https://github.com/funkelab/daisy/issues"
 Changelog = "https://github.com/funkelab/daisy/blob/main/CHANGELOG.md"
@@ -80,8 +81,8 @@ dev = [
 # lint group is intentionally project-free: CI runs `uv run --only-group lint`
 # so no Rust toolchain / maturin build is needed for style and type checks
 lint = [
-    "ruff==0.17.3",
-    "ty==0.0.96",
+    "ruff>=0.17.3",
+    "ty>=0.0.96",
 ]
 examples = [
     "ipykernel>=7.2.0",
@@ -125,3 +126,14 @@ ignore = ["E501"]  # the formatter owns line length
 "tutorials/**/*.py" = ["E402"]  # jupytext cells import mid-file
 "examples/**/*.py" = ["E402"]
 "__init__.py" = ["F401"]  # re-exports
+
+[tool.coverage.run]
+branch = true
+source = ["daisy"]
+
+[tool.coverage.report]
+# Floor measured from the first branch-enabled run; raise it when measured
+# coverage is two or more points ahead, never lower it without saying why.
+fail_under = 77
+show_missing = true
+skip_covered = true

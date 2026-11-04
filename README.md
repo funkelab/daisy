@@ -1,6 +1,13 @@
+[![tests](https://github.com/funkelab/daisy/actions/workflows/tests.yaml/badge.svg)](https://github.com/funkelab/daisy/actions/workflows/tests.yaml)
+[![lint](https://github.com/funkelab/daisy/actions/workflows/lint.yaml/badge.svg)](https://github.com/funkelab/daisy/actions/workflows/lint.yaml)
+[![docs](https://github.com/funkelab/daisy/actions/workflows/docs.yml/badge.svg)](https://funkelab.github.io/daisy)
+[![publish](https://github.com/funkelab/daisy/actions/workflows/publish.yaml/badge.svg)](https://pypi.org/project/daisy/)
+
 # daisy
 
 Blockwise task scheduler for processing large volumetric data.
+
+**Documentation:** https://funkelab.github.io/daisy
 
 Daisy v2 is a Rust rewrite of the original [daisy](https://pypi.org/project/daisy/1.2.2/), with a focus on faster scheduling, deterministic block dependencies, and resumable runs via on-disk done markers. The Python API is built on a Rust core (`daisy-core`) exposed through PyO3 (`daisy._daisy`).
 
@@ -34,7 +41,7 @@ git remote set-head origin -a
 ## Install
 
 ```bash
-pip install daisy
+pip install daisy    # or: uv add daisy
 ```
 
 Requires Python ≥ 3.11. Wheels for Linux (glibc + musl, x86_64/aarch64), macOS (x86_64/arm64), and Windows are built in CI (`.github/workflows/publish.yaml`) and published to PyPI on version tags; building from source needs a Rust toolchain.
@@ -75,7 +82,7 @@ A **block function** receives one block at a time. A **worker function** takes z
 
 ## Documentation
 
-Full documentation (including executable tutorials and the design notes) is built with Sphinx + MyST-NB and published to GitHub Pages. To build locally:
+Full documentation (including executable tutorials and the design notes) is built with Sphinx + MyST-NB and published to GitHub Pages at https://funkelab.github.io/daisy. To build locally:
 
 ```bash
 uv sync --group docs
@@ -92,6 +99,22 @@ The design notes are also browsable directly under [`docs/source/design/`](docs/
 - [`WORKER_POOL_COORDINATION.md`](docs/source/design/WORKER_POOL_COORDINATION.md) — resource budgets
 - [`WORKER_SHUTDOWN_FLOWS.md`](docs/source/design/WORKER_SHUTDOWN_FLOWS.md) — shutdown sequencing
 - [`ABANDONMENT.md`](docs/source/design/ABANDONMENT.md) — typestate model for task lifecycle
+
+## Contributing
+
+The commands below are the ones CI runs, so a green local run means a green PR.
+
+```bash
+git clone https://github.com/funkelab/daisy
+cd daisy
+uv sync                                             # builds the extension (needs Rust) + dev tools
+uv run pytest                                       # tests with coverage
+uv run --only-group lint ruff check . && uv run --only-group lint ruff format --check .
+uv run --only-group lint ty check                   # types
+uv run --group docs sphinx-build -b html docs/source docs/_build/html
+```
+
+`uv.lock` pins the development environment; the `lock-upgrade` workflow refreshes it monthly and opens a pull request.
 
 ## License
 

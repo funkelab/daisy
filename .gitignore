@@ -13,3 +13,6 @@ docs/source/jupyter_execute/
 .coverage
 daisy_logs/
 dist/
+
+# pytest-cov output
+coverage.xml
