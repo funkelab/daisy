@@ -58,12 +58,8 @@ exclude = [
 ]
 
 [tool.ty.src]
-exclude = [
-    # v1.x compat tests deliberately pass v1-style `Block(task_id=int)` etc.
-    # to verify the v1 surface; type-checking them produces noisy false
-    # positives.
-    "tests/daisy_compat/**",
-]
+include = ["daisy-py/python/daisy", "tests"]
+exclude = []  # only ever shrinks
 
 [tool.ty.rules]
 # Examples import optional scientific deps (numpy, matplotlib, lsd_lite,
@@ -84,8 +80,8 @@ dev = [
 # lint group is intentionally project-free: CI runs `uv run --only-group lint`
 # so no Rust toolchain / maturin build is needed for style and type checks
 lint = [
-    "ruff==0.16.1",
-    "ty==0.0.65",
+    "ruff==0.17.3",
+    "ty==0.0.96",
 ]
 examples = [
     "ipykernel>=7.2.0",

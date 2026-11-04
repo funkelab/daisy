@@ -31,4 +31,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: ty type check
-        run: uv run --only-group lint ty check daisy-py/python/daisy
+        run: uv run --only-group lint ty check
