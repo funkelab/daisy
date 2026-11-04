@@ -39,6 +39,7 @@ worker-processes = []
 
 [project.urls]
 Homepage = "https://github.com/funkelab/daisy"
+Documentation = "https://funkelab.github.io/daisy"
 Repository = "https://github.com/funkelab/daisy"
 Issues = "https://github.com/funkelab/daisy/issues"
 Changelog = "https://github.com/funkelab/daisy/blob/main/CHANGELOG.md"
