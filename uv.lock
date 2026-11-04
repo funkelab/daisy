@@ -782,8 +782,8 @@ examples = [
     { name = "zarr", specifier = ">=3.1.6" },
 ]
 lint = [
-    { name = "ruff", specifier = "==0.17.3" },
-    { name = "ty", specifier = "==0.0.96" },
+    { name = "ruff", specifier = ">=0.17.3" },
+    { name = "ty", specifier = ">=0.0.96" },
 ]
 
 [[package]]

@@ -38,7 +38,7 @@ jobs:
         run: uv python install 3.12
 
       - name: Install docs dependencies
-        run: uv sync --group docs
+        run: uv sync --locked --group docs
 
       - name: Cache jupyter-cache
         uses: actions/cache@v4

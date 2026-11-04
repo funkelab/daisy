@@ -21,9 +21,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: ruff lint
-        run: uv run --only-group lint ruff check .
+        run: uv run --locked --only-group lint ruff check .
       - name: ruff format
-        run: uv run --only-group lint ruff format --check .
+        run: uv run --locked --only-group lint ruff format --check .
 
   ty:
     runs-on: ubuntu-latest
@@ -31,4 +31,4 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: ty type check
-        run: uv run --only-group lint ty check
+        run: uv run --locked --only-group lint ty check
