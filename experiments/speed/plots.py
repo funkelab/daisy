@@ -47,7 +47,10 @@ def throughput():
     rows = read("throughput.csv")
     fig, axes = plt.subplots(1, 3, figsize=(12, 3.8), sharey=True)
     for ax, mode, title in zip(
-        axes, "ABC", ("A: block function", "B: worker function", "C: external worker")
+        axes,
+        "ABC",
+        ("A: block function", "B: worker function", "C: external worker"),
+        strict=False,
     ):
         for version, style, color in (
             ("1.x", "o--", "#999999"),
@@ -98,7 +101,7 @@ def resume():
             labels.append(f"{strategy}\ndaisy {r['version']}")
             vals.append(float(r["seconds"]))
     bars = ax.bar(labels, vals, color=["#999999", "#999999", "#2f6fdb"][: len(vals)])
-    for b, v in zip(bars, vals):
+    for b, v in zip(bars, vals, strict=False):
         ax.text(
             b.get_x() + b.get_width() / 2, v, f"{v:.2f} s", ha="center", va="bottom"
         )
@@ -127,7 +130,7 @@ def scheduler():
         ]
         xs = [j + (i - 0.5) * width for j in range(len(grids))]
         bars = ax.bar(xs, vals, width, label=f"daisy {version}", color=color)
-        for b, v in zip(bars, vals):
+        for b, v in zip(bars, vals, strict=False):
             ax.text(
                 b.get_x() + b.get_width() / 2,
                 v,

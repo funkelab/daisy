@@ -36,7 +36,7 @@ tasks = [
         read_write_conflict=True,
         fit=fit,
     )
-    for name, write_roi, fit in zip(names, write_rois, fits)
+    for name, write_roi, fit in zip(names, write_rois, fits, strict=False)
 ]
 
 num_blocks = [
@@ -49,7 +49,9 @@ num_blocks = [
 ]
 
 
-@pytest.mark.parametrize("task_blocks", list(zip(tasks, num_blocks)), ids=names)
+@pytest.mark.parametrize(
+    "task_blocks", list(zip(tasks, num_blocks, strict=False)), ids=names
+)
 def test_block_enumeration(task_blocks):
     task, expected_num_blocks = task_blocks
     graph = BlockwiseDependencyGraph(

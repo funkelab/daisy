@@ -110,7 +110,7 @@ def plot_results(results):
     fig, ax = plt.subplots(figsize=(10, 6))
     bars = ax.bar(x, totals, 0.6, color="#4878CF", edgecolor="black")
 
-    for bar, r in zip(bars, results):
+    for bar, r in zip(bars, results, strict=False):
         ax.text(
             bar.get_x() + bar.get_width() / 2.0,
             bar.get_height(),

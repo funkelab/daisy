@@ -32,7 +32,7 @@ def _noop(block):
 class _Recorder:
     def __init__(self):
         self.progress = []
-        self.finish = None
+        self.finish: dict | None = None
 
     def on_start(self, states):
         pass
@@ -54,6 +54,7 @@ def test_progress_observer_sees_skipped_blocks(tmp_path):
     rec = _Recorder()
     task2 = _task(_noop, tracking_path=str(tmp_path / "track"))
     assert daisy.run_blockwise([task2], progress=rec)
+    assert rec.finish is not None
     assert rec.finish["t"] == (4, 4)
     assert rec.progress and rec.progress[-1]["t"] == (4, 4)
 
@@ -70,7 +71,7 @@ def test_tqdm_bar_reaches_total_on_an_all_skipped_run(tmp_path, capsys):
     assert bar.n == bar.total == 4
 
 
-def _fire_and_forget(*, context=None):
+def _fire_and_forget(*, context: daisy.Context):
     # returns at once; the external worker connects after this returned
     env = dict(os.environ)
     env["DAISY_CONTEXT"] = context.to_env()
