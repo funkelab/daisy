@@ -59,7 +59,7 @@ exclude = [
 ]
 
 [tool.ty.src]
-include = ["daisy-py/python/daisy", "tests"]
+include = ["daisy-py/python/daisy", "tests", "benchmarks"]
 exclude = []  # only ever shrinks
 
 [dependency-groups]
