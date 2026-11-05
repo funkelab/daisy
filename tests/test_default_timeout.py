@@ -5,6 +5,7 @@ import os
 import time
 
 import daisy
+import daisy._daisy
 import pytest
 
 

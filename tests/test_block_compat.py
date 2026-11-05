@@ -3,6 +3,9 @@ surface — v1 parity for code that constructs blocks directly, e.g.
 "process this one ROI without a blockwise job" helpers."""
 
 import daisy
+import daisy._daisy
+import daisy.block
+import daisy.v2
 import funlib.geometry as fg
 
 

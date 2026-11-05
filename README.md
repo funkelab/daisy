@@ -111,7 +111,7 @@ uv sync                                             # builds the extension (need
 uv run pytest                                       # tests with coverage
 uv run pytest --no-cov tests/<file>.py              # one file, without the coverage floor
 uv run --only-group lint ruff check . && uv run --only-group lint ruff format --check .
-uv run --only-group lint ty check                   # types
+uv run --group lint ty check --error-on-warning     # types
 uv run --group docs sphinx-build -b html docs/source docs/_build/html
 ```
 

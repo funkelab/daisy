@@ -11,9 +11,11 @@
 """
 
 import pickle
+from typing import Any
 
 import daisy
 import daisy._daisy as _rs
+import daisy.block
 import daisy.v2 as d2
 import funlib.geometry as fg
 import pytest
@@ -42,10 +44,11 @@ def test_private_carriers_accept_funlib_and_sequences():
     )
     assert _rs.Coordinate((3, 4)) == fg.Coordinate((3, 4)) == (3, 4)
     assert _rs.Coordinate((3, 4)) != (3, 5) and r != "hello"
+    not_a_roi: Any = "hello"
     with pytest.raises(TypeError, match="got str"):
-        r.intersect("hello")
+        r.intersect(not_a_roi)
     with pytest.raises(TypeError, match="got str"):
-        r.contains("hello")
+        r.contains(not_a_roi)
 
 
 @pytest.mark.parametrize("surface", [daisy, d2])

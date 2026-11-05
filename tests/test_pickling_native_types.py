@@ -9,6 +9,7 @@ subprocess workers) fails with "Can't pickle <class 'builtins.Roi'>".
 import pickle
 
 import daisy
+import daisy._daisy
 import pytest
 
 

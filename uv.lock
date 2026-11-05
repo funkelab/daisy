@@ -731,6 +731,7 @@ examples = [
     { name = "zarr", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 lint = [
+    { name = "rich" },
     { name = "ruff" },
     { name = "ty" },
 ]
@@ -782,6 +783,7 @@ examples = [
     { name = "zarr", specifier = ">=3.1.6" },
 ]
 lint = [
+    { name = "rich", specifier = ">=15.0.0" },
     { name = "ruff", specifier = ">=0.17.3" },
     { name = "ty", specifier = ">=0.0.96" },
 ]
