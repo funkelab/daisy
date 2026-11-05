@@ -22,7 +22,7 @@ from pathlib import Path
 
 # The modules a user imports first; the top-level package where its __init__
 # carries the public surface, the headline submodules where it does not.
-IMPORTS = ['daisy']
+IMPORTS = ["daisy"]
 ROOT = Path(__file__).resolve().parent.parent
 
 
