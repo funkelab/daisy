@@ -8,7 +8,7 @@ compiled `.so`.
 
 from collections.abc import Callable, Iterable, Iterator, Sequence
 from pathlib import Path
-from typing import Any, Protocol, Self, TypeAlias
+from typing import Any, Literal, Protocol, Self, TypeAlias, overload
 
 from funlib.geometry import Roi as FunlibRoi
 
@@ -272,6 +272,7 @@ class Pipeline:
     @property
     def edges(self) -> list[tuple[Task, Task]]: ...
     def reset(self) -> None: ...
+    @overload
     def run_blockwise(
         self,
         *,
@@ -279,7 +280,22 @@ class Pipeline:
         resources: dict[str, int] | None = ...,
         progress: bool | object | None = ...,
         block_tracking: bool = ...,
+        return_states: Literal[False] = ...,
+        host: str | None = ...,
+        summary: bool = ...,
     ) -> bool: ...
+    @overload
+    def run_blockwise(
+        self,
+        *,
+        multiprocessing: bool = ...,
+        resources: dict[str, int] | None = ...,
+        progress: bool | object | None = ...,
+        block_tracking: bool = ...,
+        return_states: Literal[True],
+        host: str | None = ...,
+        summary: bool = ...,
+    ) -> dict[str, TaskState]: ...
     def __add__(self, other: Task | Pipeline) -> Pipeline: ...
     def __or__(self, other: Task | Pipeline) -> Pipeline: ...
     def __radd__(self, other: Task | Pipeline) -> Pipeline: ...
@@ -346,6 +362,8 @@ class Context:
     def to_env(self) -> str: ...
     @staticmethod
     def from_env() -> Context: ...
+    @staticmethod
+    def from_env_string(env: str) -> Context: ...
     def __repr__(self) -> str: ...
 
 class SyncClient:

@@ -275,6 +275,7 @@ def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
         )
         server = daisy.Server()
         server.run_blockwise([task], progress=False)
+        assert server.last_report is not None
         per = server.last_report[task_id].blocks
         arrays = sorted(
             p.name for p in (tmp_path / "tr" / task_id).iterdir() if p.is_dir()

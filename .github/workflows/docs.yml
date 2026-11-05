@@ -1,8 +1,11 @@
 name: docs
 
 on:
-  push:
-    branches: [main]
+  # Rebuild after every benchmark run so the charts carry the newest point;
+  # workflow_run fires on the default branch only.
+  workflow_run:
+    workflows: [benchmark]
+    types: [completed]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -52,6 +55,12 @@ jobs:
         run: |
           uv run --group docs sphinx-build -b html docs/source docs/_build/html
 
+      # The benchmark action keeps its data and dashboard on gh-pages; the
+      # site is deployed from this artifact, so bring them along.
+      - run: |
+          if git fetch --depth=1 origin gh-pages 2>/dev/null && git checkout origin/gh-pages -- dev/bench 2>/dev/null; then
+            mkdir -p docs/_build/html/dev && mv dev/bench docs/_build/html/dev/
+          fi
       - name: Upload artifact
         if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
@@ -59,7 +68,7 @@ jobs:
           path: docs/_build/html
 
   deploy:
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
     environment:

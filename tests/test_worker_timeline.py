@@ -42,7 +42,9 @@ def _task(task_id, tmp_path, fn=_sleepy, *, tracked=True, n=80, **kw):
 def _run(task, **kw):
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False, **kw)
-    return states, server.last_report[task.task_id]
+    report = server.last_report
+    assert report is not None
+    return states, report[task.task_id]
 
 
 def test_every_worker_gets_a_full_lifecycle(tmp_path):
@@ -322,8 +324,10 @@ def test_report_is_persisted_for_every_entry_point_and_readable_later(tmp_path):
     )
     daisy.run_blockwise([_task("d", tmp_path)], progress=False)
 
+    base = dl.get_log_basedir()
+    assert base is not None
     for tid in "abc":
-        path = dl.get_log_basedir() / tid / "runs.jsonl"
+        path = base / tid / "runs.jsonl"
         assert path.is_file(), tid
         fresh = _last_run_task(tid, tmp_path)
         assert fresh.tracking_path is None
@@ -333,7 +337,7 @@ def test_report_is_persisted_for_every_entry_point_and_readable_later(tmp_path):
     assert _last_run_task("a", tmp_path).report().workers.count >= 1
 
     # The tracked task's report is in its store, not under the logs.
-    assert not (dl.get_log_basedir() / "d" / "runs.jsonl").exists()
+    assert not (base / "d" / "runs.jsonl").exists()
     assert (tmp_path / "tracking_d" / "runs.jsonl").is_file()
     fresh = _task("d", tmp_path)
     t = fresh.report()
@@ -342,7 +346,7 @@ def test_report_is_persisted_for_every_entry_point_and_readable_later(tmp_path):
 
     # Two runs → two lines; report() is the latest.
     daisy.run_blockwise([_task("a", tmp_path, tracked=False)], progress=False)
-    lines = (dl.get_log_basedir() / "a" / "runs.jsonl").read_text().splitlines()
+    lines = (base / "a" / "runs.jsonl").read_text().splitlines()
     assert len(lines) == 2
     assert (
         _last_run_task("a", tmp_path).report().started_at

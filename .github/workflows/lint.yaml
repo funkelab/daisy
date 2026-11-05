@@ -1,7 +1,6 @@
-# Style and type checks. Runs on the lint dependency group only —
-# no Rust toolchain / maturin build needed (`--only-group lint` skips
-# installing the project itself; ty resolves daisy._daisy through the
-# in-tree stub daisy-py/python/daisy/_daisy.pyi).
+# Style and type checks. ruff runs on the lint dependency group only (no
+# Rust toolchain / maturin build). ty runs against the built package and
+# the dev group, so `daisy` and everything the tests import resolve.
 name: lint
 
 on:
@@ -29,6 +28,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v5
       - name: ty type check
-        run: uv run --locked --only-group lint ty check
+        run: uv run --locked --group lint ty check --error-on-warning

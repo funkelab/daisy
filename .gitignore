@@ -16,3 +16,4 @@ dist/
 
 # pytest-cov output
 coverage.xml
+benchmarks/output.json

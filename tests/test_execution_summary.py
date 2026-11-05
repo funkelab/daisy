@@ -78,7 +78,8 @@ def test_keyboard_interrupt_prints_partial_summary(capsys):
     out = capsys.readouterr().out
     assert "Run interrupted" in out
     assert "Execution Summary" in out
-    assert "t" in info.value.daisy_states
+    states = getattr(info.value, "daisy_states", None)
+    assert states is not None and "t" in states
 
 
 def test_config_error_prints_no_summary(capsys):

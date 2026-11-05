@@ -37,7 +37,9 @@ def _tracked_task(task_id, tmp_path, process_function, **kw):
 def _run(task):
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
-    return states, server.last_report[task.task_id].blocks
+    report = server.last_report
+    assert report is not None
+    return states, report[task.task_id].blocks
 
 
 def _busy(_block):
@@ -57,9 +59,10 @@ def test_summary_shape(tmp_path):
         assert stat.n == 4, stat
         assert stat.min <= stat.mean <= stat.max
         assert stat.std >= 0
-    report = daisy.Server()
-    report.run_blockwise([_tracked_task("shape2", tmp_path, _busy)], progress=False)
-    report = report.last_report
+    server = daisy.Server()
+    server.run_blockwise([_tracked_task("shape2", tmp_path, _busy)], progress=False)
+    report = server.last_report
+    assert report is not None
     again = daisy.RunReport.from_json(report.to_json())
     assert again["shape2"].blocks == report["shape2"].blocks
     assert again["shape2"].workers.by_id.keys() == report["shape2"].workers.by_id.keys()
@@ -180,13 +183,15 @@ def test_untracked_task_reports_no_measurements(tmp_path):
     server = daisy.Server()
     states = server.run_blockwise([task], progress=False)
     assert states["untracked"].completed_count == 4
-    t = server.last_report["untracked"]
+    report = server.last_report
+    assert report is not None
+    t = report["untracked"]
     assert not t.tracked
     assert not t.blocks.has_stats
     assert t.blocks.count == 4
     assert t.workers.count >= 1
     # The store-free figures still print: round trip and worker timing...
-    out = server.last_report.render()
+    out = report.render()
     assert "round trip" in out and "workers  startup" in out
     # ...but nothing that needs the store.
     assert "cpu" not in out and "peak RSS" not in out and "trend" not in out

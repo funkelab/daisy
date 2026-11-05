@@ -58,6 +58,7 @@ migration
 tutorials/index
 failing_workers
 api
+benchmarks
 :::
 
 :::{toctree}

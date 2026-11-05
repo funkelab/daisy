@@ -59,15 +59,8 @@ exclude = [
 ]
 
 [tool.ty.src]
-include = ["daisy-py/python/daisy", "tests"]
+include = ["daisy-py/python/daisy", "tests", "benchmarks"]
 exclude = []  # only ever shrinks
-
-[tool.ty.rules]
-# Examples import optional scientific deps (numpy, matplotlib, lsd_lite,
-# mwatershed, zarr, scikit-image, scipy) that are in the `examples`
-# dependency group, not the default install. Suppress unresolved-import
-# rather than make ty fail in a fresh environment.
-unresolved-import = "ignore"
 
 [dependency-groups]
 dev = [
@@ -78,11 +71,13 @@ dev = [
     "pytest-cov>=6",
     "pytest-timeout>=2",
 ]
-# lint group is intentionally project-free: CI runs `uv run --only-group lint`
-# so no Rust toolchain / maturin build is needed for style and type checks
+# ruff runs project-free (`uv run --only-group lint ruff ...`). ty needs the
+# built package and the dev group so that `daisy` and the tests' imports
+# resolve: CI runs `uv run --group lint ty check`.
 lint = [
     "ruff>=0.17.3",
     "ty>=0.0.96",
+    "rich>=15.0.0",  # optional import in daisy/logging.py; here so ty resolves it
 ]
 examples = [
     "ipykernel>=7.2.0",
@@ -113,6 +108,7 @@ docs = [
 [tool.pytest.ini_options]
 # bare `pytest` must not collect examples/ (stress_test.py runs a pipeline at import)
 testpaths = ["tests"]
+addopts = "--cov --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 88
