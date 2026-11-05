@@ -22,4 +22,4 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: uv sync --resolution ${{ matrix.resolution }}
-      - run: uv run pytest --cov --cov-report=term-missing --cov-report=xml
+      - run: uv run pytest

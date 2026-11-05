@@ -113,6 +113,7 @@ docs = [
 [tool.pytest.ini_options]
 # bare `pytest` must not collect examples/ (stress_test.py runs a pipeline at import)
 testpaths = ["tests"]
+addopts = "--cov --cov-report=term-missing"
 
 [tool.ruff]
 line-length = 88
