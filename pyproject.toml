@@ -28,7 +28,7 @@ dependencies = [
     "tqdm>=4.65",
     # worker payloads (every distributed worker runs in a subprocess; the
     # v1-compat block wrapper is itself a closure, so this is not optional)
-    "cloudpickle>=3",
+    "cloudpickle>=3.1.1",  # older releases cannot pickle on Python 3.14
     # the v1-compat `Block` hands funlib ROIs to process/check functions
     "funlib.geometry>=0.2",
 ]
@@ -64,7 +64,7 @@ exclude = []  # only ever shrinks
 
 [dependency-groups]
 dev = [
-    "cloudpickle>=3",  # lambda/closure support for worker processes
+    "cloudpickle>=3.1.1",  # lambda/closure support for worker processes; older releases cannot pickle on Python 3.14
     "filelock>=3.29.0",
     "numpy>=2",  # tests/test_skip_mask.py
     "pytest>=8",

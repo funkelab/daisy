@@ -738,7 +738,7 @@ lint = [
 
 [package.metadata]
 requires-dist = [
-    { name = "cloudpickle", specifier = ">=3" },
+    { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "funlib-geometry", specifier = ">=0.2" },
     { name = "tqdm", specifier = ">=4.65" },
 ]
@@ -746,7 +746,7 @@ provides-extras = ["worker-processes"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "cloudpickle", specifier = ">=3" },
+    { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "filelock", specifier = ">=3.29.0" },
     { name = "numpy", specifier = ">=2" },
     { name = "pytest", specifier = ">=8" },
