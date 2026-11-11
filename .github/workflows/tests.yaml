@@ -7,6 +7,11 @@ on:
 jobs:
   test:
     name: py${{ matrix.python-version }} ${{ matrix.resolution }}
+    env:
+      # Every uv command in the job resolves the same way. With the mode given to
+      # `uv sync` alone, the later `uv run` re-resolved to the newest versions and
+      # the lowest-direct leg never tested the declared floors.
+      UV_RESOLUTION: ${{ matrix.resolution }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -21,7 +26,7 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - run: uv sync --resolution ${{ matrix.resolution }}
+      - run: uv sync
       - name: tests
         run: |
           start=$(date +%s%N)
