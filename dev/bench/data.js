@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793850039494,
+  "lastUpdate": 1794440626715,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -33,6 +33,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 59.938,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "pattonw@hhmi.org"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b8b405455ad51c6e90ae56c28c81426c26bb6376",
+          "message": "Deploy docs on version tags and by hand only (#100)\n\n* Deploy docs on version tags and by hand only\n\nThe docs workflow now runs on a v* tag push and on workflow_dispatch, and\nnot on every push or pull request commit. A tag or a manual run on main\ndeploys; a manual run on any other branch builds without deploying, which\nis how a pull request's docs are checked once it is ready to merge.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Run the lowest-direct test leg against the declared floors\n\nThe resolution mode was passed to `uv sync` only. The next step, a plain\n`uv run pytest`, saw a lockfile written in another mode, re-resolved to the\nnewest versions and replaced the environment, so the leg named\nlowest-direct tested unlocked newest versions instead. The mode is now set\nonce as UV_RESOLUTION for the whole job.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Raise the pytest-cov floor to 7\n\nWith branch coverage on, pytest-cov 6.x fails when it combines the data\nfiles written by daisy's worker processes: 'Can't combine statement\ncoverage data with branch data'. The lowest-direct test legs install\npytest-cov 6.0.0 and failed after all tests passed. 6.0 to 6.3 all fail;\n7.0.0 passes.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Build the macOS arm64 wheel on macos-15\n\nGitHub now rejects the macos-14 runner ('The configuration\nmacos-14-arm64-us-default is not supported'), so the aarch64 wheel job\nwas cancelled before it started.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Raise the cloudpickle floor to 3.1.1\n\ncloudpickle 3.0.0 and 3.1.0 raise RecursionError when pickling a worker\nfunction on Python 3.14, so daisy cannot start a worker subprocess. The\npy3.14 lowest-direct test leg installs 3.0.0 and failed 25 tests. 3.1.1\npasses. The floor moves in both the runtime dependency and the dev group.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-11T23:37:56Z",
+          "url": "https://github.com/funkelab/daisy/commit/b8b405455ad51c6e90ae56c28c81426c26bb6376"
+        },
+        "date": 1794440624402,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 38.052,
+            "range": "± 1.765",
+            "unit": "ms",
+            "extra": "interpreter startup 7.6 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 50.219,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
