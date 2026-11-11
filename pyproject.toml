@@ -68,7 +68,7 @@ dev = [
     "filelock>=3.29.0",
     "numpy>=2",  # tests/test_skip_mask.py
     "pytest>=8",
-    "pytest-cov>=6",
+    "pytest-cov>=7",  # 6.x cannot combine worker-process data with branch coverage on
     "pytest-timeout>=2",
 ]
 # ruff runs project-free (`uv run --only-group lint ruff ...`). ty needs the
