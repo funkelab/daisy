@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794440626715,
+  "lastUpdate": 1794501294139,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -68,6 +68,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 50.219,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "Will",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "committer": {
+            "name": "Will",
+            "username": "pattonw",
+            "email": "wllmpttn24@gmail.com"
+          },
+          "id": "d54de4612dd17f41ce59263874f626a5ba7848a3",
+          "message": "Bump version to 2.0.2\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-12T16:30:07Z",
+          "url": "https://github.com/funkelab/daisy/commit/d54de4612dd17f41ce59263874f626a5ba7848a3"
+        },
+        "date": 1794501291809,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 53.785,
+            "range": "± 0.931",
+            "unit": "ms",
+            "extra": "interpreter startup 9.6 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 58.236,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
