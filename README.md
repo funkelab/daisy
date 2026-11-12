@@ -86,7 +86,7 @@ Full documentation (including executable tutorials and the design notes) is buil
 
 ```bash
 uv sync --group docs
-uv run sphinx-build -b html docs/source docs/_build/html
+uv run sphinx-build -W -b html docs/source docs/_build/html
 ```
 
 The design notes are also browsable directly under [`docs/source/design/`](docs/source/design/):
@@ -112,7 +112,7 @@ uv run pytest                                       # tests with coverage
 uv run pytest --no-cov tests/<file>.py              # one file, without the coverage floor
 uv run --only-group lint ruff check . && uv run --only-group lint ruff format --check .
 uv run --group lint ty check --error-on-warning     # types
-uv run --group docs sphinx-build -b html docs/source docs/_build/html
+uv run --group docs sphinx-build -W -b html docs/source docs/_build/html
 ```
 
 `uv.lock` pins the development environment; the `lock-upgrade` workflow refreshes it monthly and opens a pull request.
