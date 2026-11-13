@@ -55,7 +55,7 @@ jobs:
 
       - name: Build docs
         run: |
-          uv run --group docs sphinx-build -b html docs/source docs/_build/html
+          uv run --group docs sphinx-build -W -b html docs/source docs/_build/html
 
       # The benchmark action keeps its data and dashboard on gh-pages; the
       # site is deployed from this artifact, so bring them along.
