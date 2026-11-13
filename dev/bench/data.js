@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794593824231,
+  "lastUpdate": 1794594022350,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -138,6 +138,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 54.158,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]",
+            "email": "49699333+dependabot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "9c589ea9b4de499b4433a411b77ec02deac3ee60",
+          "message": "Bump soupsieve from 2.10 to 4.0 (#102)\n\nBumps [soupsieve](https://github.com/facelessuser/soupsieve) from 2.10 to 4.0.\n- [Release notes](https://github.com/facelessuser/soupsieve/releases)\n- [Commits](https://github.com/facelessuser/soupsieve/compare/2.10...4.0)\n\n---\nupdated-dependencies:\n- dependency-name: soupsieve\n  dependency-version: '4.0'\n  dependency-type: indirect\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-13T18:12:30Z",
+          "url": "https://github.com/funkelab/daisy/commit/9c589ea9b4de499b4433a411b77ec02deac3ee60"
+        },
+        "date": 1794594020828,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 56.398,
+            "range": "± 1.275",
+            "unit": "ms",
+            "extra": "interpreter startup 11.1 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 58.722,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
