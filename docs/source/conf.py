@@ -103,7 +103,14 @@ intersphinx_mapping = {
 html_theme = "pydata_sphinx_theme"
 html_title = f"daisy v{release}"
 html_static_path = ["_static"]
+html_favicon = "_static/logo.svg"
 html_theme_options = {
+    "logo": {
+        "image_light": "_static/logo.svg",
+        "image_dark": "_static/logo-dark.svg",
+        "text": "daisy",
+        "alt_text": "daisy",
+    },
     "github_url": "https://github.com/funkelab/daisy",
     "navbar_align": "left",
     "show_toc_level": 2,
