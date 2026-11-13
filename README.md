@@ -3,6 +3,13 @@
 [![docs](https://github.com/funkelab/daisy/actions/workflows/docs.yml/badge.svg)](https://funkelab.github.io/daisy)
 [![publish](https://github.com/funkelab/daisy/actions/workflows/publish.yaml/badge.svg)](https://pypi.org/project/daisy/)
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/funkelab/daisy/main/docs/source/_static/logo-dark.svg">
+    <img src="https://raw.githubusercontent.com/funkelab/daisy/main/docs/source/_static/logo.svg" width="128" alt="daisy logo">
+  </picture>
+</p>
+
 # daisy
 
 Blockwise task scheduler for processing large volumetric data.
