@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794501294139,
+  "lastUpdate": 1794593824231,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -103,6 +103,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 58.236,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "pattonw@hhmi.org"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "7a67fff6395b1719aaf61412187abfdc23648d2b",
+          "message": "Make Sphinx warnings fatal in the docs build (#101)\n\nAdd -W to sphinx-build in docs.yml and to the two build commands in the\nREADME, so a broken cross-reference or autodoc import fails the docs job\ninstead of publishing silently. The build is already warning-free.\n\nCo-authored-by: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-13T18:12:02Z",
+          "url": "https://github.com/funkelab/daisy/commit/7a67fff6395b1719aaf61412187abfdc23648d2b"
+        },
+        "date": 1794593822675,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 43.636,
+            "range": "± 0.596",
+            "unit": "ms",
+            "extra": "interpreter startup 8.5 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 54.158,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
