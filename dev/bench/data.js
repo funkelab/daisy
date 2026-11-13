@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794594022350,
+  "lastUpdate": 1794594074918,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -173,6 +173,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 58.722,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "pattonw@hhmi.org"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "91781ba1dde096fbcf466d257df8d1a300b6da23",
+          "message": "Add the block-daisy logo to the README and docs (#103)\n\nCo-authored-by: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-13T18:13:01Z",
+          "url": "https://github.com/funkelab/daisy/commit/91781ba1dde096fbcf466d257df8d1a300b6da23"
+        },
+        "date": 1794594073219,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 42.83,
+            "range": "± 0.685",
+            "unit": "ms",
+            "extra": "interpreter startup 8.3 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 54.505,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
