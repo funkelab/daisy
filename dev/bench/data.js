@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794857812302,
+  "lastUpdate": 1794857862030,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -243,6 +243,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 53.411,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "pattonw@hhmi.org"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "b1a918ce9674c63ca032841f4adf75f265de27fe",
+          "message": "Run the wheel smoke test through uv; bump actions to Node 24 majors (#105)\n\n* Run the wheel smoke test through uv instead of pip\n\nThe test-wheel job was the only Python step in the workflows that used\nactions/setup-python and pip. It now installs uv and runs the same script\nwith uv run --with <built wheel>, so the wheel under test is the file from\nthe build job and its dependencies come from PyPI.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Bump workflow actions to their Node 24 majors\n\nEvery job was annotated 'Node.js 20 is deprecated'. Each action moves to\nits newest major tag, and astral-sh/setup-uv is on one major (v7) in every\nworkflow instead of v5 in lint and v6 elsewhere.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-16T19:31:34Z",
+          "url": "https://github.com/funkelab/daisy/commit/b1a918ce9674c63ca032841f4adf75f265de27fe"
+        },
+        "date": 1794857858841,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 55.455,
+            "range": "± 1.243",
+            "unit": "ms",
+            "extra": "interpreter startup 10.2 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 59.857,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
