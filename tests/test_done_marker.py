@@ -14,7 +14,12 @@ from pathlib import Path
 
 import daisy
 import pytest
-from daisy._runner import _run_serial
+
+
+def _run_serial(pipeline):
+    return daisy.run_blockwise(
+        pipeline, multiprocessing=False, progress=False, return_states=True
+    )
 
 
 def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):

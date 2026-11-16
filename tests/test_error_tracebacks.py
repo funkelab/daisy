@@ -9,8 +9,6 @@ The failure originates two calls deep so a message-only surface would
 not name the user's line.
 """
 
-import io
-
 import daisy
 import pytest
 
@@ -38,22 +36,7 @@ def _failing_task(**kw):
     )
 
 
-def _summary_for(states):
-    from daisy._progress import _print_execution_summary
-
-    buf = io.StringIO()
-    import daisy.logging as _wl
-
-    saved = _wl._saved_stdout
-    _wl._saved_stdout = buf
-    try:
-        _print_execution_summary(states, list(states))
-    finally:
-        _wl._saved_stdout = saved
-    return buf.getvalue()
-
-
-def test_summary_contains_first_failure_traceback_subprocess_mode():
+def test_summary_contains_first_failure_traceback_subprocess_mode(capsys):
     server = daisy.Server()
     states = server.run_blockwise([_failing_task()], progress=False)
     st = states["tb_demo"]
@@ -63,7 +46,7 @@ def test_summary_contains_first_failure_traceback_subprocess_mode():
     assert "Traceback (most recent call last)" in tb
     assert "lookup[block.block_id[1]]" in tb  # the user's source line
     assert "_inner_helper" in tb and "_outer_helper" in tb
-    out = _summary_for(states)
+    out = capsys.readouterr().out
     assert "First failure in task 'tb_demo':" in out
     assert "lookup[block.block_id[1]]" in out
     # one traceback only, even with several failed blocks
@@ -108,21 +91,37 @@ def test_abandonment_error_contains_full_traceback():
     assert "bad node: /nfs/models/seg_v4.pt missing" in msg
 
 
-def test_traceback_capping(monkeypatch):
-    import daisy._task as _task_mod
+def _ping(n):
+    if n == 0:
+        raise ValueError("bottom")
+    return _pong(n)
 
-    # python compresses recursive frames, so force a small cap instead
-    monkeypatch.setattr(_task_mod, "_TB_MAX_LINES", 5)
 
-    def deep(n):
-        if n == 0:
-            raise ValueError("bottom")
-        return deep(n - 1)
+def _pong(n):
+    return _ping(n - 1)
 
-    try:
-        deep(20)
-    except ValueError:
-        tb = _task_mod._capped_traceback()
-    assert len(tb.splitlines()) <= 5 + 1
-    assert tb.splitlines()[0] == "... (traceback truncated) ..."
-    assert "bottom" in tb  # the tail is kept
+
+def _deep_failure(block):
+    # 40 alternating frame pairs: python folds only *identical* repeated
+    # frames, so this formats to well over the 50-line cap
+    return _ping(40)
+
+
+def test_worker_traceback_is_capped_to_its_last_50_lines():
+    task = daisy.Task(
+        task_id="deep",
+        total_roi=daisy.Roi([0], [10]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=_deep_failure,
+        read_write_conflict=False,
+        max_workers=1,
+        max_retries=0,
+    )
+    states = daisy.Server().run_blockwise([task], progress=False)
+    tb = states["deep"].first_worker_error
+    assert tb is not None
+    lines = tb.splitlines()
+    assert lines[0] == "... (traceback truncated) ..."
+    assert len(lines) == 1 + 50
+    assert lines[-1] == "ValueError: bottom"  # the tail is kept

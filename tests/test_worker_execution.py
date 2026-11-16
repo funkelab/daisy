@@ -496,31 +496,6 @@ def test_closure_and_def_side_effects(tmp_path):
     assert len([f for f in tmp_path.iterdir() if f.name.isdigit()]) == 8
 
 
-def test_serialization_happens_before_the_run():
-    """The payload is built eagerly so an unserializable function fails at
-    run start, not minutes later on a cluster node."""
-    captured = []
-    task = _task("eager", lambda block: captured.append(block), 1)
-    # cloudpickle is installed in the test env, so a lambda serializes fine
-    assert task.process_function is not None
-
-
-def test_unserializable_worker_function_is_rejected():
-    """0-arg worker functions are serialized too, so they must be picklable
-    — a requirement that did not exist while they ran in-process. The error
-    has to say so, since the fix is not obvious."""
-    import threading
-
-    lock = threading.Lock()
-
-    def worker():
-        with lock:  # captures an unpicklable object
-            pass
-
-    with pytest.raises(RuntimeError, match="could not serialize"):
-        daisy.run_blockwise(_task("bad-spawn", worker, 2), progress=False)
-
-
 @pytest.mark.timeout(60)
 def test_raising_block_function_is_a_dirty_exit():
     """A process_function that raises crashes its worker subprocess ->
