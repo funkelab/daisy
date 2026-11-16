@@ -26,7 +26,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
@@ -35,7 +35,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
@@ -46,7 +46,7 @@ jobs:
         run: uv sync --locked --group docs
 
       - name: Cache jupyter-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: docs/source/.jupyter_cache
           key: jupyter-cache-${{ runner.os }}-${{ hashFiles('examples/*.py', 'daisy-py/python/daisy/**/*.py', 'daisy-core/src/**/*.rs') }}
@@ -65,7 +65,7 @@ jobs:
           fi
       - name: Upload artifact
         if: github.ref_type == 'tag' || github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: docs/_build/html
 
@@ -78,4 +78,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
