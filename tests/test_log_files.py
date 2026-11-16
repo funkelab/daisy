@@ -90,10 +90,102 @@ def test_logs_append_across_runs_in_one_process(tmp_path):
     assert "=== daisy run" in text
 
 
-def test_clear_logs_removes_the_task_directory(tmp_path):
+@pytest.mark.parametrize(
+    "task_id, removed", [("t", "logs/t"), (None, "logs")], ids=["one-task", "all"]
+)
+def test_clear_logs_removes_the_log_directory(tmp_path, task_id, removed):
     basedir = tmp_path / "logs"
     dl.set_log_basedir(basedir)
     assert daisy.run_blockwise([_task(_hello, n=20)], progress=False)
-    assert _outs(basedir)
-    dl.clear_logs("t")
-    assert not Path(basedir, "t").exists()
+    assert len(_outs(basedir)) == 1
+    assert dl.clear_logs(task_id) == tmp_path / removed
+    assert list(tmp_path.rglob("worker_*")) == []
+
+
+@pytest.fixture
+def log_mode():
+    """Set the worker log mode for one test; the default is restored after."""
+    yield dl.set_log_mode
+    dl.set_log_mode("file")
+
+
+@pytest.mark.parametrize(
+    "mode, in_file, on_console",
+    [("file", 2, 0), ("console", 0, 2), ("both", 2, 2)],
+)
+@pytest.mark.parametrize("multiprocessing", [True, False])
+def test_log_mode_decides_where_worker_output_goes(
+    tmp_path, capsys, log_mode, mode, in_file, on_console, multiprocessing
+):
+    basedir = tmp_path / "logs"
+    dl.set_log_basedir(basedir)
+    log_mode(mode)
+    assert dl.get_log_mode() == mode
+    assert daisy.run_blockwise(
+        [_task(_hello, n=20)],
+        multiprocessing=multiprocessing,
+        progress=False,
+        summary=False,
+    )
+    assert "".join(f.read_text() for f in _outs(basedir)).count("hello") == in_file
+    assert capsys.readouterr().out.count("hello") == on_console
+
+
+def test_unknown_log_mode_is_rejected():
+    with pytest.raises(ValueError, match="mode must be one of"):
+        dl.set_log_mode("syslog")
+
+
+def test_log_mode_is_console_without_a_log_basedir():
+    dl.set_log_basedir(None)
+    assert dl.get_log_mode() == "console"
+
+
+@pytest.mark.parametrize(
+    "task_id, expected",
+    [(None, "logs/worker_3"), ("t", "logs/t/worker_3")],
+)
+def test_worker_log_basename(tmp_path, task_id, expected):
+    dl.set_log_basedir(tmp_path / "logs")
+    assert daisy.get_worker_log_basename(3, task_id) == tmp_path / expected
+
+
+def test_worker_log_basename_is_none_without_a_log_basedir():
+    dl.set_log_basedir(None)
+    assert daisy.get_worker_log_basename(3) is None
+
+
+def test_log_level_round_trips():
+    import logging
+
+    previous = dl.get_log_level()
+    dl.set_log_level("DEBUG")
+    try:
+        assert dl.get_log_level() == logging.DEBUG
+    finally:
+        dl.set_log_level(previous)
+
+
+def _raised(source, filename):
+    """The exception raised by running `source` as if it lived in `filename`."""
+    try:
+        exec(compile(source, filename, "exec"), {})
+    except ValueError as e:
+        return e
+    raise AssertionError("source did not raise")
+
+
+def test_traceback_style_defaults_to_plain():
+    assert dl.get_traceback_style() == "plain"
+
+
+def test_unknown_traceback_style_is_rejected():
+    with pytest.raises(ValueError, match="style must be 'plain' or 'rich'"):
+        dl.set_traceback_style("html")
+
+
+def test_plain_traceback_names_notebook_cells():
+    e = _raised("raise ValueError('bad cell')", "<ipython-input-3-0123abcd>")
+    text = dl.format_traceback(type(e), e, e.__traceback__)
+    assert 'File "[notebook cell 3]", line 1, in <module>' in text
+    assert text.endswith("ValueError: bad cell\n")

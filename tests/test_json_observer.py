@@ -163,3 +163,15 @@ def test_tqdm_bar_reaches_total_on_an_all_skipped_run(tmp_path, capsys):
     capsys.readouterr()
     assert daisy.run_blockwise([_resumed_task(tmp_path)], progress=True)
     assert "| 4/4 [" in capsys.readouterr().err
+
+
+def test_json_observer_writes_to_stdout_by_default(tmp_path, capsys):
+    assert daisy.run_blockwise(
+        [_resumed_task(tmp_path)],
+        progress=daisy.JsonProgressObserver(),
+        summary=False,
+    )
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert events[0]["event"] == "start"
+    assert events[-1]["event"] == "finish"
+    assert events[-1]["completed"] == 4

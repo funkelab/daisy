@@ -201,3 +201,17 @@ def test_max_workers_below_one_is_rejected(bad):
             read_write_conflict=False,
             max_workers=bad,
         )
+
+
+def test_num_workers_and_max_workers_together_are_rejected():
+    with pytest.raises(TypeError, match="either max_workers .* or num_workers"):
+        daisy.Task(
+            task_id="t",
+            total_roi=daisy.Roi([0], [40]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: None,
+            read_write_conflict=False,
+            num_workers=2,
+            max_workers=2,
+        )
