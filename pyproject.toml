@@ -126,6 +126,10 @@ ignore = ["E501"]  # the formatter owns line length
 [tool.coverage.run]
 branch = true
 source = ["daisy"]
+# Every worker is its own python process (`python -m daisy._subprocess_worker`).
+# The patch makes each child start coverage and write its own data file, which
+# pytest-cov combines, so code that only runs in a worker is measured.
+patch = ["subprocess"]
 
 [tool.coverage.report]
 # Floor measured from the first branch-enabled run; raise it when measured
