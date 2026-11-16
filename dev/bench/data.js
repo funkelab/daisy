@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794594074918,
+  "lastUpdate": 1794857812302,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -208,6 +208,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 54.505,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "dependabot[bot]",
+            "username": "dependabot[bot]",
+            "email": "49699333+dependabot[bot]@users.noreply.github.com"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "cb26a361c74c28363d553cf22b1d6281e230bd91",
+          "message": "Bump tornado from 6.6 to 6.6.1 (#104)\n\nBumps [tornado](https://github.com/tornadoweb/tornado) from 6.6 to 6.6.1.\n- [Changelog](https://github.com/tornadoweb/tornado/blob/master/docs/releases.rst)\n- [Commits](https://github.com/tornadoweb/tornado/compare/v6.6.0...v6.6.1)\n\n---\nupdated-dependencies:\n- dependency-name: tornado\n  dependency-version: 6.6.1\n  dependency-type: indirect\n...\n\nSigned-off-by: dependabot[bot] <support@github.com>\nCo-authored-by: dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>",
+          "timestamp": "2026-11-16T19:32:21Z",
+          "url": "https://github.com/funkelab/daisy/commit/cb26a361c74c28363d553cf22b1d6281e230bd91"
+        },
+        "date": 1794857809972,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 42.968,
+            "range": "± 0.575",
+            "unit": "ms",
+            "extra": "interpreter startup 8.2 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 53.411,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
