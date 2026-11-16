@@ -139,16 +139,12 @@ jobs:
         with:
           name: wheels-linux-x86_64
           path: dist
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v7
       - name: Install wheel and run smoke test
         run: |
-          # daisy from the built wheel (never PyPI's copy of the same
-          # version), then its dependencies from PyPI
-          pip install --no-index --no-deps --find-links dist daisy
-          pip install --find-links dist daisy
-          python - <<'EOF'
+          # daisy from the built wheel file (never PyPI's copy of the same
+          # version), its dependencies from PyPI, in a throwaway environment
+          uv run --isolated --no-project --python 3.11 --with dist/daisy-*-cp311-cp311-*.whl python - <<'EOF'
           import daisy
           task = daisy.Task(
               "smoke",
