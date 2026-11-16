@@ -187,3 +187,17 @@ def test_num_workers_keyword_is_rejected():
             num_workers=2,
             max_retries=0,
         )
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_max_workers_below_one_is_rejected(bad):
+    with pytest.raises(ValueError, match="max_workers must be at least 1"):
+        daisy.Task(
+            task_id="t",
+            total_roi=daisy.Roi([0], [40]),
+            read_roi=daisy.Roi([0], [10]),
+            write_roi=daisy.Roi([0], [10]),
+            process_function=lambda b: None,
+            read_write_conflict=False,
+            max_workers=bad,
+        )

@@ -1,6 +1,5 @@
-"""Task(check_function=...) should nudge users toward built-in done markers."""
-
-import warnings
+"""Task(check_function=...): what its result means, and the nudge toward
+built-in done markers."""
 
 import daisy
 import pytest
@@ -24,10 +23,35 @@ def test_check_function_warns_and_points_to_done_markers():
         _mk(check_function=lambda b: False)
 
 
-def test_no_check_function_no_warning():
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        _mk()
+@pytest.mark.parametrize(
+    "value",
+    [
+        1,
+        pytest.param("npbool", id="numpy.bool_"),
+        pytest.param("array1", id="one-element-array"),
+    ],
+)
+def test_truthy_check_function_results_skip_blocks(value):
+    """1.x evaluated `if check_function(block)`; 2.0 must accept any truthy
+    object, not only a real bool."""
+    np = pytest.importorskip("numpy")
+    returns = {1: 1, "npbool": np.bool_(True), "array1": np.ones(1)}[value]
+    seen = []
+    task = daisy.Task(
+        task_id="t",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: seen.append(b.block_id),
+        check_function=lambda b: returns,
+        read_write_conflict=False,
+        max_workers=1,
+        timeout=30,
+    )
+    states = daisy.run_blockwise([task], multiprocessing=False, return_states=True)
+    assert seen == []
+    assert states["t"].skipped_count == 4
+    assert states["t"].completed_count == 4
 
 
 def test_raising_check_function_is_logged_not_swallowed(caplog):

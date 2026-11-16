@@ -379,3 +379,33 @@ def test_passing_both_path_names_is_rejected(tmp_path):
             tracking_path=str(tmp_path / "a"),
             done_marker_path=str(tmp_path / "b"),
         )
+
+
+def test_failed_blocks_come_back_from_the_store(tmp_path):
+    def fail_on_two(block):
+        if block.block_id[1] in (3, 7):
+            raise RuntimeError("boom")
+
+    def task(fn, **kw):
+        return daisy.Task(
+            "t",
+            daisy.Roi([0], [100]),
+            daisy.Roi([0], [10]),
+            daisy.Roi([0], [10]),
+            fn,
+            read_write_conflict=False,
+            max_workers=1,
+            timeout=30,
+            **kw,
+        )
+
+    tracked = task(
+        fail_on_two,
+        tracking_path=str(tmp_path / "track"),
+        max_retries=0,
+        max_worker_restarts=20,
+    )
+    assert daisy.run_blockwise([tracked], progress=False) is False
+    assert sorted(b.block_id[1] for b in tracked.failed_blocks()) == [3, 7]
+    # a task without a store has nothing to report
+    assert task(lambda b: None).failed_blocks() == []

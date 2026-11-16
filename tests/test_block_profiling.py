@@ -293,3 +293,22 @@ def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
     assert off_arrays == ["done", "failures"]
     assert off.cpu.total == 0
     assert off.io_read.total == 0
+
+
+def test_resource_tracking_without_a_path_falls_back_to_the_log_dir(tmp_path):
+    daisy.logging.set_log_basedir(tmp_path / "logs")
+    task = daisy.Task(
+        task_id="t",
+        total_roi=daisy.Roi([0], [40]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=lambda b: None,
+        read_write_conflict=False,
+        max_workers=1,
+        resource_tracking=True,
+    )
+    with pytest.warns(UserWarning, match="run-scoped"):
+        assert daisy.run_blockwise([task], progress=False)
+    stores = list((tmp_path / "logs" / "t").glob("tracking-*"))
+    assert len(stores) == 1
+    assert (stores[0] / "wall_seconds").exists()

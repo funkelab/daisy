@@ -77,7 +77,7 @@ def test_module_is_shipped_by_reference_not_by_value(tmp_path, monkeypatch):
         f"cloudpickle.loads({body!r})"
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert r.returncode != 0
+    assert r.returncode == 1
     assert "ModuleNotFoundError" in r.stderr
 
 

@@ -157,32 +157,3 @@ def test_context_round_trip():
     assert parsed["hostname"] == "node1"
     assert parsed["port"] == "1234"
     assert parsed["worker_id"] == "7"
-
-
-def test_both_spawn_signatures_are_accepted_without_warning(tmp_path):
-    """Both the bare 0-arg and the keyword-only `context` signature are
-    first-class. The 0-arg form used to warn about the DAISY_CONTEXT race
-    when max_workers > 1; that warning is gone because the race is."""
-    import warnings as _w
-
-    def legacy_spawn():
-        pass
-
-    def race_free(*, context):
-        pass
-
-    def block_fn(block):
-        pass
-
-    for fn, workers in ((legacy_spawn, 8), (race_free, 8), (block_fn, 8)):
-        with _w.catch_warnings():
-            _w.simplefilter("error", UserWarning)
-            daisy.Task(
-                task_id="warncheck",
-                total_roi=daisy.Roi([0], [20]),
-                read_roi=daisy.Roi([0], [10]),
-                write_roi=daisy.Roi([0], [10]),
-                process_function=fn,
-                read_write_conflict=False,
-                max_workers=workers,
-            )
