@@ -15,9 +15,9 @@ def process_block(block):
 # layer that the top-level `daisy` namespace re-exports, so this test
 # now passes natively. The v2-native equivalent (parametrize over
 # `multiprocessing=[True, False]` instead of two server classes) lives
-# in `test_basic_migrated` below.
+# in `test_run_blockwise_completes_in_either_mode` below.
 @pytest.mark.parametrize("server_class_name", ["Server", "SerialServer"])
-def test_basic(server_class_name):
+def test_v1_server_classes_run_a_task_to_done(server_class_name):
     server = getattr(daisy, server_class_name)()
     task = daisy.Task(
         "test_server_task",
@@ -38,7 +38,7 @@ def test_basic(server_class_name):
 
 
 @pytest.mark.parametrize("multiprocessing", [True, False])
-def test_basic_migrated(multiprocessing):
+def test_run_blockwise_completes_in_either_mode(multiprocessing):
     """v2 equivalent: parametrize over `multiprocessing` rather than two
     server classes, and use `max_workers` instead of `num_workers`."""
     task = daisy.Task(

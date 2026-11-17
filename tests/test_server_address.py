@@ -67,6 +67,16 @@ def _routable_address():
     return None if ip.startswith("127.") else ip
 
 
+def _detectable_addresses():
+    """Every non-loopback address detection may advertise: the ones this
+    host's name resolves to, and the default-route interface's."""
+    try:
+        named = socket.gethostbyname_ex(socket.gethostname())[2]
+    except OSError:
+        named = []
+    return {ip for ip in named if not ip.startswith("127.")} | {_routable_address()}
+
+
 @pytest.mark.timeout(60)
 def test_workers_are_told_a_routable_address(tmp_path):
     """By default the advertised address must be one another machine could
@@ -79,11 +89,8 @@ def test_workers_are_told_a_routable_address(tmp_path):
     assert daisy.run_blockwise(
         _task("addr-default", _reporting_worker(str(out))), progress=False
     )
-    dialed = (out / "dialed").read_text()
-    host = dialed.rsplit(":", 1)[0]
-    assert not host.startswith("127."), (
-        f"workers were told {host}; nothing off this machine can connect there"
-    )
+    host = (out / "dialed").read_text().rsplit(":", 1)[0]
+    assert host in _detectable_addresses()
 
 
 @pytest.mark.timeout(60)

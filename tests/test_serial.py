@@ -10,16 +10,14 @@ attempts in a post-run summary.
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _task(task_id, process_function):
-    return daisy.Task(
-        task_id=task_id,
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=process_function,
-        read_write_conflict=False,
+    return linear_task(
+        task_id,
+        process_function,
+        4,
         max_retries=2,
     )
 
@@ -43,6 +41,17 @@ def test_serial_fails_fast_on_exception():
 
     # Fail-fast: only the very first block ever ran.
     assert len(attempts) == 1
+
+
+def test_serial_mode_refuses_worker_functions():
+    """A 0-argument function is a worker loop; serial mode has no server for
+    it to connect to and refuses it instead of marking every block done."""
+
+    def worker_loop():
+        pass
+
+    with pytest.raises(RuntimeError, match="no 1-argument process_function"):
+        daisy.run_blockwise([_task("t", worker_loop)], multiprocessing=False)
 
 
 def test_serial_clean_run_unchanged():

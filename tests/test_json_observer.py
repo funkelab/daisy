@@ -10,6 +10,7 @@ import io
 import json
 
 import daisy
+from conftest import linear_task
 
 
 def test_json_observer_writes_lines_to_stream():
@@ -21,13 +22,10 @@ def test_json_observer_writes_lines_to_stream():
     def fine(block):
         pass
 
-    task = daisy.Task(
-        task_id="json_test",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
+    task = linear_task(
+        "json_test",
+        fine,
+        4,
         max_workers=1,
         max_retries=0,
     )
@@ -79,13 +77,10 @@ def test_json_observer_writes_to_file_path(tmp_path):
     def fine(block):
         pass
 
-    task = daisy.Task(
-        task_id="path_test",
-        total_roi=daisy.Roi([0], [20]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
+    task = linear_task(
+        "path_test",
+        fine,
+        2,
         max_workers=1,
         max_retries=0,
     )
@@ -113,3 +108,62 @@ def test_json_observer_path_and_stream_are_mutually_exclusive():
     buf = io.StringIO()
     with pytest.raises(ValueError):
         daisy.JsonProgressObserver(path="/tmp/x.jsonl", stream=buf)
+
+
+def _resumed_task(tmp_path):
+    """A four-block task whose tracking store, shared by every call, lets a
+    second run skip all four blocks."""
+    return linear_task(
+        "t",
+        lambda b: None,
+        4,
+        max_workers=1,
+        timeout=30,
+        tracking_path=str(tmp_path / "track"),
+    )
+
+
+class _Recorder:
+    def __init__(self):
+        self.progress = []
+        self.finish = {}
+
+    def on_start(self, states):
+        pass
+
+    def on_progress(self, states):
+        self.progress.append(
+            {k: (v.completed_count, v.skipped_count) for k, v in states.items()}
+        )
+
+    def on_finish(self, states):
+        self.finish = {
+            k: (v.completed_count, v.skipped_count) for k, v in states.items()
+        }
+
+
+def test_progress_observer_sees_skipped_blocks(tmp_path):
+    assert daisy.run_blockwise([_resumed_task(tmp_path)], progress=False)
+    rec = _Recorder()
+    assert daisy.run_blockwise([_resumed_task(tmp_path)], progress=rec)
+    assert rec.finish == {"t": (4, 4)}
+    assert rec.progress[-1] == {"t": (4, 4)}
+
+
+def test_tqdm_bar_reaches_total_on_an_all_skipped_run(tmp_path, capsys):
+    assert daisy.run_blockwise([_resumed_task(tmp_path)], progress=False)
+    capsys.readouterr()
+    assert daisy.run_blockwise([_resumed_task(tmp_path)], progress=True)
+    assert "| 4/4 [" in capsys.readouterr().err
+
+
+def test_json_observer_writes_to_stdout_by_default(tmp_path, capsys):
+    assert daisy.run_blockwise(
+        [_resumed_task(tmp_path)],
+        progress=daisy.JsonProgressObserver(),
+        summary=False,
+    )
+    events = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert events[0]["event"] == "start"
+    assert events[-1]["event"] == "finish"
+    assert events[-1]["completed"] == 4

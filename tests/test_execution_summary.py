@@ -90,3 +90,48 @@ def test_config_error_prints_no_summary(capsys):
     with pytest.raises(RuntimeError, match="resource_tracking"):
         daisy.run_blockwise([task], progress=False)
     assert "Execution Summary" not in capsys.readouterr().out
+
+
+def _boom(block):
+    raise RuntimeError("boom")
+
+
+def test_summary_points_at_the_log_directory_of_every_failed_task(capsys, tmp_path):
+    import daisy.logging as dl
+
+    dl.set_log_basedir(tmp_path / "logs")
+
+    def failing(task_id):
+        return daisy.Task(
+            task_id,
+            daisy.Roi([0], [10]),
+            daisy.Roi([0], [10]),
+            daisy.Roi([0], [10]),
+            _boom,
+            read_write_conflict=False,
+            max_workers=1,
+            max_retries=0,
+            max_worker_restarts=0,
+        )
+
+    daisy.Server().run_blockwise([failing("a"), failing("b")], progress=False)
+    out = capsys.readouterr().out
+    logs = tmp_path / "logs"
+    assert f"    See worker logs for failed tasks under {logs}/\n" in out
+    assert f"      {logs / 'a'}/\n      {logs / 'b'}/\n" in out
+
+
+def test_progress_bar_marks_a_failed_task(capsys):
+    task = _task(n=10, fn=_boom, max_retries=0, max_worker_restarts=0)
+    daisy.Server().run_blockwise([task], progress=True, summary=False)
+    assert "t ✗ ♻=0" in capsys.readouterr().err
+
+
+def test_empty_task_list_succeeds_and_prints_an_empty_summary(capsys):
+    assert daisy.run_blockwise([], multiprocessing=False) is True
+    assert capsys.readouterr().out == "\nExecution Summary\n-----------------\n"
+
+
+def test_run_blockwise_rejects_what_is_not_a_pipeline_task_or_list():
+    with pytest.raises(TypeError, match="expected a Pipeline, a Task, or a list"):
+        daisy.run_blockwise(42)

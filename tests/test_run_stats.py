@@ -16,6 +16,7 @@ import time
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _tracked_task(task_id, tmp_path, process_function, **kw):
@@ -171,13 +172,10 @@ def test_untracked_task_reports_no_measurements(tmp_path):
     """No tracking configured → the report still exists (worker timing is
     always collected) but carries no resource figures, and the renderer
     omits the panel rather than printing zeros."""
-    task = daisy.Task(
-        task_id="untracked",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_busy,
-        read_write_conflict=False,
+    task = linear_task(
+        "untracked",
+        _busy,
+        4,
         max_workers=1,
     )
     server = daisy.Server()

@@ -21,6 +21,7 @@ cap.
 
 import daisy
 import pytest
+from conftest import linear_task
 from observe import interval_recorder, peak_concurrency
 
 HOLD_S = 0.05
@@ -119,13 +120,10 @@ def test_disjoint_resources_run_in_parallel(tmp_path):
 def test_requires_exceeds_budget_hard_errors():
     """A task whose per-worker `requires` exceeds the global budget must
     error at startup, not silently never spawn."""
-    bad_task = daisy.Task(
-        task_id="greedy",
-        total_roi=daisy.Roi([0], [10]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    bad_task = linear_task(
+        "greedy",
+        lambda b: None,
+        1,
         max_workers=1,
         max_retries=0,
         requires={"gpu": 8},
@@ -145,13 +143,10 @@ def test_chained_tasks_reassign_workers_when_upstream_drains(tmp_path):
     outdir = tmp_path / "intervals"
 
     def make(task_id, upstream=None):
-        return daisy.Task(
-            task_id=task_id,
-            total_roi=daisy.Roi([0], [40]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=interval_recorder(outdir, task_id, HOLD_S),
-            read_write_conflict=False,
+        return linear_task(
+            task_id,
+            interval_recorder(outdir, task_id, HOLD_S),
+            4,
             max_workers=4,
             max_retries=0,
             requires={"cpu": 1},
@@ -186,4 +181,26 @@ def test_num_workers_keyword_is_rejected():
             read_write_conflict=False,
             num_workers=2,
             max_retries=0,
+        )
+
+
+@pytest.mark.parametrize("bad", [0, -1])
+def test_max_workers_below_one_is_rejected(bad):
+    with pytest.raises(ValueError, match="max_workers must be at least 1"):
+        linear_task(
+            "t",
+            lambda b: None,
+            4,
+            max_workers=bad,
+        )
+
+
+def test_num_workers_and_max_workers_together_are_rejected():
+    with pytest.raises(TypeError, match="either max_workers .* or num_workers"):
+        linear_task(
+            "t",
+            lambda b: None,
+            4,
+            num_workers=2,
+            max_workers=2,
         )

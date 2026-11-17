@@ -8,40 +8,54 @@ is always above its descendants, but independent chains aren't
 interleaved gratuitously.
 """
 
+import re
+
 import daisy
-from daisy._daisy import _topo_order
+import pytest
+from conftest import linear_task
 
 
 def _task(task_id):
-    return daisy.Task(
-        task_id=task_id,
-        total_roi=daisy.Roi([0], [10]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        read_write_conflict=False,
+    return linear_task(
+        task_id,
+        lambda block: None,
+        1,
     )
 
 
-def test_linear_chain():
+@pytest.fixture
+def summary_order(capsys):
+    """Run a pipeline and return its task ids in the order the execution
+    summary lists them."""
+
+    def run(pipeline):
+        assert daisy.run_blockwise(pipeline, multiprocessing=False, progress=False)
+        out = capsys.readouterr().out
+        return re.findall(r"^    (\w+) ✔", out, flags=re.MULTILINE)
+
+    return run
+
+
+def test_linear_chain(summary_order):
     a, b, c = _task("A"), _task("B"), _task("C")
-    assert _topo_order(a + b + c) == ["A", "B", "C"]
+    assert summary_order(a + b + c) == ["A", "B", "C"]
 
 
-def test_independent_roots_alphabetical():
+def test_independent_roots_alphabetical(summary_order):
     a, b, c = _task("A"), _task("B"), _task("C")
-    assert _topo_order(c | a | b) == ["A", "B", "C"]
+    assert summary_order(c | a | b) == ["A", "B", "C"]
 
 
-def test_dfs_bias_keeps_chain_contiguous():
+def test_dfs_bias_keeps_chain_contiguous(summary_order):
     """B is right after A even though C is also a root, because
     after printing A its only child B is alphabetically smaller
     than the next root C."""
     a, b, c, d = _task("A"), _task("B"), _task("C"), _task("D")
-    assert _topo_order((a + b) | (c + d)) == ["A", "B", "C", "D"]
+    assert summary_order((a + b) | (c + d)) == ["A", "B", "C", "D"]
 
 
-def test_diamond_with_join():
+def test_diamond_with_join(summary_order):
     """`(A → B), (C → D), ((B, D) → E)` should produce `A, B, C, D, E`.
     E doesn't get printed until *both* B and D are seen."""
     a, b, c, d, e = _task("A"), _task("B"), _task("C"), _task("D"), _task("E")
-    assert _topo_order(((a + b) | (c + d)) + e) == ["A", "B", "C", "D", "E"]
+    assert summary_order(((a + b) | (c + d)) + e) == ["A", "B", "C", "D", "E"]

@@ -11,6 +11,7 @@ basedir explicitly inside the test body — `set_log_basedir(...)`
 is idempotent.
 """
 
+import daisy
 import daisy.logging as gl
 import pytest
 
@@ -18,10 +19,26 @@ import pytest
 @pytest.fixture(autouse=True)
 def _isolate_daisy_logs(tmp_path, monkeypatch):
     """Redirect daisy's per-worker log basedir into the test's
-    `tmp_path` and restore the previous value afterward."""
+    `tmp_path` and restore the previous value afterward. A tracking basedir
+    a test set is cleared too, so it cannot reach the tests that follow."""
     original = gl.get_log_basedir()
     gl.set_log_basedir(tmp_path / "daisy_logs")
     try:
         yield
     finally:
         gl.set_log_basedir(original)
+        daisy.set_tracking_basedir(None)
+
+
+def linear_task(task_id, process_function, blocks, **kwargs):
+    """A task over `blocks` blocks in a row: 1-D, each block ten wide, read
+    and write ROI the same, no read-write conflict."""
+    return daisy.Task(
+        task_id=task_id,
+        total_roi=daisy.Roi([0], [blocks * 10]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=process_function,
+        read_write_conflict=False,
+        **kwargs,
+    )

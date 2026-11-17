@@ -77,6 +77,14 @@ def test_serial_mode_returns_states():
     assert states["serial"].completed_count == 4
 
 
+def test_pipeline_run_blockwise_returns_states_when_asked():
+    task = _task("t", lambda b: None, max_workers=1)
+    pipeline = daisy.Pipeline([task])
+    states = pipeline.run_blockwise(multiprocessing=False, return_states=True)
+    assert states["t"].completed_count == 4
+    assert pipeline.run_blockwise(multiprocessing=False) is True
+
+
 def test_v1_compat_surface():
     import daisy.v1_compat as compat
 
