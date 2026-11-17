@@ -15,4 +15,4 @@ with FileLock(f"{tmp_path}/worker_{client.worker_id}.lock"):
             if block is None:
                 break
             else:
-                time.sleep(random.random())
+                time.sleep(0.1 * random.random())

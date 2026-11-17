@@ -3,16 +3,14 @@ built-in done markers."""
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _mk(**kw):
-    return daisy.Task(
-        task_id="warn_demo",
-        total_roi=daisy.Roi([0], [20]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    return linear_task(
+        "warn_demo",
+        lambda b: None,
+        2,
         max_workers=1,
         **kw,
     )

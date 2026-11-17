@@ -10,6 +10,7 @@ import io
 import json
 
 import daisy
+from conftest import linear_task
 
 
 def test_json_observer_writes_lines_to_stream():
@@ -21,13 +22,10 @@ def test_json_observer_writes_lines_to_stream():
     def fine(block):
         pass
 
-    task = daisy.Task(
-        task_id="json_test",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
+    task = linear_task(
+        "json_test",
+        fine,
+        4,
         max_workers=1,
         max_retries=0,
     )
@@ -79,13 +77,10 @@ def test_json_observer_writes_to_file_path(tmp_path):
     def fine(block):
         pass
 
-    task = daisy.Task(
-        task_id="path_test",
-        total_roi=daisy.Roi([0], [20]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
+    task = linear_task(
+        "path_test",
+        fine,
+        2,
         max_workers=1,
         max_retries=0,
     )
@@ -118,13 +113,10 @@ def test_json_observer_path_and_stream_are_mutually_exclusive():
 def _resumed_task(tmp_path):
     """A four-block task whose tracking store, shared by every call, lets a
     second run skip all four blocks."""
-    return daisy.Task(
-        task_id="t",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    return linear_task(
+        "t",
+        lambda b: None,
+        4,
         max_workers=1,
         timeout=30,
         tracking_path=str(tmp_path / "track"),

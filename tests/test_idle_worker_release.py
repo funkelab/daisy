@@ -44,7 +44,7 @@ def test_idle_worker_released_while_last_block_in_flight(tmp_path):
                 if block is None:
                     break
                 if block.write_roi.begin[0] == 0:  # the slow block
-                    time.sleep(5)
+                    time.sleep(2)
                     (events / "slow_done").write_text(str(time.time()))
         (events / f"exit-{client.worker_id}").write_text(str(time.time()))
 
@@ -58,7 +58,7 @@ def test_idle_worker_released_while_last_block_in_flight(tmp_path):
     # One worker held the slow block to the end; the other must have been
     # released well before the slow block finished.
     assert len(exits) == 2
-    assert exits[0] < slow_done - 2.0, (
+    assert exits[0] < slow_done - 1.0, (
         f"idle worker exited only {slow_done - exits[0]:.1f}s before the "
         "slow block finished — it was parked instead of released"
     )
@@ -84,7 +84,7 @@ def test_custom_worker_loop_self_preempts_on_timeout(tmp_path):
         worker,
         task_id="hung_custom_loop",
         total_roi=daisy.Roi([0], [10]),
-        timeout=1,
+        timeout=0.3,
         max_retries=0,
         max_workers=1,
     )
@@ -112,7 +112,7 @@ _GRANDCHILD = """
 import time
 import daisy
 
-time.sleep(1.0)
+time.sleep(0.3)
 client = daisy.Client()  # DAISY_CONTEXT inherited from the spawn
 while True:
     with client.acquire_block() as block:

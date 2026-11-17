@@ -4,6 +4,7 @@ it up front instead of waiting forever."""
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _noop(block):
@@ -11,13 +12,10 @@ def _noop(block):
 
 
 def _chain(extend):
-    up = daisy.Task(
+    up = linear_task(
         "up",
-        daisy.Roi([0], [200]),
-        daisy.Roi([0], [10]),
-        daisy.Roi([0], [10]),
         _noop,
-        read_write_conflict=False,
+        20,
         max_workers=1,
         timeout=30,
     )

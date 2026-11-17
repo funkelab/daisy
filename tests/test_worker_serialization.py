@@ -18,16 +18,14 @@ import pytest
 cloudpickle = pytest.importorskip("cloudpickle")
 
 import daisy  # noqa: E402
+from conftest import linear_task  # noqa: E402
 
 
 def _task(task_id, process_function):
-    return daisy.Task(
-        task_id=task_id,
-        total_roi=daisy.Roi([0], [10]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=process_function,
-        read_write_conflict=False,
+    return linear_task(
+        task_id,
+        process_function,
+        1,
         max_workers=1,
     )
 

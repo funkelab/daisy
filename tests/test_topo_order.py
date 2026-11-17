@@ -12,16 +12,14 @@ import re
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _task(task_id):
-    return daisy.Task(
-        task_id=task_id,
-        total_roi=daisy.Roi([0], [10]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda block: None,
-        read_write_conflict=False,
+    return linear_task(
+        task_id,
+        lambda block: None,
+        1,
     )
 
 

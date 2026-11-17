@@ -28,3 +28,17 @@ def _isolate_daisy_logs(tmp_path, monkeypatch):
     finally:
         gl.set_log_basedir(original)
         daisy.set_tracking_basedir(None)
+
+
+def linear_task(task_id, process_function, blocks, **kwargs):
+    """A task over `blocks` blocks in a row: 1-D, each block ten wide, read
+    and write ROI the same, no read-write conflict."""
+    return daisy.Task(
+        task_id=task_id,
+        total_roi=daisy.Roi([0], [blocks * 10]),
+        read_roi=daisy.Roi([0], [10]),
+        write_roi=daisy.Roi([0], [10]),
+        process_function=process_function,
+        read_write_conflict=False,
+        **kwargs,
+    )

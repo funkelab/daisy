@@ -10,16 +10,14 @@ attempts in a post-run summary.
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _task(task_id, process_function):
-    return daisy.Task(
-        task_id=task_id,
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=process_function,
-        read_write_conflict=False,
+    return linear_task(
+        task_id,
+        process_function,
+        4,
         max_retries=2,
     )
 

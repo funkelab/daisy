@@ -43,15 +43,21 @@ def test_timeout_attribution_in_summary_and_state(capfd):
     def slow(block):
         time.sleep(2)
 
-    task = _task(slow, task_id="slowpoke", timeout=0.5, max_retries=1)
+    task = _task(
+        slow,
+        task_id="slowpoke",
+        total_roi=daisy.Roi([0], [10]),
+        timeout=0.2,
+        max_retries=1,
+    )
     states = daisy.run_blockwise([task], return_states=True)
     st = states["slowpoke"]
     assert st.failed_count > 0
     assert st.timeout_reclaim_count > 0
-    assert st.timeout_secs == 0.5
+    assert st.timeout_secs == 0.2
     out = capfd.readouterr().out
     assert "exceeded the block timeout" in out
-    assert "0.5s" in out
+    assert "0.2s" in out
     assert "Task(timeout=...)" in out
     assert "the default" not in out  # explicit value, not the default
 
@@ -67,7 +73,14 @@ def test_zombie_regression_hung_block_cleaned_up(tmp_path):
         open(pids / str(os.getpid()), "w").close()
         time.sleep(30)
 
-    task = _task(hang, task_id="hangs", timeout=1, max_retries=0, max_workers=2)
+    task = _task(
+        hang,
+        task_id="hangs",
+        total_roi=daisy.Roi([0], [20]),
+        timeout=0.3,
+        max_retries=0,
+        max_workers=2,
+    )
     t0 = time.monotonic()
     ok = daisy.run_blockwise([task], progress=False)
     wall = time.monotonic() - t0

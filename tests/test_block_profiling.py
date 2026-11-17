@@ -14,6 +14,7 @@ import textwrap
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _require_zarr_v3():
@@ -33,13 +34,10 @@ def _busy(_block):
 
 
 def _task(task_id, tmp_path, **kw):
-    return daisy.Task(
-        task_id=task_id,
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=kw.pop("process_function", _busy),
-        read_write_conflict=False,
+    return linear_task(
+        task_id,
+        kw.pop("process_function", _busy),
+        4,
         max_workers=kw.pop("max_workers", 2),
         max_retries=0,
         done_marker_path=str(tmp_path / f"tracking_{task_id}"),
@@ -171,13 +169,10 @@ def test_failures_are_counted_per_block(tmp_path):
         if block.block_id[1] == 0:
             raise RuntimeError("this block always fails")
 
-    task = daisy.Task(
-        task_id="failing",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fail_one,
-        read_write_conflict=False,
+    task = linear_task(
+        "failing",
+        fail_one,
+        4,
         max_workers=1,
         max_retries=1,
         max_worker_restarts=6,
@@ -197,13 +192,10 @@ def test_failures_are_counted_per_block(tmp_path):
 def test_resource_tracking_without_a_directory_is_a_config_error(tmp_path):
     """resource_tracking has nowhere to write without tracking enabled;
     say so instead of silently measuring nothing."""
-    task = daisy.Task(
-        task_id="nowhere",
-        total_roi=daisy.Roi([0], [20]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_busy,
-        read_write_conflict=False,
+    task = linear_task(
+        "nowhere",
+        _busy,
+        2,
         max_workers=1,
         done_marker_path=False,
         resource_tracking=True,
@@ -220,13 +212,10 @@ def test_resource_tracking_without_a_directory_is_a_config_error(tmp_path):
 def test_tracking_without_resource_tracking_omits_stat_arrays(tmp_path):
     """Done/failure tracking alone must not create the stat arrays, and
     the summary must report no resource figures."""
-    task = daisy.Task(
-        task_id="plain",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_busy,
-        read_write_conflict=False,
+    task = linear_task(
+        "plain",
+        _busy,
+        4,
         max_workers=1,
         done_marker_path=str(tmp_path / "tracking_plain"),
     )
@@ -263,13 +252,10 @@ def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
     daisy.set_tracking_basedir(tmp_path / "tr")
 
     def run(flag, task_id):
-        task = daisy.Task(
-            task_id=task_id,
-            total_roi=daisy.Roi([0], [40]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=lambda b: None,
-            read_write_conflict=False,
+        task = linear_task(
+            task_id,
+            lambda b: None,
+            4,
             max_workers=2,
             resource_tracking=flag,
         )
@@ -297,13 +283,10 @@ def test_no_stat_arrays_and_no_measurement_when_tracking_off(tmp_path):
 
 def test_resource_tracking_without_a_path_falls_back_to_the_log_dir(tmp_path):
     daisy.logging.set_log_basedir(tmp_path / "logs")
-    task = daisy.Task(
-        task_id="t",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    task = linear_task(
+        "t",
+        lambda b: None,
+        4,
         max_workers=1,
         resource_tracking=True,
     )

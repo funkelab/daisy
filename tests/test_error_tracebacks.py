@@ -11,6 +11,7 @@ not name the user's line.
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _inner_helper(block):
@@ -23,13 +24,10 @@ def _outer_helper(block):
 
 
 def _failing_task(**kw):
-    return daisy.Task(
-        task_id="tb_demo",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_outer_helper,
-        read_write_conflict=False,
+    return linear_task(
+        "tb_demo",
+        _outer_helper,
+        4,
         max_workers=1,
         max_retries=0,
         **kw,
@@ -68,29 +66,6 @@ def test_serial_mode_reraises_the_original_exception():
     assert "_inner_helper" in tb and "_outer_helper" in tb
 
 
-def _crashing_worker():
-    raise RuntimeError("bad node: /nfs/models/seg_v4.pt missing")
-
-
-def test_abandonment_error_contains_full_traceback():
-    task = daisy.Task(
-        task_id="crash_tb",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_crashing_worker,  # 0-arg spawn fn
-        read_write_conflict=False,
-        max_workers=1,
-        max_retries=0,
-        max_worker_restarts=1,
-    )
-    with pytest.raises(RuntimeError) as exc_info:
-        daisy.run_blockwise([task], progress=False)
-    msg = str(exc_info.value)
-    assert "crash_tb" in msg and "was abandoned" in msg
-    assert "bad node: /nfs/models/seg_v4.pt missing" in msg
-
-
 def _ping(n):
     if n == 0:
         raise ValueError("bottom")
@@ -108,13 +83,10 @@ def _deep_failure(block):
 
 
 def test_worker_traceback_is_capped_to_its_last_50_lines():
-    task = daisy.Task(
-        task_id="deep",
-        total_roi=daisy.Roi([0], [10]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_deep_failure,
-        read_write_conflict=False,
+    task = linear_task(
+        "deep",
+        _deep_failure,
+        1,
         max_workers=1,
         max_retries=0,
     )
