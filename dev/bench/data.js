@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794857862030,
+  "lastUpdate": 1795623439705,
   "repoUrl": "https://github.com/funkelab/daisy",
   "entries": {
     "daisy": [
@@ -278,6 +278,41 @@ window.BENCHMARK_DATA = {
           {
             "name": "pytest wall time",
             "value": 59.857,
+            "unit": "s",
+            "extra": "`uv run pytest` in the tests job"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "William Patton",
+            "username": "pattonw",
+            "email": "pattonw@hhmi.org"
+          },
+          "committer": {
+            "name": "GitHub",
+            "username": "web-flow",
+            "email": "noreply@github.com"
+          },
+          "id": "cdf7e891774ed354483c55f6c0d73a77d9bff89d",
+          "message": "Tests: specification-style rewrite, faster shared setup, subprocess coverage (#106)\n\n* Organise tests by public surface; drop timing gates and negative assertions\n\n- Dissolve test_review_fixes.py, test_server_loop_fixes.py and\n  test_tracking_fixes.py into the files for the surfaces they test.\n- Delete the two wall-clock speed-up gates (skipped in CI) and their helpers.\n- Replace negative assertions with exact ones; delete the two tests that only\n  asserted the absence of a warning.\n- Merge the two test_workers_close variants into one parametrized test that\n  asserts the lock state; delete the strict xfail for the removed daisy.tcp\n  API and the import-only dependency test; rename the test_basic tests.\n- Clear the tracking basedir after every test in conftest so one test's\n  setting cannot reach the next.\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Measure coverage in worker subprocesses\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Test traceback capping, summaries, serial runs, serialization and display order through the public API\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Add specification tests for log modes, log helpers, summaries, observers and compat shims\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n* Speed up the suite: shorter timeouts and sleeps, fewer worker starts, shared task helper, merged duplicates\n\nCo-Authored-By: Claude Fable 5.2 <noreply@anthropic.com>\n\n---------\n\nCo-authored-by: Claude Fable 5.2 <noreply@anthropic.com>",
+          "timestamp": "2026-11-25T16:12:45Z",
+          "url": "https://github.com/funkelab/daisy/commit/cdf7e891774ed354483c55f6c0d73a77d9bff89d"
+        },
+        "date": 1795623438125,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "import daisy (cold)",
+            "value": 60.25,
+            "range": "± 3.872",
+            "unit": "ms",
+            "extra": "interpreter startup 11.5 ms subtracted; n=10"
+          },
+          {
+            "name": "pytest wall time",
+            "value": 60.548,
             "unit": "s",
             "extra": "`uv run pytest` in the tests job"
           }
