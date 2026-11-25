@@ -16,9 +16,11 @@ from pathlib import Path
 import daisy
 import pytest
 
+BLOCK_S = 0.02  # how long every block sleeps
+
 
 def _sleepy(_block):
-    time.sleep(0.05)
+    time.sleep(BLOCK_S)
 
 
 def _task(task_id, tmp_path, fn=_sleepy, *, tracked=True, n=80, **kw):
@@ -77,14 +79,14 @@ def test_every_worker_gets_a_full_lifecycle(tmp_path):
 
 
 def test_compute_idle_and_overhead_are_plausible(tmp_path):
-    """Blocks that sleep 50 ms must show ≈50 ms of round-trip compute per
+    """Blocks that sleep 20 ms must show ≈20 ms of round-trip compute per
     block, a per-block overhead (round trip minus the worker's own wall
     measurement) far smaller than the block, and idle gaps that are small
     because the scheduler always has a block ready."""
     _, t = _run(_task("plausible", tmp_path))
     w, b = t.workers, t.blocks
-    assert 0.045 < w.compute.mean < 0.5, w.compute
-    assert w.compute.min >= 0.045, w.compute
+    assert 0.9 * BLOCK_S < w.compute.mean < 0.5, w.compute
+    assert w.compute.min >= 0.9 * BLOCK_S, w.compute
     assert b.overhead.n == 8
     assert 0 <= b.overhead.mean < 0.05, b.overhead
     # overhead = round trip − wall, so the round trip is the larger one
@@ -209,7 +211,7 @@ def test_block_lookup_forms_agree_and_degrade_honestly(tmp_path):
 
     assert key(by_block) == key(by_coord) == key(by_id)
     assert by_block.block_id == ("forms", 3)
-    assert by_block.wall_seconds >= 0.045
+    assert by_block.wall_seconds >= 0.9 * BLOCK_S
     assert by_block.peak_rss_bytes > 0
     assert by_block.worker_id == 0
     with pytest.raises(ValueError, match="grid coordinate"):
@@ -301,7 +303,7 @@ def test_panel_always_prints_store_free_figures(tmp_path, capfd):
         assert needs_store not in out, needs_store
     t = _last_run_task("plain", tmp_path).report()
     assert t.blocks.round_trip.n == 8
-    assert 0.045 < t.blocks.round_trip.mean < 0.5
+    assert 0.9 * BLOCK_S < t.blocks.round_trip.mean < 0.5
     assert not t.blocks.wall
 
 

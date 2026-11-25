@@ -14,7 +14,13 @@ from pathlib import Path
 
 import daisy
 import pytest
-from daisy._runner import _run_serial
+from conftest import linear_task
+
+
+def _run_serial(pipeline):
+    return daisy.run_blockwise(
+        pipeline, multiprocessing=False, progress=False, return_states=True
+    )
 
 
 def make_task(task_id, marker_path, *, total=400, block=100, rw_conflict=False):
@@ -238,13 +244,10 @@ def test_resume_emits_info_log(tmp_path, caplog):
     try:
 
         def run(calls):
-            task = daisy.Task(
-                task_id="resumed_task",
-                total_roi=daisy.Roi([0], [40]),
-                read_roi=daisy.Roi([0], [10]),
-                write_roi=daisy.Roi([0], [10]),
-                process_function=lambda b: calls.append(b.block_id),
-                read_write_conflict=False,
+            task = linear_task(
+                "resumed_task",
+                lambda b: calls.append(b.block_id),
+                4,
                 max_workers=1,
                 max_retries=0,
             )
@@ -271,13 +274,10 @@ def test_tracking_is_a_zarr_group_with_done_and_failures(tmp_path):
     the task hash used for layout validation."""
     import json
 
-    task = daisy.Task(
-        task_id="grouped",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    task = linear_task(
+        "grouped",
+        lambda b: None,
+        4,
         max_workers=1,
         tracking_path=str(tmp_path / "tracking"),
     )
@@ -321,13 +321,10 @@ def test_legacy_array_layout_is_refused_with_rm_instructions(tmp_path):
         )
     )
 
-    task = daisy.Task(
-        task_id="legacy",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    task = linear_task(
+        "legacy",
+        lambda b: None,
+        4,
         max_workers=1,
         tracking_path=str(root),
     )
@@ -340,13 +337,10 @@ def test_done_marker_names_still_work_but_warn(tmp_path):
     """`done_marker_path` / `set_done_marker_basedir` are deprecated aliases
     — the directory outgrew the name — but must keep working."""
     with pytest.warns(DeprecationWarning, match="tracking_path"):
-        task = daisy.Task(
-            task_id="aliased",
-            total_roi=daisy.Roi([0], [20]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=lambda b: None,
-            read_write_conflict=False,
+        task = linear_task(
+            "aliased",
+            lambda b: None,
+            2,
             max_workers=1,
             done_marker_path=str(tmp_path / "aliased"),
         )
@@ -368,14 +362,38 @@ def test_passing_both_path_names_is_rejected(tmp_path):
     """Ambiguity is a mistake worth surfacing rather than silently
     preferring one."""
     with pytest.raises(TypeError, match="not both"):
-        daisy.Task(
-            task_id="both",
-            total_roi=daisy.Roi([0], [20]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=lambda b: None,
-            read_write_conflict=False,
+        linear_task(
+            "both",
+            lambda b: None,
+            2,
             max_workers=1,
             tracking_path=str(tmp_path / "a"),
             done_marker_path=str(tmp_path / "b"),
         )
+
+
+def test_failed_blocks_come_back_from_the_store(tmp_path):
+    def fail_on_two(block):
+        if block.block_id[1] in (3, 7):
+            raise RuntimeError("boom")
+
+    def task(fn, **kw):
+        return linear_task(
+            "t",
+            fn,
+            10,
+            max_workers=1,
+            timeout=30,
+            **kw,
+        )
+
+    tracked = task(
+        fail_on_two,
+        tracking_path=str(tmp_path / "track"),
+        max_retries=0,
+        max_worker_restarts=20,
+    )
+    assert daisy.run_blockwise([tracked], progress=False) is False
+    assert sorted(b.block_id[1] for b in tracked.failed_blocks()) == [3, 7]
+    # a task without a store has nothing to report
+    assert task(lambda b: None).failed_blocks() == []

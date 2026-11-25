@@ -9,7 +9,12 @@ it. Cell (0, 0, ...) is the first block regardless of context.
 import daisy
 import numpy as np
 import pytest
-from daisy._runner import _run_serial
+
+
+def _run_serial(pipeline):
+    return daisy.run_blockwise(
+        pipeline, multiprocessing=False, progress=False, return_states=True
+    )
 
 
 def make_task(task_id, calls, *, total=400, block=100, context=0, fit="valid", **kw):

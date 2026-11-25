@@ -125,3 +125,25 @@ def test_shrink_downstream_upstream_equivalence():
                 f"block {b.block_id} should be in upstream of {down_b.block_id}"
             )
             to_visit.append(down_b)
+
+
+@pytest.mark.parametrize(
+    "read_roi, write_roi, total_read_roi, levels, roots",
+    [
+        # no context: no block reads what another writes, all four are roots
+        (Roi([0], [10]), Roi([0], [10]), Roi([0], [40]), 1, 4),
+        # a block-wide context: neighbours conflict, so blocks alternate
+        # between two levels and every other block is a root
+        (Roi([0], [30]), Roi([10], [10]), Roi([0], [60]), 2, 2),
+    ],
+    ids=["no-context", "block-wide-context"],
+)
+def test_levels_and_roots_of_four_blocks_in_a_row(
+    read_roi, write_roi, total_read_roi, levels, roots
+):
+    graph = BlockwiseDependencyGraph(
+        "t", read_roi, write_roi, True, "valid", total_read_roi=total_read_roi
+    )
+    assert graph.num_blocks == 4
+    assert graph.num_levels == levels
+    assert graph.num_roots() == roots

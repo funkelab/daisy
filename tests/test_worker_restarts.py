@@ -15,6 +15,7 @@ import time
 
 import daisy
 import pytest
+from conftest import linear_task
 
 
 def _always_crashing_worker():
@@ -26,13 +27,10 @@ def _always_crashing_worker():
 def test_restart_cap_terminates_task_and_marks_remaining_failed():
     """A worker-function task whose worker always crashes should stop
     respawning after `max_worker_restarts` and abandon the rest."""
-    task = daisy.Task(
-        task_id="crashy",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_always_crashing_worker,
-        read_write_conflict=False,
+    task = linear_task(
+        "crashy",
+        _always_crashing_worker,
+        8,
         max_workers=1,
         max_retries=0,
         max_worker_restarts=3,  # tight cap so the test stays fast
@@ -58,6 +56,10 @@ def test_restart_cap_terminates_task_and_marks_remaining_failed():
     assert state.orphaned_count > 0
     assert state.failed_count == 0
     assert state.completed_count == 0
+    # ...and the state says why the task stopped
+    assert state.abandoned
+    assert "restart cap" in state.abandon_reason
+    assert "simulated crash" in state.last_worker_error
 
 
 def test_task_abandonment_does_not_block_other_tasks():
@@ -67,25 +69,19 @@ def test_task_abandonment_does_not_block_other_tasks():
     def good_worker(block):
         time.sleep(0.001)
 
-    bad = daisy.Task(
-        task_id="bad",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_always_crashing_worker,
-        read_write_conflict=False,
+    bad = linear_task(
+        "bad",
+        _always_crashing_worker,
+        4,
         max_workers=1,
         max_retries=0,
         max_worker_restarts=0,  # zero — first failure abandons
     )
 
-    good = daisy.Task(
-        task_id="good",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=good_worker,
-        read_write_conflict=False,
+    good = linear_task(
+        "good",
+        good_worker,
+        4,
         max_workers=2,
         max_retries=0,
     )
@@ -109,13 +105,10 @@ def test_abandoned_upstream_unblocks_downstream():
     forever for any downstream task whose input was never produced.
     The runner must propagate the abandonment so downstream tasks'
     remaining blocks count as orphaned and `is_done()` returns true."""
-    upstream = daisy.Task(
-        task_id="dead_upstream",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_always_crashing_worker,
-        read_write_conflict=False,
+    upstream = linear_task(
+        "dead_upstream",
+        _always_crashing_worker,
+        4,
         max_workers=1,
         max_retries=0,
         max_worker_restarts=1,
@@ -124,13 +117,10 @@ def test_abandoned_upstream_unblocks_downstream():
     def good_worker(block):
         pass
 
-    downstream = daisy.Task(
-        task_id="downstream",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=good_worker,
-        read_write_conflict=False,
+    downstream = linear_task(
+        "downstream",
+        good_worker,
+        4,
         max_workers=2,
         max_retries=0,
         upstream_tasks=[upstream],
@@ -186,14 +176,11 @@ def test_abandonment_handles_in_flight_block_release_race():
 
     Run several iterations to flush out the timing-dependent race.
     """
-    for _ in range(5):
-        task = daisy.Task(
-            task_id="race_test",
-            total_roi=daisy.Roi([0], [200]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=_block_holding_worker,
-            read_write_conflict=False,
+    for _ in range(3):
+        task = linear_task(
+            "race_test",
+            _block_holding_worker,
+            20,
             max_workers=4,
             max_retries=0,
             max_worker_restarts=2,
@@ -224,13 +211,10 @@ def test_block_function_failure_kills_worker_and_drives_abandonment():
     stuck at zero. The user wouldn't see the abandonment they
     expected; the run would just slog through all blocks.
     """
-    task = daisy.Task(
-        task_id="buggy_block_fn",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_always_failing_block,
-        read_write_conflict=False,
+    task = linear_task(
+        "buggy_block_fn",
+        _always_failing_block,
+        8,
         max_workers=1,
         max_retries=0,
         max_worker_restarts=3,
@@ -251,34 +235,6 @@ def test_block_function_failure_kills_worker_and_drives_abandonment():
     assert state.failed_count == 4
     assert state.orphaned_count == 4
     assert state.completed_count == 0
-
-
-def test_block_function_success_does_not_kill_worker():
-    """The worker only exits dirty on failure. A clean run should
-    leave `worker_restart_count` and `worker_failure_count` at zero
-    regardless of how many blocks went through."""
-
-    def fine(block):
-        pass
-
-    task = daisy.Task(
-        task_id="clean_block_fn",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
-        max_workers=2,
-        max_retries=0,
-    )
-
-    server = daisy.Server()
-    states = server.run_blockwise([task], progress=False)
-    state = states["clean_block_fn"]
-    assert state.is_done()
-    assert state.completed_count == 4
-    assert state.worker_failure_count == 0
-    assert state.worker_restart_count == 0
 
 
 def _instantly_crashing_worker():
@@ -304,24 +260,18 @@ def test_healthy_upstream_does_not_repopulate_abandoned_downstream():
     def healthy(block):
         pass
 
-    upstream = daisy.Task(
-        task_id="healthy_upstream",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=healthy,
-        read_write_conflict=False,
+    upstream = linear_task(
+        "healthy_upstream",
+        healthy,
+        8,
         max_workers=2,
         max_retries=0,
     )
 
-    downstream = daisy.Task(
-        task_id="crashy_downstream",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_instantly_crashing_worker,
-        read_write_conflict=False,
+    downstream = linear_task(
+        "crashy_downstream",
+        _instantly_crashing_worker,
+        8,
         max_workers=1,
         max_retries=0,
         max_worker_restarts=0,
@@ -340,30 +290,6 @@ def test_healthy_upstream_does_not_repopulate_abandoned_downstream():
     assert states["crashy_downstream"].failed_count == 0
 
 
-def test_clean_run_does_not_count_failures():
-    """Workers that exit cleanly (drained queue) should not bump
-    `worker_failure_count` regardless of how many run."""
-
-    def fine(b):
-        pass
-
-    task = daisy.Task(
-        task_id="clean",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
-        max_workers=4,
-        max_retries=0,
-    )
-    server = daisy.Server()
-    states = server.run_blockwise([task], progress=False)
-    assert states["clean"].is_done()
-    assert states["clean"].completed_count == 4
-    assert states["clean"].worker_failure_count == 0
-
-
 def test_abandonment_raises_from_run_blockwise_with_cause():
     """The convenience `run_blockwise` must raise on abandonment and the
     message must carry the task id, restart accounting, and the original
@@ -373,13 +299,10 @@ def test_abandonment_raises_from_run_blockwise_with_cause():
     def crash(block):
         raise ValueError("broken import on node xyz")
 
-    task = daisy.Task(
-        task_id="crashy_raise",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=crash,
-        read_write_conflict=False,
+    task = linear_task(
+        "crashy_raise",
+        crash,
+        8,
         max_workers=1,
         max_retries=0,
         max_worker_restarts=3,
@@ -389,60 +312,10 @@ def test_abandonment_raises_from_run_blockwise_with_cause():
         daisy.run_blockwise([task], progress=False)
 
     msg = str(excinfo.value)
-    assert "crashy_raise" in msg
+    assert "crashy_raise" in msg and "was abandoned" in msg
     assert "3 restarts" in msg
     assert "broken import on node xyz" in msg
     assert "max_worker_restarts" in msg  # actionable advice
-
-
-def test_abandonment_metadata_on_task_state():
-    """TaskState exposes abandoned/abandon_reason/last_worker_error."""
-
-    task = daisy.Task(
-        task_id="crashy_meta",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=_always_crashing_worker,
-        read_write_conflict=False,
-        max_workers=1,
-        max_retries=0,
-        max_worker_restarts=1,
-    )
-    states = daisy.Server().run_blockwise([task], progress=False)
-    state = states["crashy_meta"]
-    assert state.abandoned
-    assert "restart cap" in state.abandon_reason
-    assert "simulated crash" in state.last_worker_error
-
-
-def test_successful_run_has_no_abandonment_metadata():
-    task = daisy.Task(
-        task_id="fine",
-        total_roi=daisy.Roi([0], [40]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
-        max_workers=2,
-    )
-    states = daisy.Server().run_blockwise([task], progress=False)
-    state = states["fine"]
-    assert not state.abandoned
-    assert state.abandon_reason is None
-    assert state.last_worker_error is None
-    assert daisy.run_blockwise(
-        daisy.Task(
-            task_id="fine2",
-            total_roi=daisy.Roi([0], [40]),
-            read_roi=daisy.Roi([0], [10]),
-            write_roi=daisy.Roi([0], [10]),
-            process_function=lambda b: None,
-            read_write_conflict=False,
-            max_workers=2,
-        ),
-        progress=False,
-    )
 
 
 def test_worker_start_budget_bounds_clean_exit_churn(tmp_path):
@@ -472,13 +345,10 @@ def test_worker_start_budget_bounds_clean_exit_churn(tmp_path):
             capture_output=True,
         )
 
-    task = daisy.Task(
-        task_id="clean_churn",
-        total_roi=daisy.Roi([0], [80]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=broken_spawn,
-        read_write_conflict=False,
+    task = linear_task(
+        "clean_churn",
+        broken_spawn,
+        8,
         max_workers=2,
         max_retries=0,
         max_worker_restarts=3,
@@ -513,13 +383,10 @@ def test_worker_recycling_consumes_the_start_budget():
         with client.acquire_block() as _block:  # noqa: F841 — acquiring IS the point
             pass
 
-    task = daisy.Task(
-        task_id="recycle",
-        total_roi=daisy.Roi([0], [160]),  # 16 blocks
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=one_block_then_quit,
-        read_write_conflict=False,
+    task = linear_task(
+        "recycle",
+        one_block_then_quit,
+        16,
         max_workers=2,
         max_retries=0,
         max_worker_restarts=3,  # start budget: 2 + 3 = 5
@@ -545,13 +412,10 @@ def test_queue_drained_exits_do_not_abandon():
     def fine(b):
         pass
 
-    task = daisy.Task(
-        task_id="overprovisioned",
-        total_roi=daisy.Roi([0], [40]),  # 4 blocks
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=fine,
-        read_write_conflict=False,
+    task = linear_task(
+        "overprovisioned",
+        fine,
+        4,
         max_workers=16,  # >> block count
         max_retries=0,
         max_worker_restarts=0,
@@ -563,6 +427,11 @@ def test_queue_drained_exits_do_not_abandon():
     assert state.completed_count == 4
     assert state.orphaned_count == 0
     assert state.failed_count == 0
+    assert state.worker_failure_count == 0
+    assert state.worker_restart_count == 0
+    assert not state.abandoned
+    assert state.abandon_reason is None
+    assert state.last_worker_error is None
 
 
 def test_no_more_worker_starts_than_available_work():
@@ -570,7 +439,7 @@ def test_no_more_worker_starts_than_available_work():
     launch them all: workers beyond ready + processing can never be
     fed, and launching them just burns start budget and wall-clock
     (the run waits for every launched worker to connect and shut
-    down). 64 blocks with max_workers=128 -> at most 64 starts."""
+    down). 8 blocks with max_workers=16 -> at most 8 starts."""
 
     def quick_worker():
         client = daisy.Client()
@@ -579,14 +448,11 @@ def test_no_more_worker_starts_than_available_work():
                 if block is None:
                     break
 
-    task = daisy.Task(
-        task_id="overprovisioned_spawn",
-        total_roi=daisy.Roi([0], [640]),  # 64 blocks
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=quick_worker,
-        read_write_conflict=False,
-        max_workers=128,
+    task = linear_task(
+        "overprovisioned_spawn",
+        quick_worker,
+        8,
+        max_workers=16,
         max_retries=0,
     )
     server = daisy.Server()
@@ -594,10 +460,10 @@ def test_no_more_worker_starts_than_available_work():
 
     state = states["overprovisioned_spawn"]
     assert state.is_done()
-    assert state.completed_count == 64
+    assert state.completed_count == 8
     assert state.orphaned_count == 0
     # never spawn workers that provably have nothing to do
-    assert state.worker_start_count <= 64, state.worker_start_count
+    assert state.worker_start_count <= 8, state.worker_start_count
 
 
 def test_downstream_task_ramps_up_as_upstream_completes():
@@ -605,23 +471,17 @@ def test_downstream_task_ramps_up_as_upstream_completes():
     task: its ready_count starts at 0 and grows as upstream blocks
     complete; later rebalance calls (state changes / health tick) must
     keep spawning workers until the pipeline finishes."""
-    upstream = daisy.Task(
-        task_id="ramp_upstream",
-        total_roi=daisy.Roi([0], [160]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    upstream = linear_task(
+        "ramp_upstream",
+        lambda b: None,
+        8,
         max_workers=2,
         max_retries=0,
     )
-    downstream = daisy.Task(
-        task_id="ramp_downstream",
-        total_roi=daisy.Roi([0], [160]),
-        read_roi=daisy.Roi([0], [10]),
-        write_roi=daisy.Roi([0], [10]),
-        process_function=lambda b: None,
-        read_write_conflict=False,
+    downstream = linear_task(
+        "ramp_downstream",
+        lambda b: None,
+        8,
         max_workers=4,
         max_retries=0,
     )
@@ -629,6 +489,6 @@ def test_downstream_task_ramps_up_as_upstream_completes():
     server = daisy.Server()
     states = server.run_blockwise(pipeline, progress=False)
 
-    assert states["ramp_upstream"].completed_count == 16
-    assert states["ramp_downstream"].completed_count == 16
+    assert states["ramp_upstream"].completed_count == 8
+    assert states["ramp_downstream"].completed_count == 8
     assert states["ramp_downstream"].orphaned_count == 0

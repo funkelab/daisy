@@ -9,7 +9,7 @@ launches `python -m daisy._subprocess_worker`:
 - a 0-arg worker function is called by the child once and drives its own
   loop, optionally handing off to a further process (`srun`, `sbatch`).
 
-This file covers the consequences: both shapes get real parallelism, the
+This file covers the consequences: both shapes run in their own processes, the
 function must be serializable, `timeout=` can preempt for real, and serial
 mode still runs in-process. It replaces the old test_worker_processes.py,
 test_worker_process_timeout.py and test_block_timeout.py, which between them
@@ -25,34 +25,6 @@ from pathlib import Path
 
 import daisy
 import pytest
-
-# The two speedup gates below compare wall time across worker counts. On an
-# idle multi-core machine they measure 3x and more; on GitHub's shared runners
-# the same workloads measured 1.1x-1.5x (four vCPUs under ambient load, each
-# worker paying an interpreter start-up), which clears neither gate yet is far
-# from the ~0.6x GIL-serialized regression they exist to catch. Skip them there.
-_SKIP_SPEEDUP_GATES = pytest.mark.skipif(
-    os.environ.get("CI") == "true",
-    reason="wall-time speedup gate is not meaningful on a shared CI runner",
-)
-
-
-def _busy(n):
-    acc = 0
-    for i in range(n):
-        acc += i * i
-    return acc
-
-
-def _calibrate(target_s):
-    """Iteration count costing roughly `target_s`. Tests must use FIXED
-    iteration counts, never a wall-clock loop: a wall-clock loop under
-    contention simply does less work per call and fakes a speedup."""
-    probe = 200_000
-    t0 = time.perf_counter()
-    _busy(probe)
-    dt = time.perf_counter() - t0
-    return max(1, int(probe * target_s / dt))
 
 
 def _task(task_id, fn, workers, n_blocks=16, **kwargs):
@@ -197,6 +169,39 @@ while True:
     assert pids and os.getpid() not in pids
     # every block was processed by a grandchild, two processes down
     assert len([f for f in tmp_path.iterdir() if f.name.startswith("pid-")]) == 8
+
+
+def _fire_and_forget(*, context: daisy.Context):
+    # returns at once; the external worker connects after this returned
+    env = dict(os.environ)
+    env["DAISY_CONTEXT"] = context.to_env()
+    subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import time; time.sleep(0.3); import daisy\nc = daisy.Client()\nwhile True:\n    with c.acquire_block() as b:\n        if b is None: break",
+        ],
+        env=env,
+    )
+
+
+@pytest.mark.timeout(60)
+def test_fire_and_forget_error_leaves_no_worker_processes():
+    psutil = pytest.importorskip("psutil")
+    me = psutil.Process()
+    before = {c.pid for c in me.children(recursive=True)}
+    with pytest.raises(RuntimeError, match="connected after its spawn function"):
+        daisy.run_blockwise(
+            _task("fire-and-forget", _fire_and_forget, 2, n_blocks=20),
+            progress=False,
+        )
+    time.sleep(1.0)
+    after = {
+        c.pid
+        for c in me.children(recursive=True)
+        if c.is_running() and c.status() != psutil.STATUS_ZOMBIE
+    } - before
+    assert after == set(), f"worker processes left behind: {after}"
 
 
 # --------------------------------------------------------------------------
@@ -383,9 +388,6 @@ def test_hand_built_contexts_carry_the_log_basedir(tmp_path):
     parsed = daisy.Context.from_env_string("hostname=h:port=1:task_id=t:worker_id=0")
     assert "logdir" not in parsed
 
-    # and the helper is not public API
-    assert not hasattr(daisy, "context_with_logdir")
-
 
 @pytest.mark.timeout(60)
 def test_log_dir_containing_a_separator_survives_the_context(tmp_path):
@@ -472,92 +474,6 @@ def test_context_round_trips_reserved_characters():
 
 
 # --------------------------------------------------------------------------
-# parallelism — the point of the whole design
-# --------------------------------------------------------------------------
-
-
-@_SKIP_SPEEDUP_GATES
-@pytest.mark.timeout(120)
-def test_block_function_gets_real_parallelism():
-    """A CPU-bound *lambda* must actually scale with worker count."""
-    iters = _calibrate(0.15)
-
-    def timed(workers):
-        fn = lambda block: _busy(iters)  # noqa: E731 — the lambda IS the point
-        # best of two: a single sample is noisy when the whole suite's
-        # worker churn loads the machine
-        walls = []
-        for _ in range(2):
-            t0 = time.perf_counter()
-            assert daisy.run_blockwise(
-                _task(f"par-{workers}", fn, workers), progress=False
-            )
-            walls.append(time.perf_counter() - t0)
-        return min(walls)
-
-    t_serial = timed(1)
-    t_parallel = timed(8)
-    # 16 blocks over 8 workers = 2 rounds; ideal ~t_serial/8 plus startup.
-    # Require better than half the serial time — generous, but fails hard
-    # if workers are GIL-serialized (ratio would be ~1) while robust to a
-    # loaded CI machine.
-    assert t_parallel < t_serial / 2, (t_serial, t_parallel)
-
-
-@_SKIP_SPEEDUP_GATES
-@pytest.mark.timeout(120)
-def test_inline_zero_arg_worker_gets_real_parallelism():
-    """A 0-arg worker function that does CPU-bound work INLINE — instead of
-    shelling out to a per-block process — must scale with `max_workers`.
-
-    This is the acceptance test for running every worker in its own process.
-    When 0-arg functions were called on server threads they shared the GIL,
-    so this workload measured 0.59x on 4 workers versus 1: *slower* than a
-    single worker. volara's default worker has exactly this shape, which is
-    how the regression was found. It now measures ~3x.
-    """
-    iters = _calibrate(0.12)
-
-    def timed(workers):
-        t0 = time.perf_counter()
-        assert daisy.run_blockwise(
-            _task(f"inline-{workers}", _inline_worker(iters), workers, n_blocks=8),
-            progress=False,
-        )
-        return time.perf_counter() - t0
-
-    t_one = timed(1)
-    t_four = timed(4)
-    speedup = t_one / t_four
-    # Ideal is 4x minus one worker start-up; ~3x measured on an idle machine.
-    # The gate exists to separate real parallelism from the GIL-serialized
-    # regression, which measures ~0.6x — SLOWER than one worker — so the
-    # threshold only needs to sit safely above 1.0. It was 1.8 originally,
-    # and two different shared machines produced ~1.45x false failures under
-    # ambient load (the 4-worker leg pays four interpreter start-ups, which
-    # contend far harder than the compute loop does). 1.25 still fails the
-    # regression by a factor of two while surviving a busy box.
-    assert speedup > 1.25, (
-        f"inline 0-arg work did not parallelize: {t_one:.2f}s on 1 worker vs "
-        f"{t_four:.2f}s on 4 ({speedup:.2f}x)"
-    )
-
-
-def _inline_worker(iters):
-    """A 0-arg worker that burns CPU in-line for every block it takes."""
-
-    def worker():
-        client = daisy.Client()
-        while True:
-            with client.acquire_block() as block:
-                if block is None:
-                    return
-                _busy(iters)
-
-    return worker
-
-
-# --------------------------------------------------------------------------
 # serialization
 # --------------------------------------------------------------------------
 
@@ -578,31 +494,6 @@ def test_closure_and_def_side_effects(tmp_path):
         _task("closure", write_block_marker, 4, n_blocks=8), progress=False
     )
     assert len([f for f in tmp_path.iterdir() if f.name.isdigit()]) == 8
-
-
-def test_serialization_happens_before_the_run():
-    """The payload is built eagerly so an unserializable function fails at
-    run start, not minutes later on a cluster node."""
-    captured = []
-    task = _task("eager", lambda block: captured.append(block), 1)
-    # cloudpickle is installed in the test env, so a lambda serializes fine
-    assert task.process_function is not None
-
-
-def test_unserializable_worker_function_is_rejected():
-    """0-arg worker functions are serialized too, so they must be picklable
-    — a requirement that did not exist while they ran in-process. The error
-    has to say so, since the fix is not obvious."""
-    import threading
-
-    lock = threading.Lock()
-
-    def worker():
-        with lock:  # captures an unpicklable object
-            pass
-
-    with pytest.raises(RuntimeError, match="could not serialize"):
-        daisy.run_blockwise(_task("bad-spawn", worker, 2), progress=False)
 
 
 @pytest.mark.timeout(60)

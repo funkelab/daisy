@@ -8,7 +8,6 @@ would. That split is what keeps an unpicklable object sitting in some
 unrelated corner of your project package from failing the payload.
 """
 
-import io
 import subprocess
 import sys
 import textwrap
@@ -19,11 +18,16 @@ import pytest
 cloudpickle = pytest.importorskip("cloudpickle")
 
 import daisy  # noqa: E402
-from daisy._worker_processes import (  # noqa: E402
-    _serialize,
-    make_spawn_function,
-    read_payload,
-)
+from conftest import linear_task  # noqa: E402
+
+
+def _task(task_id, process_function):
+    return linear_task(
+        task_id,
+        process_function,
+        1,
+        max_workers=1,
+    )
 
 
 def _write_project_package(tmp_path):
@@ -47,17 +51,18 @@ def _write_project_package(tmp_path):
 
 def test_module_reference_does_not_drag_in_unpicklable_members(tmp_path, monkeypatch):
     """A block function referencing the module object (``userpkg.helper()``)
-    must serialize even though the package holds unpicklable module-level
+    runs in a worker even though the package holds unpicklable module-level
     objects it never touches."""
     _write_project_package(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))
     userpkg = pytest.importorskip("userpkg")
+    result = tmp_path / "result"
 
     def process(block):
-        return userpkg.helper(1)
+        result.write_text(str(userpkg.helper(1)))
 
-    payload = _serialize((process, None))
-    assert payload  # by-reference module: no unpicklable member in the graph
+    assert daisy.run_blockwise(_task("by-reference", process), progress=False)
+    assert result.read_text() == "3"
 
 
 def test_module_is_shipped_by_reference_not_by_value(tmp_path, monkeypatch):
@@ -77,65 +82,8 @@ def test_module_is_shipped_by_reference_not_by_value(tmp_path, monkeypatch):
         f"cloudpickle.loads({body!r})"
     )
     r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
-    assert r.returncode != 0
+    assert r.returncode == 1
     assert "ModuleNotFoundError" in r.stderr
-
-
-def test_function_referencing_the_daisy_module_serializes():
-    """The reported shape of the bug, and the one most likely to bite: a block
-    function that reaches through the ``daisy`` global.
-
-    daisy installed editable — or from a source tree, as every contributor has
-    it — lives outside ``sys.prefix``. A serializer that ships out-of-prefix
-    modules by value walks daisy's whole namespace and chokes on the first
-    unpicklable member, so the run dies at submit time for a function that
-    only mentioned ``daisy.BlockStatus``. Salvaged from funkelab/daisy#73,
-    where dill hit exactly this.
-    """
-    assert not daisy.__file__.startswith(sys.prefix), (
-        "this test is only meaningful for an editable/source install, which is "
-        "how the repo's own venv is set up"
-    )
-
-    def process(block):
-        block.status = daisy.BlockStatus.SUCCESS
-
-    fn, _ = read_payload(io.BytesIO(_serialize((process, None))))
-    # By reference: the reconstructed function sees the same module object,
-    # not a copy of its namespace.
-    assert fn.__globals__["daisy"] is daisy
-
-
-def test_lambdas_and_closures_are_shipped_by_value():
-    scale = 7
-    payload = _serialize((lambda block: scale * 2, None))
-    assert payload
-
-
-def test_main_defined_function_round_trips(tmp_path):
-    """Functions defined in a script's ``__main__`` must survive: they are
-    exactly what cannot be shipped by reference."""
-    script = tmp_path / "driver.py"
-    script.write_text(
-        textwrap.dedent("""
-        from daisy._worker_processes import _serialize
-        import io
-        from daisy._worker_processes import read_payload
-
-        def process(block):
-            return "from __main__"
-
-        payload = _serialize((process, None))
-        fn, timeout = read_payload(io.BytesIO(payload))
-        assert fn(None) == "from __main__", fn(None)
-        print("OK")
-        """)
-    )
-    r = subprocess.run(
-        [sys.executable, str(script)], capture_output=True, text=True, cwd=tmp_path
-    )
-    assert r.returncode == 0, r.stderr
-    assert "OK" in r.stdout
 
 
 def test_main_globals_reach_real_workers(tmp_path):
@@ -183,30 +131,17 @@ def test_main_globals_reach_real_workers(tmp_path):
     assert "MAIN-GLOBALS-OK" in r.stdout
 
 
-def test_captured_lock_fails_with_actionable_guidance():
-    """Locks (and friends) cannot cross a process boundary. cloudpickle
-    refuses them; daisy must explain the ways out rather than surface a bare
-    pickling error. NOTE: dill would have accepted these silently, shipping
-    a lock that synchronizes nothing."""
+def _closure_over_a_lock():
     lock = threading.Lock()
 
     def process(block):
         with lock:
             pass
 
-    with pytest.raises(RuntimeError) as excinfo:
-        _serialize((process, None))
-    msg = str(excinfo.value)
-    # the remedies, in the order a user should try them
-    assert "module level" in msg
-    assert "inside the function" in msg
-    assert "multiprocessing=False" in msg
+    return process
 
 
-def test_bound_method_holding_a_lock_fails_with_guidance():
-    """The same failure arrives indirectly when the block function is a
-    bound method and ``self`` holds a lock — the realistic migration case."""
-
+def _bound_method_of_an_object_holding_a_lock():
     class Writer:
         def __init__(self):
             self._lock = threading.Lock()
@@ -215,16 +150,35 @@ def test_bound_method_holding_a_lock_fails_with_guidance():
             with self._lock:
                 pass
 
-    with pytest.raises(RuntimeError, match="could not serialize"):
-        _serialize((Writer().process_block, None))
+    return Writer().process_block
 
 
-@pytest.mark.parametrize("arity", [0, 1], ids=["worker_function", "block_function"])
-def test_spawn_function_serializes_eagerly(arity):
-    """Unserializable functions must fail when the spawn function is built,
-    not minutes later on a cluster node — for worker functions as well as
-    block functions, since both are now shipped to a subprocess."""
+def _worker_function_closing_over_a_lock():
     lock = threading.Lock()
 
-    with pytest.raises(RuntimeError, match="cannot be pickled|could not serialize"):
-        make_spawn_function(lambda block: lock, arity=arity, timeout=None)
+    def worker():
+        with lock:
+            pass
+
+    return worker
+
+
+@pytest.mark.parametrize(
+    "make_function",
+    [
+        _closure_over_a_lock,
+        _bound_method_of_an_object_holding_a_lock,
+        _worker_function_closing_over_a_lock,
+    ],
+)
+def test_unserializable_function_fails_the_run_with_guidance(make_function):
+    """Locks (and friends) cannot cross a process boundary. cloudpickle
+    refuses them; daisy explains the ways out rather than surfacing a bare
+    pickling error, for block functions and worker functions alike."""
+    with pytest.raises(RuntimeError, match="could not serialize") as excinfo:
+        daisy.run_blockwise(_task("unpicklable", make_function()), progress=False)
+    msg = str(excinfo.value)
+    # the remedies, in the order a user should try them
+    assert "module level" in msg
+    assert "inside the function" in msg
+    assert "multiprocessing=False" in msg
